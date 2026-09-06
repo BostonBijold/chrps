@@ -13,10 +13,19 @@ export const dynamic = "force-dynamic";
 // call-sites can reuse this one token route later without collisions.
 export async function POST(req: NextRequest) {
   const sessionUser = await resolveSessionUser();
-  if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!sessionUser) {
+    console.error("[blob/upload] rejected: no session");
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   const { companyId, role } = sessionUser;
-  if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
-  if (!isManagerOrAbove(role)) return NextResponse.json({ error: "Managers only" }, { status: 403 });
+  if (!companyId) {
+    console.error("[blob/upload] rejected: session has no companyId");
+    return NextResponse.json({ error: "No company assigned" }, { status: 403 });
+  }
+  if (!isManagerOrAbove(role)) {
+    console.error(`[blob/upload] rejected: role "${role}" is not manager-or-above`);
+    return NextResponse.json({ error: "Managers only" }, { status: 403 });
+  }
 
   const body = (await req.json()) as HandleUploadBody;
 
@@ -33,6 +42,14 @@ export async function POST(req: NextRequest) {
     });
     return NextResponse.json(jsonResponse);
   } catch (err) {
+    // @vercel/blob's client-side upload() discards this response body on
+    // any non-2xx status — it only ever surfaces a generic "Failed to
+    // retrieve the client token" in the browser, regardless of what
+    // actually failed here (missing BLOB_READ_WRITE_TOKEN, a bad
+    // onBeforeGenerateToken payload, etc.). Logging server-side is the
+    // only way to see the real cause — check Vercel's Runtime Logs for
+    // this route.
+    console.error("[blob/upload] handleUpload failed:", err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Upload failed" },
       { status: 400 }
