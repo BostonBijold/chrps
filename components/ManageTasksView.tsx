@@ -88,6 +88,53 @@ function fieldsAndPlacementsMeta(definition: Definition) {
   return `${fields} · used in ${definition.placements.map((p) => p.taskListName).join(", ")}`;
 }
 
+// Uploads an instruction-step image without going through @vercel/blob/
+// client's upload() — that SDK call was silently retrying a 400 (its
+// getBlobError() falls back to a retryable "unknown_error" classification
+// whenever a response body doesn't parse into its exact expected shape,
+// which masked the real failure behind up to 10 retries with exponential
+// backoff) and never surfaced the actual reason. This replicates just the
+// two requests upload() makes internally — token retrieval via our own
+// /api/blob/upload route, then the PUT to Vercel's Blob API — with no
+// retries, so any failure's real response text reaches the UI on the
+// first attempt. See docs/features/task-completion-instructions.md.
+async function uploadImageDirect(file: File, pathname: string): Promise<string> {
+  const tokenRes = await fetch("/api/blob/upload", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      type: "blob.generate-client-token",
+      payload: { pathname, clientPayload: null, multipart: false },
+    }),
+  });
+  if (!tokenRes.ok) {
+    const body = await tokenRes.json().catch(() => ({}));
+    throw new Error(body.error || `Token request failed (${tokenRes.status})`);
+  }
+  const { clientToken } = (await tokenRes.json()) as { clientToken: string };
+  const storeId = clientToken.split("_")[3] ?? "";
+
+  const params = new URLSearchParams({ pathname });
+  const putRes = await fetch(`https://vercel.com/api/blob/?${params.toString()}`, {
+    method: "PUT",
+    headers: {
+      authorization: `Bearer ${clientToken}`,
+      "x-content-type": file.type,
+      "x-api-version": "12",
+      "x-vercel-blob-store-id": storeId,
+      "x-api-blob-request-id": `${storeId}:${Date.now()}:${Math.random().toString(16).slice(2)}`,
+      "x-api-blob-request-attempt": "0",
+    },
+    body: file,
+  });
+  if (!putRes.ok) {
+    const text = await putRes.text().catch(() => "");
+    throw new Error(`Blob upload failed (${putRes.status}): ${text.slice(0, 300) || "no response body"}`);
+  }
+  const json = (await putRes.json()) as { url: string };
+  return json.url;
+}
+
 // ── Company task catalog row — a compact single-line row that opens a
 // detail sheet on tap (see ManageTaskDetailSheet.tsx) rather than rendering
 // field count / used-in / tag-binding / delete inline for every item at
@@ -190,30 +237,14 @@ function CatalogRow({
         setStepsBusy(false);
         return false;
       }
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "-");
+      const pathname = `instruction-steps/${definition._id}-${Date.now()}-${safeName}`;
       try {
-        const { upload } = await import("@vercel/blob/client");
-        // Sanitize the filename component — the raw name (spaces, macOS
-        // screenshot's narrow-space-before-"PM", emoji, etc.) is passed
-        // through unmodified otherwise; safer to keep the pathname plain
-        // ASCII than find out which character some layer down the chain
-        // objects to.
-        const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "-");
-        const blob = await withTimeout(
-          // upload() does NOT read `file.type` on its own — omitting
-          // `contentType` here left the request with no declared content
-          // type, which the Blob API then rejected as not matching our
-          // own onBeforeGenerateToken allowedContentTypes allow-list
-          // (400 Bad Request, silently retried by async-retry until our
-          // withTimeout above won the race).
-          upload(`instruction-steps/${definition._id}-${Date.now()}-${safeName}`, file, {
-            access: "public",
-            contentType: file.type,
-            handleUploadUrl: "/api/blob/upload",
-          }),
+        imageUrl = await withTimeout(
+          uploadImageDirect(file, pathname),
           30000,
           "Upload timed out — check your connection and try again."
         );
-        imageUrl = blob.url;
       } catch (err) {
         console.error("[instruction-steps] image upload failed:", err);
         setStepsError(err instanceof Error ? err.message : "Failed to upload image");
