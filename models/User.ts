@@ -88,6 +88,13 @@ const UserSchema = new Schema(
     // the tag-catalog/task-list-targeting UI is a separate, unbuilt pass,
     // see docs/features/locations.md's "Job tags".
     jobTags: { type: [String], default: [] },
+    // Set by self-service account deletion (DELETE /api/account — see
+    // docs/features/account-deletion.md). Null for every existing user.
+    // Presence of this alone is what lib/auth.ts's jwt callback checks to
+    // force-invalidate any JWT issued before the scrub, since companyId/
+    // role being cleared to null isn't distinguishable from an ordinary
+    // not-yet-provisioned sign-up.
+    deletedAt: { type: Date, default: null },
   },
   {
     strict: false, // allow adapter-owned fields to coexist without declaring them

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
-import TaskDefinition from "@/models/TaskDefinition";
+import TaskDefinition, { type InstructionStep } from "@/models/TaskDefinition";
 import Task from "@/models/Task";
 import TaskList from "@/models/TaskList";
 import { sanitizeFormFields } from "@/lib/form-fields";
@@ -58,6 +58,11 @@ export async function GET() {
       formFields: d.formFields ?? [],
       projectedMinutes: d.projectedMinutes,
       nfcTagUid: d.nfcTagUid ?? null,
+      instructionSteps: (d.instructionSteps ?? []).map((s: InstructionStep) => ({
+        _id: s._id.toString(),
+        description: s.description ?? null,
+        imageUrl: s.imageUrl ?? null,
+      })),
       updatedAt: d.updatedAt ? new Date(d.updatedAt).toISOString() : null,
       placements: placementsByDefinitionId.get(d._id.toString()) ?? [],
     }))
@@ -107,6 +112,7 @@ export async function POST(req: NextRequest) {
     formFields: definition.formFields,
     projectedMinutes: definition.projectedMinutes,
     nfcTagUid: null,
+    instructionSteps: [],
     updatedAt: definition.updatedAt ? new Date(definition.updatedAt).toISOString() : null,
     placements: [],
   });

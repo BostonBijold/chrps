@@ -230,6 +230,12 @@ way around.
                                // page); not yet read by any task-list-visibility logic — see
                                // docs/features/locations.md's "Job tags" and
                                // docs/features/admin-console.md's "Job Tags catalog".
+  deletedAt,                   // Date | null — set by self-service account deletion (DELETE
+                               // /api/account); null for every existing user. lib/auth.ts's jwt
+                               // callback checks this on every session read and invalidates any
+                               // still-live JWT once it's set, since this app runs JWT sessions (no
+                               // adapter-side session row to just delete) — see
+                               // docs/features/account-deletion.md.
   liveActivityPushToken,      // iOS Live Activity push updates
   liveActivityPushEnvironment,// 'sandbox' | 'production'
   createdAt
@@ -820,7 +826,27 @@ is in `docs/features/locations.md`.
 - [x] Task ↔ Inventory Linking (a task can capture one or more Inventory counts as part of its own form, with shared NFC verification when a tag backs both) — see "Inventory" above and docs/features/inventory.md's "Task ↔ Inventory Linking"
 - [x] Inventory grouping, par-level red-tint/warning cascade, per-item `nfcRequiredToLog` enforcement, and the manager-only "Manage Inventory" hub — see "Inventory" above and docs/features/inventory.md
 - [x] Shift-window alert push notifications — "start-time reminders" (per-list QStash schedule, managers+employees) and "missed" (shared QStash sweep, managers) — device registration for any company user, Company timezone/notificationsEnabled — see "Notifications" above and docs/features/notifications.md
+- [x] Self-service account deletion (App Store Review Guideline 5.1.1(v)) — a
+      "Delete Account" row on Profile for `employee`/`manager` scrubs PII off
+      their `User` document (name/email/image, company/location detach,
+      passwordHash, push tokens) and kills their session, while every
+      `TaskLog`/`TaskListSession`/`InventoryLog` they created stays put,
+      still attributed to the company/location; `owner` is blocked
+      self-service and shown a contact-support message instead (billing
+      contact, sole company administrator) — see
+      docs/features/account-deletion.md
 - [x] Admin Console (desktop) — a separate `app/(console)/console/**` route group, manager-or-above gated (originally owner-only): a net-new cross-location Rollup Dashboard (`GET /api/reports/rollup`, `lib/reports.ts`) as the console's own homepage (`/console` itself — Locations CRUD, its original Phase 1a slice, was later removed entirely, and Rollup moved off its own `/console/rollup` route to take that spot), a company-wide Team & Access table (with the location-reassignment wiring mobile's Team tab never had) and a Job Tags catalog, Task & Task List Management (`/console/tasks` — the same task-list/task CRUD as mobile's `ManageTasksView.tsx`/`TaskListEditView.tsx`, reused APIs, no NFC scan action, plus a Task Catalog pane for editing/creating/deleting a saved task independent of any list placement), a desktop-shaped single-location Reports page (`/console/reports` — new presentational components over the same `GET /api/reports`/`/api/reports/leaderboard`/`/api/reports/inventory`/`GET /api/task-logs/history` mobile uses, replacing the Rollup Dashboard's old row-click jump into mobile's phone-width `/reports`), and an Inventory Management page (`/console/inventory` — item-type/group catalog CRUD + log-a-count, no NFC anywhere: an item with `nfcRequiredToLog` set from mobile 409s here with console-specific copy) — reached from a manager-or-above "Admin Console" card on the Profile page (no auto-redirect on login); Team & Access and the Rollup Dashboard homepage stay owner-only and self-gate now that the blanket layout gate loosened — see docs/features/admin-console.md, docs/features/console-task-management.md, docs/features/console-reports.md, and docs/features/console-inventory.md
+- [x] Task Completion Instructions (manager-authoring side) — a manager
+      attaches up to 3 steps (photo and/or caption) to a `TaskDefinition`
+      from its Company Task Catalog detail sheet
+      (`components/ManageTaskDetailSheet.tsx`'s "Instructions" section),
+      showing what the finished check should look like; images upload
+      straight from the browser to Vercel Blob via a client-upload token
+      (`app/api/blob/upload/route.ts`), text lives on
+      `TaskDefinition.instructionSteps` in MongoDB. The employee-side
+      "attach a photo to complete the task" half is a separate, later
+      piece and is NOT built — see
+      docs/features/task-completion-instructions.md
 
 Personal-habit-tracker features from before the restaurant pivot — the
 timer-based Countdown/Stopwatch/Checkbox item types and the Sunday "Routine
@@ -946,9 +972,12 @@ table is a quick reference, not authoritative.
 - Team & Invites: BUILT — Team tab roster (everyone) + manager-only invite-link generation/revocation and role-switching/removal, see "Team & Invites" above and `docs/features/team-invites.md`
 - Inventory: BUILT — Inventory tab (top-up count tracker), grouped into manager-defined sections with search and a below-par red-tint cascade, manager-managed item-type catalog with optional NFC location binding (and a per-item `nfcRequiredToLog` toggle that turns that binding into an actual gate), plus a manager-only "Manage Inventory" hub (`/inventory/manage`) for name/unit/parLevel/group/tag editing and Groups CRUD, see "Inventory" above and `docs/features/inventory.md`
 - Task ↔ Inventory Linking: BUILT — a manager can attach Inventory item types to a task (required or optional per link); the task form then captures a count per linked item on Save, sharing NFC verification with the task's own scan when the tags match, see "Inventory" above and `docs/features/inventory.md`'s "Task ↔ Inventory Linking"
+- Task Completion Instructions: BUILT (manager-authoring side only) — up to 3 photo/caption steps per `TaskDefinition`, authored from the Company Task Catalog detail sheet, images stored in Vercel Blob (`app/api/blob/upload/route.ts`) via client-upload token; employee-side "photo required to complete" not built, see `docs/features/task-completion-instructions.md`
 - Notifications: BUILT — two independent shift-window alerts: "start-time reminders" fire at a list's exact startTime via its own per-list QStash schedule (managers+employees), "missed" fires 30min past the window's end via a shared QStash sweep every 5min (managers only, tasks still outstanding); device registration via `@capacitor/push-notifications` open to any company user, `Company.timezone`/`notificationsEnabled` drive both, see "Notifications" above and `docs/features/notifications.md`
 - Locations: BUILT — `Location` model, new `owner` role tier, invite/team location assignment, Location CRUD API, locationId-scoping across TaskLog/TaskListSession/InventoryLog/MissedListAlert, and an owner-facing location switcher (`components/LocationSwitcher.tsx`) on Tasks/Team/Reports/Inventory; migration script at `scripts/backfill-locations.mjs`. Job tags now have a catalog + assignment UI (Admin Console's Team page — see `docs/features/admin-console.md`'s "Job Tags catalog"), though the tag-based task-list *targeting* they were originally meant for is still not built. NOT built: per-location split of the start-time-reminder cron — see "Locations" above and `docs/features/locations.md`'s "Known gaps"
 - Admin Console: BUILT — desktop-first `/console` section (`app/(console)/console/**`, gated manager-or-above in its `layout.tsx`, blocked from the native iOS shell): a Rollup Dashboard (`GET /api/reports/rollup`) as `/console`'s own homepage, giving an owner a cross-location snapshot (completion rate, tasks logged, missed lists, below-par items, active employees) that has no mobile equivalent (Locations CRUD, the console's original Phase 1a page, was removed entirely; Rollup moved off its own `/console/rollup` route to become the homepage in its place), a company-wide Team & Access table + invite panel + Job Tags catalog (create/rename/archive tags, per-teammate toggle assignment), Task & Task List Management (`/console/tasks`, manager-or-above) — a two-pane task-list/task editor reusing mobile's exact APIs and field-editing building blocks, NFC status-only (no scan action), plus a Task Catalog pane for editing/creating/deleting a saved task independent of any list placement — a Reports page (`/console/reports`, manager-or-above) — desktop-shaped stat strip/leaderboard table/task-list grid/Logs table/Inventory card grid, all fed by mobile's exact `GET /api/reports`/`/api/reports/leaderboard`/`/api/reports/inventory`/`GET /api/task-logs/history` responses (new presentational layouts, reused pure math/types from `components/reports/shared.ts`) — and an Inventory Management page (`/console/inventory`, manager-or-above) — grouped item-type table with always-visible log-a-count input + expandable history per row, plus a persistent Manage Groups panel below it; no NFC anywhere (an item with `nfcRequiredToLog` set from mobile 409s here with console-specific error copy, not mobile's "use Save via NFC"). Team & Access and the Rollup Dashboard homepage stay owner-only, each self-gating now that the blanket layout check loosened; Task Management, Reports, and Inventory are the three manager-and-up pages. Reached via a manager-or-above card on the Profile page (`components/ProfileView.tsx`) — login itself still always lands on Tasks, same as every other role — see `docs/features/admin-console.md`, `docs/features/console-task-management.md`, `docs/features/console-reports.md`, and `docs/features/console-inventory.md`
+
+- Account Deletion: BUILT — Profile's "Delete Account" row (`employee`/`manager` only) scrubs PII off the caller's own `User` document, detaches them from their company/location, deletes their `PushToken`s and OAuth account link, and invalidates their session (`DELETE /api/account`, `lib/auth.ts`'s jwt callback); `owner` sees a static contact-support message instead of a button, see `docs/features/account-deletion.md`
 
 Routine Review (the old Sunday goal-vs-average-minutes comparison) has been
 retired — it doesn't fit a checklist-based work app.
@@ -1029,6 +1058,10 @@ QSTASH_URL=                # Upstash account's REGIONAL endpoint (e.g. https://q
                            #   verifies via signing keys, no outbound QStash API calls)
 QSTASH_CURRENT_SIGNING_KEY=
 QSTASH_NEXT_SIGNING_KEY=
+BLOB_READ_WRITE_TOKEN=    # Vercel Blob — instruction-step photo storage, see
+                          # docs/features/task-completion-instructions.md. Auto-populated by
+                          # Vercel when a Blob store is connected to the project; @vercel/blob's
+                          # handleUpload (app/api/blob/upload/route.ts) reads it implicitly.
 ```
 
 ---

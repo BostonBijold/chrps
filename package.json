@@ -25,6 +25,7 @@
     "@fontsource/ibm-plex-mono": "^5.2.7",
     "@fontsource/playfair-display": "^5.2.8",
     "@upstash/qstash": "^2.11.3",
+    "@vercel/blob": "^2.8.0",
     "bcryptjs": "^3.0.3",
     "jose": "^6.2.10",
     "lucide-react": "^1.18.0",

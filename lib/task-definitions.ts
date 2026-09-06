@@ -4,7 +4,7 @@ import Task from "@/models/Task";
 import TaskList from "@/models/TaskList";
 import TaskLog from "@/models/TaskLog";
 import InventoryItemType from "@/models/InventoryItemType";
-import type { TaskType, FormFieldDef } from "@/models/TaskDefinition";
+import type { TaskType, FormFieldDef, InstructionStep } from "@/models/TaskDefinition";
 import { pickMostRelevantPlacement } from "./placement-resolution";
 export { pickMostRelevantPlacement } from "./placement-resolution";
 
@@ -25,6 +25,7 @@ export interface ResolvedTaskFields {
   nfcTagUid: string | null;
   templateId: string | null;
   projectedMinutes: number;
+  instructionSteps: InstructionStep[];
 }
 
 // Bare minimum shape resolveTasks needs from a lean Task doc — callers can
@@ -43,6 +44,7 @@ const FALLBACK: ResolvedTaskFields = {
   nfcTagUid: null,
   templateId: null,
   projectedMinutes: 0,
+  instructionSteps: [],
 };
 
 // Batch join — one query for every distinct definitionId referenced,
@@ -69,6 +71,7 @@ export async function resolveTasks<T extends LeanTaskLike>(tasks: T[]): Promise<
       nfcTagUid: def?.nfcTagUid ?? FALLBACK.nfcTagUid,
       templateId: def?.templateId ? def.templateId.toString() : FALLBACK.templateId,
       projectedMinutes: t.projectedMinutes ?? def?.projectedMinutes ?? FALLBACK.projectedMinutes,
+      instructionSteps: def?.instructionSteps ?? FALLBACK.instructionSteps,
     };
   });
 }

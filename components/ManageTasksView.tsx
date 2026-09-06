@@ -9,7 +9,7 @@ import Header from "@/components/Header";
 import AppIcon from "@/components/AppIcon";
 import AddTaskListSheet from "@/components/AddTaskListSheet";
 import AddTaskSheet from "@/components/AddTaskSheet";
-import ManageTaskDetailSheet from "@/components/ManageTaskDetailSheet";
+import ManageTaskDetailSheet, { type InstructionStepView } from "@/components/ManageTaskDetailSheet";
 import { scanNfcTag } from "@/lib/native/nfc-scan";
 import type { FormFieldDef } from "@/models/TaskDefinition";
 
@@ -27,6 +27,12 @@ interface DefinitionPlacement {
   taskListName: string;
 }
 
+interface DefinitionInstructionStep {
+  _id: string;
+  description: string | null;
+  imageUrl: string | null;
+}
+
 interface Definition {
   _id: string;
   name: string;
@@ -35,6 +41,7 @@ interface Definition {
   formFields: unknown[];
   projectedMinutes: number;
   nfcTagUid: string | null;
+  instructionSteps: DefinitionInstructionStep[];
   placements: DefinitionPlacement[];
 }
 
@@ -107,6 +114,67 @@ function CatalogRow({
   // binding"), so binding here never fails or clears another's binding, it
   // just informs the manager the tag is about to do double duty.
   const [alsoBoundTo, setAlsoBoundTo] = useState<string[]>([]);
+
+  // Instruction steps (docs/features/task-completion-instructions.md) —
+  // an image (uploaded straight to Vercel Blob from the browser via a
+  // client-upload token, see app/api/blob/upload/route.ts) and/or a
+  // caption, up to 3 per task. The whole array is re-saved through the
+  // existing PATCH /api/task-definitions/[id] on every add/delete, same
+  // as formFields — no separate per-step save endpoint.
+  const [instructionSteps, setInstructionSteps] = useState<DefinitionInstructionStep[]>(definition.instructionSteps);
+  const [stepsBusy, setStepsBusy] = useState(false);
+  const [stepsError, setStepsError] = useState<string | null>(null);
+
+  async function saveInstructionSteps(next: Array<{ description: string | null; imageUrl: string | null }>) {
+    setStepsBusy(true);
+    setStepsError(null);
+    try {
+      const res = await fetch(`/api/task-definitions/${definition._id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ instructionSteps: next }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Failed to save");
+      const body = await res.json();
+      setInstructionSteps(body.instructionSteps ?? []);
+    } catch (err) {
+      setStepsError(err instanceof Error ? err.message : "Failed to save");
+    } finally {
+      setStepsBusy(false);
+    }
+  }
+
+  async function handleAddStep({ description, file }: { description: string | null; file: File | null }) {
+    setStepsBusy(true);
+    setStepsError(null);
+    let imageUrl: string | null = null;
+    if (file) {
+      try {
+        const { upload } = await import("@vercel/blob/client");
+        const blob = await upload(`instruction-steps/${definition._id}-${Date.now()}-${file.name}`, file, {
+          access: "public",
+          handleUploadUrl: "/api/blob/upload",
+        });
+        imageUrl = blob.url;
+      } catch (err) {
+        setStepsError(err instanceof Error ? err.message : "Failed to upload image");
+        setStepsBusy(false);
+        return;
+      }
+    }
+    setStepsBusy(false);
+    await saveInstructionSteps([
+      ...instructionSteps.map((s) => ({ description: s.description, imageUrl: s.imageUrl })),
+      { description, imageUrl },
+    ]);
+  }
+
+  async function handleDeleteStep(index: number) {
+    const next = instructionSteps
+      .filter((_, i) => i !== index)
+      .map((s) => ({ description: s.description, imageUrl: s.imageUrl }));
+    await saveInstructionSteps(next);
+  }
 
   async function handleScanToLink() {
     setBindError(null);
@@ -185,6 +253,18 @@ function CatalogRow({
             alsoBoundTo,
             onScanToLink: handleScanToLink,
             onUnbind: handleUnbindTag,
+          }}
+          instructions={{
+            steps: instructionSteps.map((s): InstructionStepView => ({
+              key: s._id,
+              description: s.description,
+              imageUrl: s.imageUrl,
+            })),
+            maxSteps: 3,
+            busy: stepsBusy,
+            error: stepsError,
+            onAddStep: handleAddStep,
+            onDeleteStep: handleDeleteStep,
           }}
           editHref={definition.placements.length > 0 ? `/tasks/${definition.placements[0].taskListId}/edit` : undefined}
           editLabel={definition.placements.length > 0 ? `Edit in ${definition.placements[0].taskListName}` : undefined}

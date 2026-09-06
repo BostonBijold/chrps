@@ -6,6 +6,8 @@ import { signOut } from "next-auth/react";
 import { ChevronRight, Monitor } from "lucide-react";
 import Header from "@/components/Header";
 
+const SUPPORT_EMAIL = "contact@usechrps.com";
+
 interface Props {
   name: string;
   email: string;
@@ -23,6 +25,8 @@ export default function ProfileView({ name, email, today, skipAuth, isManager = 
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordStatus, setPasswordStatus] = useState<{ type: "error" | "success"; text: string } | null>(null);
   const [passwordSubmitting, setPasswordSubmitting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const handlePasswordSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -58,6 +62,33 @@ export default function ProfileView({ name, email, today, skipAuth, isManager = 
       setPasswordStatus({ type: "error", text: "Something went wrong. Please try again." });
     } finally {
       setPasswordSubmitting(false);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (
+      !window.confirm(
+        "Delete your account? Your name and login are removed and can't be recovered. Task logs, inventory counts, and other records you created stay with the company."
+      )
+    ) {
+      return;
+    }
+    setDeleteError(null);
+    setDeleting(true);
+    try {
+      const res = await fetch("/api/account", { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setDeleteError(data.error ?? "Something went wrong.");
+        setDeleting(false);
+        return;
+      }
+      // No session survives this — a hard navigation, not router.push, so
+      // no client-side session cache outlives it.
+      window.location.href = "/login";
+    } catch {
+      setDeleteError("Something went wrong. Please try again.");
+      setDeleting(false);
     }
   };
 
@@ -234,6 +265,36 @@ export default function ProfileView({ name, email, today, skipAuth, isManager = 
               <p className="font-mono text-tobacco text-xs">
                 Dev mode — auth is bypassed (SKIP_AUTH=true)
               </p>
+            </div>
+          )}
+
+          {/* Account deletion — App Store Review Guideline 5.1.1(v). Owner
+              is blocked from self-service (billing contact, sole company
+              administrator in a single-owner company) and routed to a human
+              instead — see docs/features/account-deletion.md. */}
+          {!skipAuth && isOwner && (
+            <div className="px-4 py-3 rounded-card border border-border">
+              <p className="font-mono text-dim text-xs">
+                To delete your account and your company&apos;s data, contact{" "}
+                <a href={`mailto:${SUPPORT_EMAIL}`} className="text-olive underline">
+                  {SUPPORT_EMAIL}
+                </a>
+                .
+              </p>
+            </div>
+          )}
+          {!skipAuth && !isOwner && (
+            <div className="space-y-2">
+              <button
+                onClick={handleDeleteAccount}
+                disabled={deleting}
+                className="w-full py-4 rounded-card border border-burgundy/30 text-burgundy-light font-mono text-sm hover:bg-burgundy/10 transition-colors min-h-[48px] disabled:opacity-50"
+              >
+                {deleting ? "Deleting…" : "Delete Account"}
+              </button>
+              {deleteError && (
+                <p className="font-mono text-burgundy-light text-xs px-1">{deleteError}</p>
+              )}
             </div>
           )}
         </div>

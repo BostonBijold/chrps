@@ -1,0 +1,60 @@
+> **Keep this file updated after any code change in this area — do not let it drift from actual implementation.**
+
+# Task Completion Instructions
+
+**Status: BUILT** (manager-authoring side only — see "Depends on" below for the deferred employee-side piece).
+
+Lets a manager attach up to **3 instruction steps** to a `TaskDefinition` — each step an optional image (a photo of what the finished result should look like: a clean bathroom, a properly set-up line) paired with an optional text description. This is the setup half of a two-sided photo feature; the employee-side "attach a photo when completing the task" is a separate, later piece (see "Depends on" below) and isn't built yet — nothing on the employee's task-completion screen currently shows these steps.
+
+Storage is [Vercel Blob](https://vercel.com/docs/storage/vercel-blob): the manager's browser uploads image bytes directly to Blob via a client-upload token, never through a Next.js server route. The step's **text lives in MongoDB**, not Blob — Blob only ever holds the file itself. This keeps editing a step's wording independent of its image and matches how every other piece of task content (`formFields`, `name`, `icon`) already lives on `TaskDefinition`.
+
+## Data model
+
+`models/TaskDefinition.ts`'s `instructionSteps` field, same layer as `formFields` (content of the check itself, cascades to every list placement):
+
+```ts
+instructionSteps: [{
+  description: string | null,
+  imageUrl: string | null,   // Vercel Blob URL; null if no image on this step
+}]  // max 3 entries, default []
+```
+
+Mongoose's automatic per-subdocument `_id` (the schema does *not* set `_id: false`, unlike `FormFieldDefSchema`) is the per-step identity the manager UI uses for edit/delete — no explicit `id` field needed. Order in the array is display order; no separate `order` field since 3 items doesn't need one.
+
+**Validation rule** (`lib/instruction-steps.ts`'s `sanitizeInstructionSteps`): a step needs *at least one* of `description`/`imageUrl` non-empty — an entry with both empty is dropped rather than stored (same "shape-first, drop malformed entries" pattern `sanitizeFormFields` already uses for `formFields`). **Clamped, not rejected, at 3 entries** (`MAX_INSTRUCTION_STEPS`).
+
+## Blob upload flow
+
+1. **Token endpoint** — `app/api/blob/upload/route.ts`, implementing `handleUpload` from `@vercel/blob/client`. Manager-or-above only (`403` otherwise, `resolveSessionUser()`). `onBeforeGenerateToken` constrains `allowedContentTypes` to `["image/jpeg", "image/png", "image/webp"]`, a 5MB max, and stamps the token payload with `companyId` (informational only — no `onUploadCompleted` callback consumes it yet, see "Open questions").
+2. **Client upload** — `CatalogRow`'s `handleAddStep` in `components/ManageTasksView.tsx` calls `@vercel/blob/client`'s `upload()` directly against that token endpoint when a step's draft has a file; the image bytes go straight to Blob.
+3. **Access**: Vercel Blob's client-upload flow is public-URL-only — anyone holding the exact URL can view it, though the URL itself is unguessable (long random suffix). Acceptable for instruction photos.
+4. Once the browser has the resulting `url`, the whole `instructionSteps` array (including the new step) is saved in the same request via the `PATCH` below — upload and save are two separate round-trips per step-add, not one atomic operation.
+
+This pass is upload-from-file-picker only (`<input type="file" accept="image/*">`) — no camera capture. Camera-only capture is a separate later piece, tracked against the employee-side completion-photo feature.
+
+## API
+
+`PATCH /api/task-definitions/[id]` (`app/api/task-definitions/[id]/route.ts`) grows `instructionSteps?: Array<{ description?: string; imageUrl?: string }>` in its request body, sanitized via `sanitizeInstructionSteps` and written to `TaskDefinition` — same as `name`/`icon`/`formFields`, so it cascades to every list placement. Its response, `GET /api/task-definitions`'s list response, and the resolved task shape (`lib/task-definitions.ts`'s `resolveTasks`/`resolveTask`, via `ResolvedTaskFields.instructionSteps`) all carry `instructionSteps` with each step's `_id` stringified.
+
+## Manager UI
+
+Lives inside `components/ManageTaskDetailSheet.tsx` (the per-task detail sheet reached from a Company Task Catalog row's tap, wired up in `ManageTasksView.tsx`'s `CatalogRow`) — an **"Instructions"** section, alongside the existing "Used In" list and NFC panel.
+
+- Shows up to 3 step cards (thumbnail + caption, whichever is present).
+- Each step card has a **Delete** icon (removes that step, no confirmation — same low-stakes-edit treatment as removing a `formFields` entry).
+- **"+ Add Step"** button opens an inline editor (file picker + description textarea, both optional but not both-empty) — hidden once 3 steps already exist.
+- Reordering: not built — steps display in array order.
+- Every add/delete re-saves the *whole* `instructionSteps` array through `PATCH /api/task-definitions/[id]` immediately (`CatalogRow`'s `saveInstructionSteps`) — no separate "confirm changes" step for this section, unlike the rest of the sheet's edit-then-navigate-away flow.
+
+## Open questions / deferred
+
+- **Reordering steps** — no drag-to-reorder; a manager who wants a different order has to delete and re-add.
+- **Orphaned blobs** — deleting a step (or replacing its image) doesn't delete the underlying Blob object, just drops the Mongo reference.
+- **`onUploadCompleted` callback** — not implemented; nothing server-side reacts to a successful upload beyond the client attaching the URL.
+- Whether employees ever see this content read-only somewhere (e.g. a "how to do this" help icon) — out of scope, not built.
+
+## Depends on
+
+[`api/task-lists-api.md`](../api/task-lists-api.md) — `TaskDefinition` schema and the `PATCH /api/task-definitions/[id]` route this extends. [`features/task-lists.md`](task-lists.md) — `ManageTaskDetailSheet.tsx`'s existing structure this adds a section to.
+
+**Sets up for** (not yet built): the employee-side "must attach a photo to mark this task done" feature — same Blob-upload mechanics, but camera-only capture, a `TaskLog`-level `photoUrl` field, and a manager review surface to compare the two photos side-by-side. Deliberately built second so the storage/upload plumbing only needs to be solved once.

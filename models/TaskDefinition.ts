@@ -65,6 +65,28 @@ export const FormFieldDefSchema = new Schema<FormFieldDef>(
   { _id: false }
 );
 
+// One manager-authored step of "what the finished result should look
+// like" (a reference photo, a caption, or both) — see
+// docs/features/task-completion-instructions.md. At least one of
+// description/imageUrl is always non-empty; an entry with neither is
+// dropped before it ever reaches Mongo (lib/instruction-steps.ts's
+// sanitizeInstructionSteps). Order in the array is display order — a max
+// of 3 entries doesn't need its own `order` field, same reasoning as
+// FormFieldDef.items. Mongoose's automatic per-subdocument `_id` is the
+// step identity the manager UI edits/deletes/reorders by.
+export interface InstructionStep {
+  _id: mongoose.Types.ObjectId;
+  description: string | null;
+  imageUrl: string | null;   // Vercel Blob URL; null if this step has no image
+}
+
+export const InstructionStepSchema = new Schema<InstructionStep>(
+  {
+    description: { type: String, default: null },
+    imageUrl: { type: String, default: null },
+  }
+);
+
 // The company's reusable, physical-location-bound "saved task" — the check
 // itself (fridge temp, restroom clean, opening cash count), independent of
 // any one TaskList placement. A `Task` (models/Task.ts) is a lightweight
@@ -95,6 +117,12 @@ export interface ITaskDefinition extends Document {
   // required. Distinct from models/NfcTag.ts's tagCode/URL-based
   // tap-to-trigger system.
   nfcTagUid: string | null;
+  // Up to 3 manager-authored "what this should look like when done"
+  // steps (photo and/or caption) — see
+  // docs/features/task-completion-instructions.md. Same layer as
+  // formFields/name/icon: content of the check itself, cascades to every
+  // list this definition is placed in. Default [].
+  instructionSteps: InstructionStep[];
   // Archived once a manager deletes it from the catalog — blocked while any
   // active Task placement still references it (see
   // app/api/task-definitions/[id]/route.ts), so an isActive: false
@@ -114,6 +142,7 @@ const TaskDefinitionSchema = new Schema<ITaskDefinition>(
     formFields: { type: [FormFieldDefSchema], default: [] },
     projectedMinutes: { type: Number, default: 0 },
     nfcTagUid: { type: String, default: null },
+    instructionSteps: { type: [InstructionStepSchema], default: [] },
     isActive: { type: Boolean, default: true },
   },
   { timestamps: true }

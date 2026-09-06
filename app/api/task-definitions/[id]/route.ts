@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
-import TaskDefinition from "@/models/TaskDefinition";
+import TaskDefinition, { type InstructionStep } from "@/models/TaskDefinition";
 import Task from "@/models/Task";
 import { sanitizeFormFields } from "@/lib/form-fields";
+import { sanitizeInstructionSteps } from "@/lib/instruction-steps";
 import { resolveSessionUser, isManagerOrAbove } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -32,6 +33,7 @@ export async function PATCH(
   if (typeof updates.icon === "string" && updates.icon) patch.icon = updates.icon;
   if (typeof updates.projectedMinutes === "number") patch.projectedMinutes = updates.projectedMinutes;
   if ("formFields" in updates) patch.formFields = sanitizeFormFields(updates.formFields);
+  if ("instructionSteps" in updates) patch.instructionSteps = sanitizeInstructionSteps(updates.instructionSteps);
 
   await connectDB();
 
@@ -50,6 +52,11 @@ export async function PATCH(
     formFields: definition.formFields ?? [],
     projectedMinutes: definition.projectedMinutes,
     nfcTagUid: definition.nfcTagUid ?? null,
+    instructionSteps: (definition.instructionSteps ?? []).map((s: InstructionStep) => ({
+      _id: s._id.toString(),
+      description: s.description ?? null,
+      imageUrl: s.imageUrl ?? null,
+    })),
   });
 }
 

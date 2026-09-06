@@ -38,9 +38,21 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   ],
   adapter: MongoDBAdapter(clientPromise),
   callbacks: {
-    jwt({ token, user }) {
+    async jwt({ token, user }) {
       console.log("[auth] jwt callback — user:", user?.id, "token sub:", token?.sub);
       if (user) token.id = user.id;
+      // JWT sessions carry no server-side revocation by default — a token
+      // issued before DELETE /api/account scrubbed this user stays
+      // cryptographically valid until its own expiry otherwise. Returning
+      // null here is the documented way to force that session invalid on
+      // its very next read, same request-freshness guarantee
+      // resolveSessionUser() already gives companyId/role. See
+      // docs/features/account-deletion.md.
+      if (token.id) {
+        await connectDB();
+        const dbUser = await User.findById(token.id, "deletedAt").lean<{ deletedAt?: Date | null }>();
+        if (!dbUser || dbUser.deletedAt) return null;
+      }
       return token;
     },
     session({ session, token }) {
