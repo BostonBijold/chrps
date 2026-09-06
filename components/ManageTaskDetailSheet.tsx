@@ -34,7 +34,11 @@ interface InstructionsPanel {
   maxSteps: number;
   busy: boolean;
   error: string | null;
-  onAddStep: (input: { description: string | null; file: File | null }) => void;
+  // Returns whether the add actually succeeded — the inline editor only
+  // closes on success (see confirmAddStep below), so a failure stays open
+  // with the draft intact and instructions.error visible, instead of
+  // silently closing either way and leaving no sign anything went wrong.
+  onAddStep: (input: { description: string | null; file: File | null }) => Promise<boolean>;
   onDeleteStep: (index: number) => void;
 }
 
@@ -88,10 +92,10 @@ export default function ManageTaskDetailSheet({
     setDraftFile(null);
   }
 
-  function confirmAddStep() {
+  async function confirmAddStep() {
     if (!instructions || !canAddDraft) return;
-    instructions.onAddStep({ description: draftDescription.trim() || null, file: draftFile });
-    resetDraft();
+    const ok = await instructions.onAddStep({ description: draftDescription.trim() || null, file: draftFile });
+    if (ok) resetDraft();
   }
 
   return (

@@ -125,7 +125,7 @@ function CatalogRow({
   const [stepsBusy, setStepsBusy] = useState(false);
   const [stepsError, setStepsError] = useState<string | null>(null);
 
-  async function saveInstructionSteps(next: Array<{ description: string | null; imageUrl: string | null }>) {
+  async function saveInstructionSteps(next: Array<{ description: string | null; imageUrl: string | null }>): Promise<boolean> {
     setStepsBusy(true);
     setStepsError(null);
     try {
@@ -137,33 +137,62 @@ function CatalogRow({
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Failed to save");
       const body = await res.json();
       setInstructionSteps(body.instructionSteps ?? []);
+      return true;
     } catch (err) {
+      console.error("[instruction-steps] save failed:", err);
       setStepsError(err instanceof Error ? err.message : "Failed to save");
+      return false;
     } finally {
       setStepsBusy(false);
     }
   }
 
-  async function handleAddStep({ description, file }: { description: string | null; file: File | null }) {
+  // 30s cap on the Blob upload — without this, a hung request (bad token,
+  // network stall, a browser-bundling quirk in @vercel/blob/client) leaves
+  // stepsBusy stuck true forever with no error ever surfacing, since a
+  // promise that never settles never reaches either the try's success path
+  // or the catch. Better to fail loud after a timeout than hang silently.
+  function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(message)), ms);
+      promise.then(
+        (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        (err) => {
+          clearTimeout(timer);
+          reject(err);
+        }
+      );
+    });
+  }
+
+  async function handleAddStep({ description, file }: { description: string | null; file: File | null }): Promise<boolean> {
     setStepsBusy(true);
     setStepsError(null);
     let imageUrl: string | null = null;
     if (file) {
       try {
         const { upload } = await import("@vercel/blob/client");
-        const blob = await upload(`instruction-steps/${definition._id}-${Date.now()}-${file.name}`, file, {
-          access: "public",
-          handleUploadUrl: "/api/blob/upload",
-        });
+        const blob = await withTimeout(
+          upload(`instruction-steps/${definition._id}-${Date.now()}-${file.name}`, file, {
+            access: "public",
+            handleUploadUrl: "/api/blob/upload",
+          }),
+          30000,
+          "Upload timed out — check your connection and try again."
+        );
         imageUrl = blob.url;
       } catch (err) {
+        console.error("[instruction-steps] image upload failed:", err);
         setStepsError(err instanceof Error ? err.message : "Failed to upload image");
         setStepsBusy(false);
-        return;
+        return false;
       }
     }
     setStepsBusy(false);
-    await saveInstructionSteps([
+    return saveInstructionSteps([
       ...instructionSteps.map((s) => ({ description: s.description, imageUrl: s.imageUrl })),
       { description, imageUrl },
     ]);
