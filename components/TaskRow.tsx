@@ -1,7 +1,10 @@
 "use client";
 
+import { useState } from "react";
+import { ClipboardList } from "lucide-react";
 import StreakDots from "@/components/StreakDots";
 import AppIcon from "@/components/AppIcon";
+import TaskInstructionsSheet, { type TaskInstructionStep } from "@/components/TaskInstructionsSheet";
 import type { TaskLogEntry } from "@/components/TasksView";
 import type { LogState } from "@/models/TaskLog";
 import type { FormFieldDef } from "@/models/TaskDefinition";
@@ -17,6 +20,11 @@ export interface RowItem {
   successThreshold: number;  // how many of this week's scheduled days = 100%
   formFields?: FormFieldDef[]; // only meaningful when taskType === "form"
   nfcTagUid?: string | null; // bound physical tag's UID — see docs/features/nfc.md
+  // Manager-authored "what this should look like when done" steps — see
+  // docs/features/task-completion-instructions.md (authoring) and
+  // docs/features/task-instructions-employee-view.md (this read-only
+  // view). Undefined/empty = no Instructions button renders at all.
+  instructionSteps?: TaskInstructionStep[];
 }
 
 interface Props {
@@ -91,6 +99,8 @@ export default function TaskRow({
   const isStopwatch = item.taskType === "stopwatch";
   const isForm = item.taskType === "form";
   const formFields = item.formFields ?? [];
+  const [showInstructions, setShowInstructions] = useState(false);
+  const instructionSteps = item.instructionSteps ?? [];
 
   const variance =
     !isCheckbox && !isStopwatch && state === "done" && log?.actualMinutes != null
@@ -99,10 +109,20 @@ export default function TaskRow({
 
   return (
     <div className={state ? BORDER[state] : ""}>
-      {/* Tap row */}
-      <button
+      {/* Tap row — a div playing the role of a button (not a real <button>)
+          so the "Instructions" control below can be a genuine nested
+          <button> without violating HTML's no-nested-buttons rule. */}
+      <div
+        role="button"
+        tabIndex={0}
         onClick={onToggleExpand}
-        className={`w-full flex items-center gap-3 px-4 py-3.5 text-left min-h-[54px] transition-colors ${
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onToggleExpand();
+          }
+        }}
+        className={`w-full flex items-center gap-3 px-4 py-3.5 text-left min-h-[54px] transition-colors cursor-pointer ${
           isExpanded ? "bg-card-hover" : ""
         }`}
       >
@@ -122,6 +142,19 @@ export default function TaskRow({
           >
             {item.name}
           </p>
+          {instructionSteps.length > 0 && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowInstructions(true);
+              }}
+              className="mt-1 flex items-center gap-1 font-mono text-[10px] text-olive"
+            >
+              <ClipboardList size={11} strokeWidth={1.75} />
+              Instructions
+            </button>
+          )}
           <div className="mt-1.5">
             <StreakDots
               logs={weekLogs}
@@ -160,7 +193,16 @@ export default function TaskRow({
           )}
           <span className="text-dim text-[10px] ml-1">{isExpanded ? "▾" : "▸"}</span>
         </div>
-      </button>
+      </div>
+
+      {showInstructions && (
+        <TaskInstructionsSheet
+          taskName={item.name}
+          taskIcon={item.icon}
+          steps={instructionSteps}
+          onClose={() => setShowInstructions(false)}
+        />
+      )}
 
       {/* View-only detail panel — no actions, see the note above */}
       {isExpanded && (

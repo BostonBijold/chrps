@@ -144,8 +144,9 @@ An unlocked session (`performedByUserId: null`) behaves exactly like a brand-new
 - `app/(app)/tasks/page.tsx` — server component: auth, seeding, loads task lists/tasks/logs for the selected date.
 - `components/TasksView.tsx` — top-level client state: selected date, logs map, opens/closes the timer/session/add-task-list overlays, all the `handleStateChange`/`handleStartTimer`/… handlers.
 - `components/TaskListCard.tsx` — per-list card: collapse logic, completion check, the "Start Tasks" button's three lock states, renders `TaskRow` (or `TaskCard` for an anytime list).
-- `components/TaskRow.tsx` — per-task row for a shift-window list — view-only aside from manager-only Undo, see "Task list locking" above.
+- `components/TaskRow.tsx` — per-task row for a shift-window list — view-only aside from manager-only Undo, see "Task list locking" above. Also defines the shared `RowItem` type both this and `TaskCard.tsx` use.
 - `components/TaskCard.tsx` — per-task card for an anytime list — the full action panel (all states above).
+- Both `TaskRow.tsx` and `TaskCard.tsx` show an "Instructions" button under the task title when `item.instructionSteps` is non-empty, opening `components/TaskInstructionsSheet.tsx` — see [task-instructions-employee-view.md](task-instructions-employee-view.md).
 - `components/TaskListSessionView.tsx` — sequential multi-task session (see [timer.md](timer.md)).
 - `components/DateNav.tsx` — the `< Today >` date picker driving `selectedDate`.
 - `components/TaskListEditView.tsx` — list/task management, including rename/schedule/delete for the list itself (also the path for editing an anytime-list task — see [anytime-tasks.md](anytime-tasks.md)).

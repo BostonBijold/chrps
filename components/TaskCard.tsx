@@ -1,8 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { ClipboardList } from "lucide-react";
 import AppIcon from "@/components/AppIcon";
 import StreakDots from "@/components/StreakDots";
+import TaskInstructionsSheet from "@/components/TaskInstructionsSheet";
 import type { RowItem } from "@/components/TaskRow";
 import type { TaskLogEntry } from "@/components/TasksView";
 import type { LogState } from "@/models/TaskLog";
@@ -53,6 +55,26 @@ export default function TaskCard({
   const variance = state === "done" && isTimed && actual != null && hasDuration
     ? actual - item.projectedMinutes
     : null;
+  const [showInstructions, setShowInstructions] = useState(false);
+  const instructionSteps = item.instructionSteps ?? [];
+  const instructionsButton = instructionSteps.length > 0 && (
+    <button
+      type="button"
+      onClick={() => setShowInstructions(true)}
+      className="mt-1 flex items-center gap-1 font-mono text-[10px] text-olive"
+    >
+      <ClipboardList size={11} strokeWidth={1.75} />
+      Instructions
+    </button>
+  );
+  const instructionsSheet = showInstructions && (
+    <TaskInstructionsSheet
+      taskName={item.name}
+      taskIcon={item.icon}
+      steps={instructionSteps}
+      onClose={() => setShowInstructions(false)}
+    />
+  );
 
   const [backMins, setBackMins] = useState(
     isStopwatch ? "30" : String(item.projectedMinutes || 15)
@@ -81,6 +103,7 @@ export default function TaskCard({
   // ── Completed state ────────────────────────────────────────────────────────
   if (state === "done") {
     return (
+      <>
       <div className="bg-card rounded-card border-l-[3px] border-l-done px-4 py-3.5">
         <div className="flex items-center gap-3">
           <div className="w-7 flex items-center justify-center flex-shrink-0">
@@ -88,6 +111,7 @@ export default function TaskCard({
           </div>
           <div className="flex-1 min-w-0">
             <p className="font-body text-sm text-dim line-through leading-tight">{item.name}</p>
+            {instructionsButton}
             <div className="mt-1.5">
               <StreakDots
               logs={weekLogs}
@@ -129,12 +153,15 @@ export default function TaskCard({
           </button>
         )}
       </div>
+      {instructionsSheet}
+      </>
     );
   }
 
   // ── Missed state ───────────────────────────────────────────────────────────
   if (state === "missed") {
     return (
+      <>
       <div className="bg-card rounded-card border-l-[3px] border-l-burgundy px-4 py-3.5">
         <div className="flex items-center gap-3">
           <div className="w-7 flex items-center justify-center flex-shrink-0">
@@ -142,6 +169,7 @@ export default function TaskCard({
           </div>
           <div className="flex-1 min-w-0">
             <p className="font-body text-sm text-dim leading-tight">{item.name}</p>
+            {instructionsButton}
             <div className="mt-1.5">
               <StreakDots
               logs={weekLogs}
@@ -167,12 +195,15 @@ export default function TaskCard({
           </button>
         )}
       </div>
+      {instructionsSheet}
+      </>
     );
   }
 
   // ── Rest state ─────────────────────────────────────────────────────────────
   if (state === "rest") {
     return (
+      <>
       <div className="bg-card rounded-card border-l-[3px] border-l-blue-muted px-4 py-3.5">
         <div className="flex items-center gap-3">
           <div className="w-7 flex items-center justify-center flex-shrink-0">
@@ -180,6 +211,7 @@ export default function TaskCard({
           </div>
           <div className="flex-1 min-w-0">
             <p className="font-body text-sm text-dim leading-tight">{item.name}</p>
+            {instructionsButton}
             <div className="mt-1.5">
               <StreakDots
               logs={weekLogs}
@@ -205,11 +237,14 @@ export default function TaskCard({
           </button>
         )}
       </div>
+      {instructionsSheet}
+      </>
     );
   }
 
   // ── Pending state ──────────────────────────────────────────────────────────
   return (
+    <>
     <div className="bg-card rounded-card px-4 py-3.5 space-y-3">
       {/* Top row: icon + name + primary action */}
       <div className="flex items-center gap-3">
@@ -218,6 +253,7 @@ export default function TaskCard({
         </div>
         <div className="flex-1 min-w-0">
           <p className="font-body text-sm text-text leading-tight">{item.name}</p>
+          {instructionsButton}
           <div className="mt-1.5">
             <StreakDots
               logs={weekLogs}
@@ -432,5 +468,7 @@ export default function TaskCard({
         </div>
       )}
     </div>
+    {instructionsSheet}
+    </>
   );
 }

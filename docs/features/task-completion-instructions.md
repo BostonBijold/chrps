@@ -2,9 +2,9 @@
 
 # Task Completion Instructions
 
-**Status: BUILT** (manager-authoring side only — see "Depends on" below for the deferred employee-side piece).
+**Status: BUILT** (manager-authoring side — see [`task-instructions-employee-view.md`](task-instructions-employee-view.md) for the now-also-built employee read view, and "Depends on" below for the still-deferred employee-side *photo-capture* piece).
 
-Lets a manager attach up to **3 instruction steps** to a `TaskDefinition` — each step an optional image (a photo of what the finished result should look like: a clean bathroom, a properly set-up line) paired with an optional text description. This is the setup half of a two-sided photo feature; the employee-side "attach a photo when completing the task" is a separate, later piece (see "Depends on" below) and isn't built yet — nothing on the employee's task-completion screen currently shows these steps.
+Lets a manager attach up to **3 instruction steps** to a `TaskDefinition` — each step an optional image (a photo of what the finished result should look like: a clean bathroom, a properly set-up line) paired with an optional text description. This is the setup half of a two-sided photo feature. Employees now see these steps read-only via an "Instructions" button on their own task rows/cards (see [`task-instructions-employee-view.md`](task-instructions-employee-view.md)) — the still-separate, still-deferred piece is the employee *attaching their own* photo when completing the task (see "Depends on" below).
 
 Storage is [Vercel Blob](https://vercel.com/docs/storage/vercel-blob): the manager's browser uploads image bytes directly to Blob via a client-upload token, never through a Next.js server route. The step's **text lives in MongoDB**, not Blob — Blob only ever holds the file itself. This keeps editing a step's wording independent of its image and matches how every other piece of task content (`formFields`, `name`, `icon`) already lives on `TaskDefinition`.
 
@@ -53,7 +53,7 @@ Lives inside `components/ManageTaskDetailSheet.tsx` (the per-task detail sheet r
 - **Reordering steps** — no drag-to-reorder; a manager who wants a different order has to delete and re-add.
 - **Orphaned blobs** — deleting a step (or replacing its image) doesn't delete the underlying Blob object, just drops the Mongo reference.
 - **`onUploadCompleted` callback** — not implemented; nothing server-side reacts to a successful upload beyond the client attaching the URL.
-- Whether employees ever see this content read-only somewhere (e.g. a "how to do this" help icon) — out of scope, not built.
+- ~~Whether employees ever see this content read-only somewhere~~ — **built**, see [`task-instructions-employee-view.md`](task-instructions-employee-view.md).
 
 ## Depends on
 

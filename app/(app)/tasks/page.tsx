@@ -11,6 +11,7 @@ import { resolveTasks } from "@/lib/task-definitions";
 import { calendarWeekDates } from "@/lib/week-dates";
 import TasksView from "@/components/TasksView";
 import type { LogState } from "@/models/TaskLog";
+import type { InstructionStep } from "@/models/TaskDefinition";
 import { resolveSessionUser, pickActiveLocationId } from "@/lib/session";
 import NoCompanyMessage from "@/components/NoCompanyMessage";
 
@@ -117,6 +118,14 @@ export default async function TasksPage({
         successThreshold: task.successThreshold ?? (task.scheduledDays?.length ?? 7),
         formFields: task.formFields,
         nfcTagUid: task.nfcTagUid,
+        // Manager-authored "what this should look like when done" steps —
+        // see docs/features/task-instructions-employee-view.md. Also
+        // resolved from resolveTasks above, same as formFields/nfcTagUid.
+        instructionSteps: task.instructionSteps.map((s: InstructionStep) => ({
+          _id: s._id.toString(),
+          description: s.description,
+          imageUrl: s.imageUrl,
+        })),
       })),
     };
   });
