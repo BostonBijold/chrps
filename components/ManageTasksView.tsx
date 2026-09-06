@@ -21,6 +21,13 @@ import type { FormFieldDef } from "@/models/TaskDefinition";
 // MongoDB-backed per-user preference is more than this is worth for now.
 const COLLAPSE_THRESHOLD = 5;
 
+// Mirrors app/api/blob/upload/route.ts's onBeforeGenerateToken constraints
+// exactly — checking client-side first turns an oversized/wrong-type photo
+// into an immediate, specific error message instead of a round-trip to
+// Vercel Blob that comes back as a generic 400.
+const MAX_INSTRUCTION_IMAGE_BYTES = 5 * 1024 * 1024;
+const ALLOWED_INSTRUCTION_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
+
 interface DefinitionPlacement {
   taskId: string;
   taskListId: string;
@@ -173,10 +180,26 @@ function CatalogRow({
     setStepsError(null);
     let imageUrl: string | null = null;
     if (file) {
+      if (!ALLOWED_INSTRUCTION_IMAGE_TYPES.includes(file.type)) {
+        setStepsError(`"${file.type || "unknown"}" isn't a supported image type — use JPEG, PNG, or WEBP.`);
+        setStepsBusy(false);
+        return false;
+      }
+      if (file.size > MAX_INSTRUCTION_IMAGE_BYTES) {
+        setStepsError(`That photo is ${(file.size / 1024 / 1024).toFixed(1)}MB — must be 5MB or smaller.`);
+        setStepsBusy(false);
+        return false;
+      }
       try {
         const { upload } = await import("@vercel/blob/client");
+        // Sanitize the filename component — the raw name (spaces, macOS
+        // screenshot's narrow-space-before-"PM", emoji, etc.) is passed
+        // through unmodified otherwise; safer to keep the pathname plain
+        // ASCII than find out which character some layer down the chain
+        // objects to.
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "-");
         const blob = await withTimeout(
-          upload(`instruction-steps/${definition._id}-${Date.now()}-${file.name}`, file, {
+          upload(`instruction-steps/${definition._id}-${Date.now()}-${safeName}`, file, {
             access: "public",
             handleUploadUrl: "/api/blob/upload",
           }),
