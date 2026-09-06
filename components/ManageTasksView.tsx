@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Capacitor } from "@capacitor/core";
@@ -320,14 +320,16 @@ export default function ManageTasksView({ userName, today, skipAuth, taskLists, 
   const searching = q.length > 0;
   const matches = (s: string) => q === "" || s.toLowerCase().includes(q);
 
-  // Standalone Tasks/Company Task Catalog default to collapsed once they
-  // pass COLLAPSE_THRESHOLD; Task Lists stays always-expanded since it's a
-  // small, bounded set (shift-based lists). A search in progress forces
-  // every section open regardless of its collapsed state so results are
+  // Standalone Tasks defaults to collapsed once it passes COLLAPSE_THRESHOLD;
+  // Task Lists stays always-expanded since it's a small, bounded set
+  // (shift-based lists), and Company Task Catalog stays always-expanded too
+  // now that it's its own dedicated tab (see docs/features/manage-tasks-
+  // tabs.md) rather than one of several sections sharing the screen — a
+  // further collapsed-by-default state there would just be a second click
+  // to undo right after opening the tab. A search in progress forces
+  // Standalone Tasks open regardless of its collapsed state so results are
   // visible, without changing the stored toggle state underneath it.
   const [standaloneExpanded, setStandaloneExpanded] = useState(() => standaloneTasks.length <= COLLAPSE_THRESHOLD);
-  const [catalogExpanded, setCatalogExpanded] = useState(true);
-  const catalogDefaultSet = useRef(false);
 
   const handleDuplicateTaskList = async (id: string) => {
     setDuplicatingId(id);
@@ -352,10 +354,6 @@ export default function ManageTasksView({ userName, today, skipAuth, taskLists, 
       .then((r) => r.json())
       .then((data: Definition[]) => {
         setDefinitions(data);
-        if (!catalogDefaultSet.current) {
-          setCatalogExpanded(data.length <= COLLAPSE_THRESHOLD);
-          catalogDefaultSet.current = true;
-        }
       })
       .catch(() => setDefinitions([]));
   }, []);
@@ -385,7 +383,6 @@ export default function ManageTasksView({ userName, today, skipAuth, taskLists, 
       setScanError("No saved task in your catalog is bound to this tag.");
       return;
     }
-    setCatalogExpanded(true);
     if (matches.length === 1) {
       setOpenCatalogId(matches[0]._id);
       return;
@@ -672,55 +669,44 @@ export default function ManageTasksView({ userName, today, skipAuth, taskLists, 
                 the company has, regardless of which lists currently use
                 it. This is where a physical NFC tag gets tied to a task,
                 whether that task lives in a standalone list or a
-                scheduled one. ──────────────────────────────────────────── */}
-            <button
-              type="button"
-              onClick={() => setCatalogExpanded((v) => !v)}
-              className="w-full flex items-center justify-between mb-3 min-h-[32px]"
-            >
-              <p className="font-mono text-[10px] text-dim uppercase tracking-widest">
-                Company Task Catalog {definitions !== null && `(${definitions.length})`}
-              </p>
-              {catalogExpanded || searching ? (
-                <ChevronUp size={14} className="text-dim" />
-              ) : (
-                <ChevronDown size={14} className="text-dim" />
-              )}
-            </button>
+                scheduled one. Always expanded, no collapse toggle — unlike
+                the old stacked-sections layout, this tab is already a
+                deliberate "I want the catalog" navigation, so a further
+                collapsed-by-default state would just be a second click to
+                undo. ──────────────────────────────────────────────────── */}
+            <p className="font-mono text-[10px] text-dim uppercase tracking-widest mb-3">
+              Company Task Catalog {definitions !== null && `(${definitions.length})`}
+            </p>
 
-            {(catalogExpanded || searching) && (
-              <>
-                {definitions === null && (
-                  <p className="text-dim font-mono text-xs text-center py-8">Loading…</p>
-                )}
-
-                {definitions !== null && definitions.length === 0 && (
-                  <p className="text-dim font-mono text-xs text-center py-8">
-                    No saved tasks yet — add one from any task list&rsquo;s edit page.
-                  </p>
-                )}
-
-                {definitions !== null && definitions.length > 0 && filteredDefinitions?.length === 0 && (
-                  <p className="text-dim font-mono text-xs text-center py-8">
-                    No catalog tasks match &ldquo;{search}&rdquo;
-                  </p>
-                )}
-
-                <div className="space-y-2">
-                  {filteredDefinitions?.map((d) => (
-                    <CatalogRow
-                      key={d._id}
-                      definition={d}
-                      open={openCatalogId === d._id}
-                      onOpenChange={(v) => setOpenCatalogId(v ? d._id : null)}
-                      onDelete={handleDelete}
-                      deleting={deletingId === d._id}
-                      blockedMessage={blockedMessage?.id === d._id ? blockedMessage.message : null}
-                    />
-                  ))}
-                </div>
-              </>
+            {definitions === null && (
+              <p className="text-dim font-mono text-xs text-center py-8">Loading…</p>
             )}
+
+            {definitions !== null && definitions.length === 0 && (
+              <p className="text-dim font-mono text-xs text-center py-8">
+                No saved tasks yet — add one from any task list&rsquo;s edit page.
+              </p>
+            )}
+
+            {definitions !== null && definitions.length > 0 && filteredDefinitions?.length === 0 && (
+              <p className="text-dim font-mono text-xs text-center py-8">
+                No catalog tasks match &ldquo;{search}&rdquo;
+              </p>
+            )}
+
+            <div className="space-y-2">
+              {filteredDefinitions?.map((d) => (
+                <CatalogRow
+                  key={d._id}
+                  definition={d}
+                  open={openCatalogId === d._id}
+                  onOpenChange={(v) => setOpenCatalogId(v ? d._id : null)}
+                  onDelete={handleDelete}
+                  deleting={deletingId === d._id}
+                  blockedMessage={blockedMessage?.id === d._id ? blockedMessage.message : null}
+                />
+              ))}
+            </div>
           </>
         )}
       </div>

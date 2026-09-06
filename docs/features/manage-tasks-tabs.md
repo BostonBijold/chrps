@@ -24,7 +24,7 @@ Everything that's about *placements*, unchanged in behavior:
 
 The **Company Task Catalog** section, on its own full-width tab rather than the last item in a scroll:
 
-- Same compact-row list (icon, name, one-line meta, chevron), same collapse-past-5 behavior.
+- Same compact-row list (icon, name, one-line meta, chevron) — but **always expanded now, no collapse toggle**. The old collapse-past-5 behavior was dropped in a follow-up fix: it meant a manager had to open the Task Catalog tab *and then* tap again to expand an already-collapsed list, a redundant "open it twice" step now that the catalog has its own dedicated screen rather than sharing space with other sections. Task Lists' own "always expanded" section keeps its same reasoning; Standalone Tasks (Task Lists tab) is the only section left with collapse-past-`COLLAPSE_THRESHOLD` behavior.
 - **"Scan to Find"** (the NFC button next to the search box) only renders on this tab — it matches a scanned tag against the catalog's own `nfcTagUid` data, a catalog-only concept with nothing to match against on the Task Lists tab.
 - Tapping a row still opens `ManageTaskDetailSheet.tsx` — no change to the sheet's contents in this pass (Used In / NFC / Instructions / Edit-in-list / Delete all stay as they are).
 - Search box, scoped to catalog rows while this tab is active (placeholder: "Search saved tasks...").
