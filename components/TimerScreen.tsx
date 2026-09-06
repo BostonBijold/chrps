@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { ClipboardList } from "lucide-react";
 import AppIcon from "@/components/AppIcon";
+import TaskInstructionsSheet, { type TaskInstructionStep } from "@/components/TaskInstructionsSheet";
 import type { FormFieldDef } from "@/models/TaskDefinition";
 
 export interface TimerItem {
@@ -12,6 +14,10 @@ export interface TimerItem {
   taskType?: string;
   formFields?: FormFieldDef[]; // only meaningful when taskType === "form" — see TaskFormScreen.tsx
   nfcTagUid?: string | null; // bound physical tag's UID — see docs/features/nfc.md
+  // See docs/features/task-instructions-employee-view.md — same field as
+  // RowItem (components/TaskRow.tsx), just re-declared here since TimerItem
+  // is its own narrower shape.
+  instructionSteps?: TaskInstructionStep[];
 }
 
 interface Props {
@@ -31,6 +37,26 @@ const STOPWATCH_SOFT_CAP = 30 * 60; // ring fills over 30 minutes, stays full af
 
 export default function TimerScreen({ item, initialElapsed = 0, taskListName = null, onComplete, onMissed, onClose }: Props) {
   const isStopwatch = item.taskType === "stopwatch";
+  const [showInstructions, setShowInstructions] = useState(false);
+  const instructionSteps = item.instructionSteps ?? [];
+  const instructionsButton = instructionSteps.length > 0 && (
+    <button
+      type="button"
+      onClick={() => setShowInstructions(true)}
+      className="mt-2 flex items-center gap-1 mx-auto font-mono text-[10px] text-olive"
+    >
+      <ClipboardList size={11} strokeWidth={1.75} />
+      Instructions
+    </button>
+  );
+  const instructionsSheet = showInstructions && (
+    <TaskInstructionsSheet
+      taskName={item.name}
+      taskIcon={item.icon}
+      steps={instructionSteps}
+      onClose={() => setShowInstructions(false)}
+    />
+  );
 
   const [elapsed, setElapsed] = useState(initialElapsed);
   const [isRunning, setIsRunning] = useState(true);
@@ -104,6 +130,7 @@ export default function TimerScreen({ item, initialElapsed = 0, taskListName = n
       : `${pad(Math.floor(remaining / 60))}:${pad(remaining % 60)}`;
 
     return (
+      <>
       <div className="fixed inset-0 bg-bg z-50 flex flex-col max-w-mobile mx-auto">
         <div className="flex items-center justify-between px-4 pt-10 pb-2">
           <button onClick={onClose} className="font-mono text-dim text-sm min-h-[44px] pr-4 flex items-center">
@@ -124,6 +151,7 @@ export default function TimerScreen({ item, initialElapsed = 0, taskListName = n
               <AppIcon name={item.icon} size={44} strokeWidth={1.25} className="text-text" />
             </div>
             <h2 className="font-heading text-2xl text-text">{item.name}</h2>
+            {instructionsButton}
           </div>
 
           <div className="flex-1 flex items-center justify-center">
@@ -183,6 +211,8 @@ export default function TimerScreen({ item, initialElapsed = 0, taskListName = n
           </div>
         </div>
       </div>
+      {instructionsSheet}
+      </>
     );
   }
 
@@ -194,6 +224,7 @@ export default function TimerScreen({ item, initialElapsed = 0, taskListName = n
   const timeDisplay = `${pad(Math.floor(elapsed / 60))}:${pad(elapsed % 60)}`;
 
   return (
+    <>
     <div className="fixed inset-0 bg-bg z-50 flex flex-col max-w-mobile mx-auto">
       <div className="flex items-center justify-between px-4 pt-10 pb-2">
         <button onClick={onClose} className="font-mono text-dim text-sm min-h-[44px] pr-4 flex items-center">
@@ -214,6 +245,7 @@ export default function TimerScreen({ item, initialElapsed = 0, taskListName = n
             <AppIcon name={item.icon} size={44} strokeWidth={1.25} className="text-text" />
           </div>
           <h2 className="font-heading text-2xl text-text">{item.name}</h2>
+          {instructionsButton}
         </div>
 
         <div className="flex-1 flex items-center justify-center">
@@ -271,5 +303,7 @@ export default function TimerScreen({ item, initialElapsed = 0, taskListName = n
         </div>
       </div>
     </div>
+    {instructionsSheet}
+    </>
   );
 }

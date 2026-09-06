@@ -848,13 +848,17 @@ is in `docs/features/locations.md`.
       piece and is NOT built — see
       docs/features/task-completion-instructions.md
 - [x] Task Instructions — Employee View — a read-only "Instructions" button
-      under the task title on both `TaskRow.tsx` (shift-window tasks) and
-      `TaskCard.tsx` (anytime tasks), shown only when that task has at
-      least one manager-authored instruction step; opens
-      `TaskInstructionsSheet.tsx` (image-forward steps, no edit
-      affordances). Not a gate on completion, no per-employee dismiss
-      state — see docs/features/task-instructions-employee-view.md. The
-      employee *photo-capture-on-completion* half is still not built.
+      under the task's title/name on every screen a task appears on: the
+      collapsed list row (`TaskRow.tsx` for shift-window tasks,
+      `TaskCard.tsx` for anytime tasks) AND the active-task screens
+      (`TaskFormScreen.tsx` — standalone and embedded in
+      `TaskListSessionView.tsx`'s guided session — and the retired
+      `TimerScreen.tsx`), shown only when that task has at least one
+      manager-authored instruction step; opens `TaskInstructionsSheet.tsx`
+      (image-forward steps, no edit affordances). Not a gate on
+      completion, no per-employee dismiss state — see
+      docs/features/task-instructions-employee-view.md. The employee
+      *photo-capture-on-completion* half is still not built.
 - [x] Manage Tasks Task Lists / Task Catalog toggle (mobile) — a top-level
       segmented control on `/tasks/manage` (mirroring the Admin Console's
       `TaskManagementView.tsx`) splits the screen into a Task Lists tab
@@ -988,7 +992,7 @@ table is a quick reference, not authoritative.
 - Inventory: BUILT — Inventory tab (top-up count tracker), grouped into manager-defined sections with search and a below-par red-tint cascade, manager-managed item-type catalog with optional NFC location binding (and a per-item `nfcRequiredToLog` toggle that turns that binding into an actual gate), plus a manager-only "Manage Inventory" hub (`/inventory/manage`) for name/unit/parLevel/group/tag editing and Groups CRUD, see "Inventory" above and `docs/features/inventory.md`
 - Task ↔ Inventory Linking: BUILT — a manager can attach Inventory item types to a task (required or optional per link); the task form then captures a count per linked item on Save, sharing NFC verification with the task's own scan when the tags match, see "Inventory" above and `docs/features/inventory.md`'s "Task ↔ Inventory Linking"
 - Task Completion Instructions: BUILT (manager-authoring side) — up to 3 photo/caption steps per `TaskDefinition`, authored from the Company Task Catalog detail sheet, images stored in Vercel Blob (`app/api/blob/upload/route.ts`) via a direct upload call (`components/ManageTasksView.tsx`'s `uploadImageDirect` — not `@vercel/blob/client`'s `upload()`, which silently masked errors behind retries, see the doc's "Blob upload flow"); employee-side read view also BUILT (see next line); the employee *photo-capture-on-completion* half is not built, see `docs/features/task-completion-instructions.md`
-- Task Instructions — Employee View: BUILT — a read-only "Instructions" button under the task title on `TaskRow.tsx`/`TaskCard.tsx`, shown only when a task has instruction steps, opening `TaskInstructionsSheet.tsx`; not a completion gate, see `docs/features/task-instructions-employee-view.md`
+- Task Instructions — Employee View: BUILT — a read-only "Instructions" button under the task title/name on the list row (`TaskRow.tsx`/`TaskCard.tsx`) AND the active-task screens (`TaskFormScreen.tsx`, `TimerScreen.tsx`), shown only when a task has instruction steps, opening `TaskInstructionsSheet.tsx`; not a completion gate, see `docs/features/task-instructions-employee-view.md`
 - Manage Tasks Task Lists/Task Catalog toggle: BUILT — `/tasks/manage` now opens on a Task Lists tab (Task Lists + Standalone Tasks) with a separate full-width Task Catalog tab, matching the Admin Console's segmented-control pattern; search and "Scan to Find" scope to whichever tab is active, see `docs/features/manage-tasks-tabs.md`
 - Notifications: BUILT — two independent shift-window alerts: "start-time reminders" fire at a list's exact startTime via its own per-list QStash schedule (managers+employees), "missed" fires 30min past the window's end via a shared QStash sweep every 5min (managers only, tasks still outstanding); device registration via `@capacitor/push-notifications` open to any company user, `Company.timezone`/`notificationsEnabled` drive both, see "Notifications" above and `docs/features/notifications.md`
 - Locations: BUILT — `Location` model, new `owner` role tier, invite/team location assignment, Location CRUD API, locationId-scoping across TaskLog/TaskListSession/InventoryLog/MissedListAlert, and an owner-facing location switcher (`components/LocationSwitcher.tsx`) on Tasks/Team/Reports/Inventory; migration script at `scripts/backfill-locations.mjs`. Job tags now have a catalog + assignment UI (Admin Console's Team page — see `docs/features/admin-console.md`'s "Job Tags catalog"), though the tag-based task-list *targeting* they were originally meant for is still not built. NOT built: per-location split of the start-time-reminder cron — see "Locations" above and `docs/features/locations.md`'s "Known gaps"

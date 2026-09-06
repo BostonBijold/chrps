@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Nfc, Check } from "lucide-react";
+import { Nfc, Check, ClipboardList } from "lucide-react";
 import AppIcon from "@/components/AppIcon";
+import TaskInstructionsSheet from "@/components/TaskInstructionsSheet";
 import type { TimerItem } from "@/components/TimerScreen";
 import type { FormFieldValue } from "@/models/TaskDefinition";
 import { scanNfcTag } from "@/lib/native/nfc-scan";
@@ -90,6 +91,8 @@ function isChecklistComplete(f: { label: string; items?: string[] }, value: Fiel
 
 export default function TaskFormScreen({ item, initialElapsed = 0, taskListName = null, preVerifiedNfcUid = null, notificationSound, onComplete, onMissed, onClose, exiting = false }: Props) {
   const fields = item.formFields ?? [];
+  const [showInstructions, setShowInstructions] = useState(false);
+  const instructionSteps = item.instructionSteps ?? [];
 
   const [elapsed, setElapsed] = useState(initialElapsed);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -273,6 +276,7 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
     // once the caller flips `exiting` true, right after a completion
     // actually saved. pointer-events-none while exiting guards against a
     // second tap landing on a card that's already on its way out.
+    <>
     <div
       className="fixed inset-0 z-50 flex items-stretch justify-center"
       style={{
@@ -304,6 +308,16 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
             <AppIcon name={item.icon} size={40} strokeWidth={1.25} className="text-text" />
           </div>
           <h2 className="font-heading text-2xl text-text">{item.name}</h2>
+          {instructionSteps.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowInstructions(true)}
+              className="mt-2 flex items-center gap-1 mx-auto font-mono text-[10px] text-olive"
+            >
+              <ClipboardList size={11} strokeWidth={1.75} />
+              Instructions
+            </button>
+          )}
           {requiresNfcScan && (
             <p className={`font-mono text-[10px] uppercase tracking-widest mt-1 ${alreadyVerified ? "text-olive" : "text-dim"}`}>
               {alreadyVerified ? "Tag verified — Save to complete" : "Scan the linked tag to complete"}
@@ -497,5 +511,14 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
         </div>
       </div>
     </div>
+    {showInstructions && (
+      <TaskInstructionsSheet
+        taskName={item.name}
+        taskIcon={item.icon}
+        steps={instructionSteps}
+        onClose={() => setShowInstructions(false)}
+      />
+    )}
+    </>
   );
 }
