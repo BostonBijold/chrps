@@ -24,13 +24,13 @@ Note this is distinct from `GET /api/task-lists` (`app/api/task-lists/route.ts`)
 
 ## New component: `TaskInstructionsSheet.tsx`
 
-Read-only bottom sheet, same presentation convention as the app's other sheets (`AddTaskSheet`, `ManageTaskDetailSheet`) — backdrop, `rounded-t-modal` sheet, drag-handle bar, header with task icon/name and a close `X`. Renders the same image-forward step layout the manager's "Instructions" section in `ManageTaskDetailSheet.tsx` uses (image + caption when present, description-only text when a step has no image) — but with none of the edit affordances: no Delete icon, no "+ Add Step" button, no file picker. Just the steps, in stored order, and a close action.
+Read-only bottom sheet, same presentation convention as the app's other sheets (`AddTaskSheet`, `ManageTaskDetailSheet`) — backdrop, `rounded-t-modal` sheet, drag-handle bar, header with task icon/name and a close `X`. Each step renders **full-width**: the image at its natural aspect ratio spanning the card (not the small `w-14`/`w-20` thumbnail `ManageTaskDetailSheet.tsx`'s editor and this sheet's own first pass used), with the description as a caption in its own padded block underneath — sized for reading actual detail in the photo, not just confirming a step has one. No edit affordances: no Delete icon, no "+ Add Step" button, no file picker. Just the steps, in stored order, and a close action.
 
 Props: `taskName: string`, `taskIcon: string`, `steps: TaskInstructionStep[]`, `onClose: () => void`.
 
 ## Button
 
-A small shared control — a `ClipboardList` icon (lucide-react) + "Instructions" label, olive-colored, `font-mono text-[10px]` — rendered directly under the task's title in both components, gated on `item.instructionSteps?.length > 0` (nothing renders otherwise, no placeholder/empty state). No badge, count, or "new" indicator — identical whether it's an employee's first time seeing this task or their thousandth.
+A small shared control — a `ClipboardList` icon (lucide-react) + "Instructions" label, styled as an actual pill button (`border-olive/30 bg-olive/10 text-olive rounded-pill`, same convention as `ManageTaskDetailSheet.tsx`'s "Scan to Link"), not a plain text link — rendered directly under the task's title in every component, gated on `item.instructionSteps?.length > 0` (nothing renders otherwise, no placeholder/empty state). No badge, count, or "new" indicator — identical whether it's an employee's first time seeing this task or their thousandth.
 
 **`TaskRow.tsx`** needed one structural change to fit this in: the whole collapsed row used to be a single `<button onClick={onToggleExpand}>` wrapping the icon/title/streak-dots/state-badge, which made a real nested `<button>` for Instructions invalid HTML (and would have made tapping it also toggle row expansion). The row's outer element is now a `<div role="button" tabIndex={0} onClick={...} onKeyDown={...}>` — same click/expand behavior and keyboard accessibility (Enter/Space), but a legally nestable container — with the Instructions button inside calling `e.stopPropagation()` so it doesn't also fire the row toggle.
 

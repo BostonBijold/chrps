@@ -50,22 +50,22 @@ export default function TaskInstructionsSheet({ taskName, taskIcon, steps, onClo
             </button>
           </div>
 
-          <div className="px-4 pb-8 overflow-y-auto space-y-2">
+          <div className="px-4 pb-8 overflow-y-auto space-y-4">
             {steps.map((step) => (
               <div
                 key={step._id}
-                className="flex items-start gap-3 bg-bg border border-border rounded-card p-2.5"
+                className="bg-bg border border-border rounded-card overflow-hidden"
               >
                 {step.imageUrl && (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={step.imageUrl}
                     alt=""
-                    className="w-20 h-20 object-cover rounded-md flex-shrink-0"
+                    className="w-full h-auto block"
                   />
                 )}
                 {step.description && (
-                  <p className="font-body text-sm text-text flex-1 min-w-0 pt-1">
+                  <p className="font-body text-sm text-text p-3">
                     {step.description}
                   </p>
                 )}

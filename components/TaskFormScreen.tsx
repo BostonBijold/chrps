@@ -312,7 +312,7 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
             <button
               type="button"
               onClick={() => setShowInstructions(true)}
-              className="mt-2 flex items-center gap-1 mx-auto font-mono text-[10px] text-olive"
+              className="mt-2.5 inline-flex items-center gap-1 mx-auto font-mono text-[10px] text-olive border border-olive/30 bg-olive/10 px-2.5 py-1.5 rounded-pill"
             >
               <ClipboardList size={11} strokeWidth={1.75} />
               Instructions

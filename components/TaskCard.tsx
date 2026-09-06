@@ -61,7 +61,7 @@ export default function TaskCard({
     <button
       type="button"
       onClick={() => setShowInstructions(true)}
-      className="mt-1 flex items-center gap-1 font-mono text-[10px] text-olive"
+      className="mt-1.5 inline-flex items-center gap-1 font-mono text-[10px] text-olive border border-olive/30 bg-olive/10 px-2 py-1 rounded-pill"
     >
       <ClipboardList size={11} strokeWidth={1.75} />
       Instructions
