@@ -292,6 +292,15 @@ export default function ManageTasksView({ userName, today, skipAuth, taskLists, 
   const [openStandaloneId, setOpenStandaloneId] = useState<string | null>(null);
   const [openCatalogId, setOpenCatalogId] = useState<string | null>(null);
 
+  // Top-level Task Lists / Task Catalog split — mirrors the console's
+  // TaskManagementView.tsx segmented control (see
+  // docs/features/manage-tasks-tabs.md). Task Lists tab holds the existing
+  // Task Lists + Standalone Tasks sections (placement-management); Task
+  // Catalog tab holds the existing Company Task Catalog section on its
+  // own, full-width. No change to either section's own behavior — this is
+  // purely a reorganization of the same JSX into two conditional branches.
+  const [activeTab, setActiveTab] = useState<"lists" | "catalog">("lists");
+
   // "Scan to Find" — a manager rarely knows a physical tag's raw UID by
   // sight, so instead of making them type it into search, this scans the
   // tag and matches it against the already-loaded catalog's own
@@ -466,40 +475,70 @@ export default function ManageTasksView({ userName, today, skipAuth, taskLists, 
           <h1 className="font-heading text-xl text-text">Manage Tasks</h1>
         </div>
 
-        {/* ── Search — filters Task Lists, Standalone Tasks, and the Company
-            Task Catalog at once by name. "Scan to Find" is the companion for
-            a physical NFC tag — a manager standing in front of one rarely
-            knows its raw UID to type into search, so this scans it and jumps
-            straight to the bound task's detail sheet instead. ────────────── */}
+        {/* ── Task Lists / Task Catalog toggle — mirrors the console's
+            TaskManagementView.tsx segmented control. Splits placement
+            management (Task Lists + Standalone Tasks) from the shared saved-
+            task catalog into two independent views instead of one long
+            scroll — see docs/features/manage-tasks-tabs.md. ────────────── */}
+        <div className="mb-4 flex items-center gap-1 bg-card border border-border rounded-pill p-1">
+          <button
+            type="button"
+            onClick={() => setActiveTab("lists")}
+            className={`flex-1 font-mono text-[11px] uppercase tracking-widest py-2 rounded-pill transition-colors min-h-[36px] ${
+              activeTab === "lists" ? "bg-olive text-text" : "text-dim hover:text-muted"
+            }`}
+          >
+            Task Lists
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("catalog")}
+            className={`flex-1 font-mono text-[11px] uppercase tracking-widest py-2 rounded-pill transition-colors min-h-[36px] ${
+              activeTab === "catalog" ? "bg-olive text-text" : "text-dim hover:text-muted"
+            }`}
+          >
+            Task Catalog
+          </button>
+        </div>
+
+        {/* ── Search — scoped to whichever tab is active: Task Lists +
+            Standalone Tasks on the Task Lists tab, the Company Task Catalog
+            on the Task Catalog tab. "Scan to Find" is catalog-only (it
+            matches a physical NFC tag against `nfcTagUid`, a catalog-level
+            concept) — a manager standing in front of a tag rarely knows its
+            raw UID to type into search, so this scans it and jumps straight
+            to the bound task's detail sheet instead. ────────────────────── */}
         <div className="mb-1.5 flex items-center gap-2 sticky top-0 z-10">
           <div className="flex-1 min-w-0 flex items-center gap-2 bg-card border border-border rounded-card px-3 py-2">
             <Search size={14} className="text-dim flex-shrink-0" />
             <input
               type="text"
-              placeholder="Search task lists or tasks..."
+              placeholder={activeTab === "lists" ? "Search task lists..." : "Search saved tasks..."}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="flex-1 bg-transparent font-body text-sm text-text placeholder:text-dim outline-none"
             />
           </div>
-          <button
-            type="button"
-            onClick={handleScanToFind}
-            disabled={scanBusy}
-            aria-label="Scan a tag to find its task"
-            title="Scan to Find"
-            className="flex-shrink-0 w-11 h-11 flex items-center justify-center bg-card border border-border rounded-card text-dim hover:text-olive hover:border-olive/40 transition-colors disabled:opacity-50"
-          >
-            <Nfc size={16} strokeWidth={1.75} />
-          </button>
+          {activeTab === "catalog" && (
+            <button
+              type="button"
+              onClick={handleScanToFind}
+              disabled={scanBusy}
+              aria-label="Scan a tag to find its task"
+              title="Scan to Find"
+              className="flex-shrink-0 w-11 h-11 flex items-center justify-center bg-card border border-border rounded-card text-dim hover:text-olive hover:border-olive/40 transition-colors disabled:opacity-50"
+            >
+              <Nfc size={16} strokeWidth={1.75} />
+            </button>
+          )}
         </div>
-        {scanBusy && (
+        {activeTab === "catalog" && scanBusy && (
           <p className="font-mono text-[11px] text-olive mb-3.5">Hold near tag…</p>
         )}
-        {scanError && (
+        {activeTab === "catalog" && scanError && (
           <p className="font-mono text-[11px] text-burgundy-light mb-3.5">{scanError}</p>
         )}
-        {scanMatches && (
+        {activeTab === "catalog" && scanMatches && (
           <div className="mb-3.5 bg-card border border-border rounded-card overflow-hidden">
             <p className="font-mono text-[10px] uppercase tracking-widest text-dim px-3 pt-2.5">
               This tag is bound to more than one task — which one?
@@ -522,156 +561,166 @@ export default function ManageTasksView({ userName, today, skipAuth, taskLists, 
             </div>
           </div>
         )}
-        {!scanBusy && !scanError && !scanMatches && <div className="mb-3.5" />}
+        {!(activeTab === "catalog" && (scanBusy || scanError || scanMatches)) && <div className="mb-3.5" />}
 
-        {/* ── Task Lists — always expanded; a small, bounded set (shift-based
-            lists), unlike Standalone Tasks/Company Task Catalog below. ──── */}
-        <p className="font-mono text-[10px] text-dim uppercase tracking-widest mb-3">
-          Task Lists {searching && `(${filteredTaskLists.length})`}
-        </p>
-        {searching && filteredTaskLists.length === 0 && (
-          <p className="text-dim font-mono text-xs text-center py-6">
-            No task lists match &ldquo;{search}&rdquo;
-          </p>
-        )}
-        <div className="space-y-2">
-          {filteredTaskLists.map((tl) => (
-            <div key={tl._id} className="flex items-center gap-1 bg-card rounded-card border border-border">
-              <Link
-                href={`/tasks/${tl._id}/edit`}
-                className="flex-1 min-w-0 flex items-center justify-between p-4 hover:bg-card-hover transition-colors rounded-l-card"
-              >
-                <div className="min-w-0">
-                  <p className="font-body text-sm text-text truncate">{tl.name}</p>
-                  {tl.startTime && (
-                    <p className="font-mono text-[10px] text-dim mt-0.5">Starts {fmtTime(tl.startTime)}</p>
-                  )}
-                </div>
-                <ChevronRight size={16} className="text-dim flex-shrink-0 ml-2" />
-              </Link>
-              <button
-                type="button"
-                onClick={() => handleDuplicateTaskList(tl._id)}
-                disabled={duplicatingId === tl._id}
-                aria-label={`Duplicate ${tl.name}`}
-                title="Duplicate task list"
-                className="flex-shrink-0 w-11 h-11 mr-1 flex items-center justify-center text-dim hover:text-olive transition-colors disabled:opacity-40"
-              >
-                <Copy size={15} strokeWidth={1.75} />
-              </button>
-            </div>
-          ))}
-        </div>
-        <button
-          onClick={() => setShowAddTaskListSheet(true)}
-          className="mt-2 w-full flex items-center justify-center gap-2 border border-dashed border-border-light text-dim font-body text-sm py-3.5 rounded-card hover:border-olive/40 hover:text-olive transition-colors min-h-[44px]"
-        >
-          + Add Task List
-        </button>
-
-        {/* ── Standalone Tasks — the anytime lists' tasks, flattened. Each
-            row still edits/deletes the same Task placement a scheduled
-            list's SortableRow does (app/api/tasks/[id]/route.ts has no
-            anytime-specific gating) — "Edit" opens the task's own anytime
-            list, and "Remove" deletes the placement directly from here so
-            an accidental add doesn't require a detour through the Company
-            Task Catalog below. NFC binding still happens in that catalog
-            regardless of which list a task sits in. ──────────────────── */}
-        <button
-          type="button"
-          onClick={() => setStandaloneExpanded((v) => !v)}
-          className="w-full flex items-center justify-between mb-3 mt-8 min-h-[32px]"
-        >
-          <p className="font-mono text-[10px] text-dim uppercase tracking-widest">
-            Standalone Tasks ({standaloneTasks.length})
-          </p>
-          {standaloneExpanded || searching ? (
-            <ChevronUp size={14} className="text-dim" />
-          ) : (
-            <ChevronDown size={14} className="text-dim" />
-          )}
-        </button>
-        {(standaloneExpanded || searching) &&
-          (standaloneTasks.length === 0 ? (
-            <p className="text-dim font-mono text-xs text-center py-6">No standalone tasks yet.</p>
-          ) : filteredStandalone.length === 0 ? (
-            <p className="text-dim font-mono text-xs text-center py-6">
-              No standalone tasks match &ldquo;{search}&rdquo;
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {filteredStandalone.map((t) => (
-                <button
-                  key={t._id}
-                  type="button"
-                  onClick={() => setOpenStandaloneId(t._id)}
-                  className="w-full flex items-center gap-3 bg-card rounded-card border border-border p-3 text-left hover:bg-card-hover transition-colors min-h-[44px]"
-                >
-                  <div className="w-8 flex items-center justify-center flex-shrink-0">
-                    <AppIcon name={t.icon} size={18} className="text-muted" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-body text-sm text-text truncate">{t.name}</p>
-                    <p className="font-mono text-[10px] text-dim truncate mt-0.5">
-                      {t.projectedMinutes}m · {t.taskListName}
-                    </p>
-                  </div>
-                  <ChevronRight size={16} className="text-dim flex-shrink-0" />
-                </button>
-              ))}
-            </div>
-          ))}
-
-        {/* ── Company task catalog — every saved task (TaskDefinition) the
-            company has, regardless of which lists currently use it. This is
-            where a physical NFC tag gets tied to a task, whether that task
-            lives in a standalone list or a scheduled one. ────────────────── */}
-        <button
-          type="button"
-          onClick={() => setCatalogExpanded((v) => !v)}
-          className="w-full flex items-center justify-between mb-3 mt-8 min-h-[32px]"
-        >
-          <p className="font-mono text-[10px] text-dim uppercase tracking-widest">
-            Company Task Catalog {definitions !== null && `(${definitions.length})`}
-          </p>
-          {catalogExpanded || searching ? (
-            <ChevronUp size={14} className="text-dim" />
-          ) : (
-            <ChevronDown size={14} className="text-dim" />
-          )}
-        </button>
-
-        {(catalogExpanded || searching) && (
+        {activeTab === "lists" && (
           <>
-            {definitions === null && (
-              <p className="text-dim font-mono text-xs text-center py-8">Loading…</p>
-            )}
-
-            {definitions !== null && definitions.length === 0 && (
-              <p className="text-dim font-mono text-xs text-center py-8">
-                No saved tasks yet — add one from any task list&rsquo;s edit page.
+            {/* ── Task Lists — always expanded; a small, bounded set
+                (shift-based lists), unlike Standalone Tasks below. ─────── */}
+            <p className="font-mono text-[10px] text-dim uppercase tracking-widest mb-3">
+              Task Lists {searching && `(${filteredTaskLists.length})`}
+            </p>
+            {searching && filteredTaskLists.length === 0 && (
+              <p className="text-dim font-mono text-xs text-center py-6">
+                No task lists match &ldquo;{search}&rdquo;
               </p>
             )}
-
-            {definitions !== null && definitions.length > 0 && filteredDefinitions?.length === 0 && (
-              <p className="text-dim font-mono text-xs text-center py-8">
-                No catalog tasks match &ldquo;{search}&rdquo;
-              </p>
-            )}
-
             <div className="space-y-2">
-              {filteredDefinitions?.map((d) => (
-                <CatalogRow
-                  key={d._id}
-                  definition={d}
-                  open={openCatalogId === d._id}
-                  onOpenChange={(v) => setOpenCatalogId(v ? d._id : null)}
-                  onDelete={handleDelete}
-                  deleting={deletingId === d._id}
-                  blockedMessage={blockedMessage?.id === d._id ? blockedMessage.message : null}
-                />
+              {filteredTaskLists.map((tl) => (
+                <div key={tl._id} className="flex items-center gap-1 bg-card rounded-card border border-border">
+                  <Link
+                    href={`/tasks/${tl._id}/edit`}
+                    className="flex-1 min-w-0 flex items-center justify-between p-4 hover:bg-card-hover transition-colors rounded-l-card"
+                  >
+                    <div className="min-w-0">
+                      <p className="font-body text-sm text-text truncate">{tl.name}</p>
+                      {tl.startTime && (
+                        <p className="font-mono text-[10px] text-dim mt-0.5">Starts {fmtTime(tl.startTime)}</p>
+                      )}
+                    </div>
+                    <ChevronRight size={16} className="text-dim flex-shrink-0 ml-2" />
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => handleDuplicateTaskList(tl._id)}
+                    disabled={duplicatingId === tl._id}
+                    aria-label={`Duplicate ${tl.name}`}
+                    title="Duplicate task list"
+                    className="flex-shrink-0 w-11 h-11 mr-1 flex items-center justify-center text-dim hover:text-olive transition-colors disabled:opacity-40"
+                  >
+                    <Copy size={15} strokeWidth={1.75} />
+                  </button>
+                </div>
               ))}
             </div>
+            <button
+              onClick={() => setShowAddTaskListSheet(true)}
+              className="mt-2 w-full flex items-center justify-center gap-2 border border-dashed border-border-light text-dim font-body text-sm py-3.5 rounded-card hover:border-olive/40 hover:text-olive transition-colors min-h-[44px]"
+            >
+              + Add Task List
+            </button>
+
+            {/* ── Standalone Tasks — the anytime lists' tasks, flattened.
+                Each row still edits/deletes the same Task placement a
+                scheduled list's SortableRow does
+                (app/api/tasks/[id]/route.ts has no anytime-specific
+                gating) — "Edit" opens the task's own anytime list, and
+                "Remove" deletes the placement directly from here so an
+                accidental add doesn't require a detour through the Task
+                Catalog tab. NFC binding still happens in that catalog
+                regardless of which list a task sits in. ──────────────── */}
+            <button
+              type="button"
+              onClick={() => setStandaloneExpanded((v) => !v)}
+              className="w-full flex items-center justify-between mb-3 mt-8 min-h-[32px]"
+            >
+              <p className="font-mono text-[10px] text-dim uppercase tracking-widest">
+                Standalone Tasks ({standaloneTasks.length})
+              </p>
+              {standaloneExpanded || searching ? (
+                <ChevronUp size={14} className="text-dim" />
+              ) : (
+                <ChevronDown size={14} className="text-dim" />
+              )}
+            </button>
+            {(standaloneExpanded || searching) &&
+              (standaloneTasks.length === 0 ? (
+                <p className="text-dim font-mono text-xs text-center py-6">No standalone tasks yet.</p>
+              ) : filteredStandalone.length === 0 ? (
+                <p className="text-dim font-mono text-xs text-center py-6">
+                  No standalone tasks match &ldquo;{search}&rdquo;
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {filteredStandalone.map((t) => (
+                    <button
+                      key={t._id}
+                      type="button"
+                      onClick={() => setOpenStandaloneId(t._id)}
+                      className="w-full flex items-center gap-3 bg-card rounded-card border border-border p-3 text-left hover:bg-card-hover transition-colors min-h-[44px]"
+                    >
+                      <div className="w-8 flex items-center justify-center flex-shrink-0">
+                        <AppIcon name={t.icon} size={18} className="text-muted" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-body text-sm text-text truncate">{t.name}</p>
+                        <p className="font-mono text-[10px] text-dim truncate mt-0.5">
+                          {t.projectedMinutes}m · {t.taskListName}
+                        </p>
+                      </div>
+                      <ChevronRight size={16} className="text-dim flex-shrink-0" />
+                    </button>
+                  ))}
+                </div>
+              ))}
+          </>
+        )}
+
+        {activeTab === "catalog" && (
+          <>
+            {/* ── Company task catalog — every saved task (TaskDefinition)
+                the company has, regardless of which lists currently use
+                it. This is where a physical NFC tag gets tied to a task,
+                whether that task lives in a standalone list or a
+                scheduled one. ──────────────────────────────────────────── */}
+            <button
+              type="button"
+              onClick={() => setCatalogExpanded((v) => !v)}
+              className="w-full flex items-center justify-between mb-3 min-h-[32px]"
+            >
+              <p className="font-mono text-[10px] text-dim uppercase tracking-widest">
+                Company Task Catalog {definitions !== null && `(${definitions.length})`}
+              </p>
+              {catalogExpanded || searching ? (
+                <ChevronUp size={14} className="text-dim" />
+              ) : (
+                <ChevronDown size={14} className="text-dim" />
+              )}
+            </button>
+
+            {(catalogExpanded || searching) && (
+              <>
+                {definitions === null && (
+                  <p className="text-dim font-mono text-xs text-center py-8">Loading…</p>
+                )}
+
+                {definitions !== null && definitions.length === 0 && (
+                  <p className="text-dim font-mono text-xs text-center py-8">
+                    No saved tasks yet — add one from any task list&rsquo;s edit page.
+                  </p>
+                )}
+
+                {definitions !== null && definitions.length > 0 && filteredDefinitions?.length === 0 && (
+                  <p className="text-dim font-mono text-xs text-center py-8">
+                    No catalog tasks match &ldquo;{search}&rdquo;
+                  </p>
+                )}
+
+                <div className="space-y-2">
+                  {filteredDefinitions?.map((d) => (
+                    <CatalogRow
+                      key={d._id}
+                      definition={d}
+                      open={openCatalogId === d._id}
+                      onOpenChange={(v) => setOpenCatalogId(v ? d._id : null)}
+                      onDelete={handleDelete}
+                      deleting={deletingId === d._id}
+                      blockedMessage={blockedMessage?.id === d._id ? blockedMessage.message : null}
+                    />
+                  ))}
+                </div>
+              </>
+            )}
           </>
         )}
       </div>
