@@ -199,8 +199,15 @@ function CatalogRow({
         // objects to.
         const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "-");
         const blob = await withTimeout(
+          // upload() does NOT read `file.type` on its own — omitting
+          // `contentType` here left the request with no declared content
+          // type, which the Blob API then rejected as not matching our
+          // own onBeforeGenerateToken allowedContentTypes allow-list
+          // (400 Bad Request, silently retried by async-retry until our
+          // withTimeout above won the race).
           upload(`instruction-steps/${definition._id}-${Date.now()}-${safeName}`, file, {
             access: "public",
+            contentType: file.type,
             handleUploadUrl: "/api/blob/upload",
           }),
           30000,
