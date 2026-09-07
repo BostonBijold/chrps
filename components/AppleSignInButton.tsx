@@ -78,15 +78,24 @@ export default function AppleSignInButton({ destination }: { destination: string
     }
   }
 
+  // Tagged so it's easy to filter in the device console (Capacitor's own
+  // "⚡️ To Native ->" bridge logging only shows plugin calls, not fetch
+  // results — these are what actually explain a poll/handoff failure).
+  function log(...args: unknown[]) {
+    // eslint-disable-next-line no-console
+    console.log("[AppleSignIn]", ...args);
+  }
+
   async function closeSheetBestEffort() {
     try {
       const { Browser } = await import("@capacitor/browser");
       await Browser.close();
-    } catch {
+    } catch (err) {
       // Already closed (e.g. the user tapped "Done" right as this
       // resolved) — Browser.close() rejects with "No active window to
       // close!" in that case, which is an expected benign race, not a
       // real failure.
+      log("Browser.close() rejected (sheet likely already closed):", err);
     }
   }
 
@@ -94,8 +103,10 @@ export default function AppleSignInButton({ destination }: { destination: string
     try {
       const res = await fetch(`/api/native-handoff/status?handoffId=${handoffId}`);
       const { done } = await res.json();
+      log("handoff status check ->", { handoffId, httpStatus: res.status, done });
       return Boolean(done);
-    } catch {
+    } catch (err) {
+      log("handoff status check failed:", err);
       return false;
     }
   }
@@ -104,35 +115,41 @@ export default function AppleSignInButton({ destination }: { destination: string
     try {
       const res = await fetch("/api/auth/session");
       const session = await res.json();
-      return Boolean(session?.user);
-    } catch {
+      const hasUser = Boolean(session?.user);
+      log("existing session check ->", { httpStatus: res.status, hasUser });
+      return hasUser;
+    } catch (err) {
+      log("existing session check failed:", err);
       return false;
     }
   }
 
-  async function finishSuccess() {
+  async function finishSuccess(opts: { skipClose?: boolean } = {}) {
     if (settledRef.current) return;
     settledRef.current = true;
+    log("finishSuccess — navigating to", destination);
     cleanupTimers();
-    await closeSheetBestEffort();
+    if (!opts.skipClose) await closeSheetBestEffort();
     if (mountedRef.current) {
       window.location.href = destination;
     }
   }
 
-  async function finishFailure(message: string) {
+  async function finishFailure(message: string, opts: { skipClose?: boolean } = {}) {
     if (settledRef.current) return;
     // A poll tick's request can succeed server-side (consuming the
     // handoff row, setting the session cookie) even if its response never
     // reaches this client — re-check for an actual session before
     // reporting a false failure.
     if (await checkExistingSession()) {
-      await finishSuccess();
+      log("finishFailure superseded — a session already exists, treating as success");
+      await finishSuccess(opts);
       return;
     }
     settledRef.current = true;
+    log("finishFailure —", message);
     cleanupTimers();
-    await closeSheetBestEffort();
+    if (!opts.skipClose) await closeSheetBestEffort();
     if (mountedRef.current) {
       setPending(false);
       setError(message);
@@ -165,14 +182,21 @@ export default function AppleSignInButton({ destination }: { destination: string
       const { Browser } = await import("@capacitor/browser");
       listenerHandleRef.current = await Browser.addListener("browserFinished", async () => {
         if (settledRef.current) return;
+        // browserFinished only ever fires once the native sheet is ALREADY
+        // gone (the user tapped "Done"/dismissed it) — never as a result of
+        // our own Browser.close() call (confirmed: that bypasses this
+        // delegate entirely). So there is never a sheet left to close here;
+        // skipClose avoids an always-guaranteed-to-fail Browser.close() call.
+        log("browserFinished fired (user dismissed the sheet manually)");
         const done = await checkHandoffStatus(handoffId);
         if (done) {
-          await finishSuccess();
+          await finishSuccess({ skipClose: true });
         } else {
-          await finishFailure("Sign-in wasn't completed. Please try again.");
+          await finishFailure("Sign-in wasn't completed. Please try again.", { skipClose: true });
         }
       });
 
+      log("opening sheet, handoffId =", handoffId);
       await Browser.open({ url });
 
       pollIntervalRef.current = setInterval(() => {
