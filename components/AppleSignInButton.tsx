@@ -8,13 +8,7 @@ import { Capacitor } from "@capacitor/core";
 // of honoring capacitor.config.ts's allowNavigation, which used to strand
 // the user in standalone Safari with no way back into the app. Opening it
 // in an in-app browser sheet (@capacitor/browser, backed by
-// SFSafariViewController on iOS) keeps it visually inside the app, and
-// Universal Links (see app/.well-known/apple-app-site-association's
-// /welcome and /tasks entries) close that sheet automatically once the
-// flow lands back on our own domain — components/UniversalLinkHandler.tsx
-// does the actual in-app routing when that fires. browserFinished below is
-// only a fallback for when the user manually dismisses the sheet instead
-// (or a destination Universal Links doesn't cover).
+// SFSafariViewController on iOS) keeps it visually inside the app.
 //
 // Opens app/api/native-apple-signin directly (not a server action that
 // fetches the Apple URL first) — a server action invoked from this
@@ -22,30 +16,51 @@ import { Capacitor } from "@capacitor/core";
 // NOT to share a cookie jar with the @capacitor/browser sheet (confirmed
 // via a live InvalidCheck: state value could not be parsed failure): the
 // state cookie set there was invisible to Apple's callback landing in the
-// sheet. Loading the route directly means the cookie-set and the eventual
-// callback both happen inside the one browsing context the sheet owns.
+// sheet. Loading the route directly means the cookie-set and Apple's
+// eventual callback both happen inside the one browsing context the sheet
+// owns.
+//
+// That same cookie-jar split means the session Apple's callback
+// establishes ALSO never reaches the app's own webview on its own
+// (confirmed live: the app stayed signed out after the sheet closed) — a
+// handoffId generated here, threaded through the whole flow, and picked up
+// by app/api/native-handoff/status once the sheet closes is what actually
+// signs the app itself in. See models/NativeSignInHandoff.ts for the full
+// mechanism and why Universal Links weren't reliable enough to carry this
+// on their own.
 //
 // Plain web (not the native app) keeps the simple top-level redirect the
 // Google button still uses — Browser.open() on web just opens a new tab,
-// which would leave this page stranded with no equivalent of
-// browserFinished to recover from it.
+// and the handoff mechanism above only matters for the split-cookie-jar
+// problem native has.
 export default function AppleSignInButton({ destination }: { destination: string }) {
   const [pending, setPending] = useState(false);
 
   async function handleClick() {
     setPending(true);
     try {
-      const url = `${window.location.origin}/api/native-apple-signin?callbackUrl=${encodeURIComponent(destination)}`;
-
       if (!Capacitor.isNativePlatform()) {
-        window.location.href = url;
+        window.location.href = `${window.location.origin}/api/native-apple-signin?callbackUrl=${encodeURIComponent(destination)}`;
         return;
       }
 
+      const handoffId = crypto.randomUUID();
+      const url = `${window.location.origin}/api/native-apple-signin?callbackUrl=${encodeURIComponent(destination)}&handoffId=${handoffId}`;
+
       const { Browser } = await import("@capacitor/browser");
-      const handle = await Browser.addListener("browserFinished", () => {
+      const handle = await Browser.addListener("browserFinished", async () => {
         handle.remove();
-        window.location.reload();
+        try {
+          const res = await fetch(`/api/native-handoff/status?handoffId=${handoffId}`);
+          const { done } = await res.json();
+          if (done) {
+            window.location.href = destination;
+          } else {
+            setPending(false);
+          }
+        } catch {
+          setPending(false);
+        }
       });
       await Browser.open({ url });
     } catch {
