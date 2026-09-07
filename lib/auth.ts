@@ -66,6 +66,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   ],
   adapter: MongoDBAdapter(clientPromise),
   callbacks: {
+    // authConfig's own redirect callback (the chrps:// passthrough native
+    // Apple sign-in depends on) must be spread in explicitly — this whole
+    // object literal REPLACES, not merges with, authConfig.callbacks in
+    // the ...authConfig spread above, since `callbacks` is a top-level key
+    // in both.
+    ...authConfig.callbacks,
     async jwt({ token, user, account }) {
       console.log("[auth] jwt callback — user:", user?.id, "token sub:", token?.sub);
       if (user) {

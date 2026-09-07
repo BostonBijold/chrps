@@ -40,4 +40,27 @@ export default {
           nonce: { options: { sameSite: "none", secure: true } },
         }
       : undefined,
+  callbacks: {
+    // Auth.js's default redirect callback only allows same-origin URLs
+    // (anything else silently falls back to baseUrl), which would swallow
+    // the one redirect the native Apple sign-in flow actually depends on:
+    // app/api/native-apple-signin/route.ts's redirectTo sends the OAuth
+    // flow's FINAL redirect to chrps://native-auth-complete, a custom URL
+    // scheme ios/App/App/AppleSignInSessionPlugin.swift's
+    // ASWebAuthenticationSession intercepts before it's ever actually
+    // navigated to (see that file for why this replaced a plain in-app
+    // browser sheet + JS polling). Every other redirect target keeps the
+    // default same-origin-only behavior — this only special-cases that one
+    // known, fixed scheme, not arbitrary external URLs.
+    redirect({ url, baseUrl }) {
+      if (url.startsWith("chrps://")) return url;
+      if (url.startsWith("/")) return `${baseUrl}${url}`;
+      try {
+        if (new URL(url).origin === baseUrl) return url;
+      } catch {
+        // Not a parseable absolute URL — fall through to baseUrl below.
+      }
+      return baseUrl;
+    },
+  },
 } satisfies NextAuthConfig;
