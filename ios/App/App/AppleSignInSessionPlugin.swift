@@ -19,15 +19,18 @@ import AuthenticationServices
 // and invokes the completion handler below — entirely inside native code,
 // independent of whether this app's own JS is running at all.
 //
-// app/api/native-apple-signin/route.ts's redirectTo sends the OAuth
-// flow's final redirect to chrps://native-auth-complete once Apple's own
-// callback and lib/auth.ts's jwt callback (which writes the
-// NativeSignInHandoff row inline, during that same request) have both
-// finished — this session intercepts that redirect. Once start() resolves
-// back in components/AppleSignInButton.tsx, the app's own WKWebView is
-// guaranteed foregrounded and running again, so a single (not polled)
-// check against app/api/native-handoff/status can be trusted to actually
-// execute.
+// app/api/native-apple-signin/route.ts's redirectTo can't be
+// chrps://native-auth-complete directly — Auth.js validates its own
+// callbackUrl cookie against a same-origin http(s) check, rejecting a
+// custom scheme outright regardless of any app-level redirect callback.
+// Instead it points at the real app/auth/native-complete page, which does
+// the actual chrps:// hop client-side, once Apple's own callback and
+// lib/auth.ts's jwt callback (which writes the NativeSignInHandoff row
+// inline, during that same request) have both finished — this session
+// intercepts THAT navigation. Once start() resolves back in
+// components/AppleSignInButton.tsx, the app's own WKWebView is guaranteed
+// foregrounded and running again, so a single (not polled) check against
+// app/api/native-handoff/status can be trusted to actually execute.
 @objc(AppleSignInSessionPlugin)
 public class AppleSignInSessionPlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenticationPresentationContextProviding {
     public let identifier = "AppleSignInSessionPlugin"

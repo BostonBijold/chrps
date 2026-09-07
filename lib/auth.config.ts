@@ -35,13 +35,18 @@ export default {
   // unaffected either way, since None is a superset of Lax for GETs.
   //
   // callbackUrl gets the same treatment for the same reason: it's the
-  // cookie that actually carries native-apple-signin's redirectTo
-  // (chrps://native-auth-complete) across Apple's cross-site POST to the
-  // redirect() callback below — without it, that cookie is withheld same
-  // as state/nonce were, redirect() never sees the chrps:// URL, and the
-  // ASWebAuthenticationSession sheet lands on the plain site instead of
-  // ever hitting a scheme it can intercept (confirmed live: jwt/signIn
-  // both completed successfully, but the sheet never closed).
+  // cookie that carries redirectTo (app/api/native-apple-signin's
+  // callbackUrl or /auth/native-complete) across Apple's cross-site POST.
+  // Without it, that cookie is withheld same as state/nonce were, and
+  // Auth.js silently falls back to its own default redirect target instead
+  // of the one actually requested — no error, just the wrong destination.
+  // (A chrps:// URL was tried here directly at one point instead of a real
+  // https:// page — that failed loudly with "InvalidCallbackUrl", since
+  // Auth.js validates this cookie's stored value against a same-origin
+  // http(s) check on its own, before any custom redirect() callback below
+  // would even run. redirectTo must always be same-origin http(s); see
+  // app/auth/native-complete/page.tsx for how the native flow still gets
+  // to chrps://native-auth-complete despite that constraint.)
   cookies:
     process.env.NODE_ENV === "production"
       ? {
@@ -50,28 +55,4 @@ export default {
           callbackUrl: { options: { sameSite: "none", secure: true } },
         }
       : undefined,
-  callbacks: {
-    // Auth.js's default redirect callback only allows same-origin URLs
-    // (anything else silently falls back to baseUrl), which would swallow
-    // the one redirect the native Apple sign-in flow actually depends on:
-    // app/api/native-apple-signin/route.ts's redirectTo sends the OAuth
-    // flow's FINAL redirect to chrps://native-auth-complete, a custom URL
-    // scheme ios/App/App/AppleSignInSessionPlugin.swift's
-    // ASWebAuthenticationSession intercepts before it's ever actually
-    // navigated to (see that file for why this replaced a plain in-app
-    // browser sheet + JS polling). Every other redirect target keeps the
-    // default same-origin-only behavior — this only special-cases that one
-    // known, fixed scheme, not arbitrary external URLs.
-    redirect({ url, baseUrl }) {
-      console.log("[auth] redirect callback — url:", url, "baseUrl:", baseUrl);
-      if (url.startsWith("chrps://")) return url;
-      if (url.startsWith("/")) return `${baseUrl}${url}`;
-      try {
-        if (new URL(url).origin === baseUrl) return url;
-      } catch {
-        // Not a parseable absolute URL — fall through to baseUrl below.
-      }
-      return baseUrl;
-    },
-  },
 } satisfies NextAuthConfig;

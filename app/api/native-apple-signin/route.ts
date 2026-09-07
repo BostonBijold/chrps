@@ -21,19 +21,23 @@ import { signIn, NATIVE_HANDOFF_COOKIE } from "@/lib/auth";
 // the app stayed signed out afterward), so handoffId is also stamped onto
 // a cookie here (read back by lib/auth.ts's jwt callback, which does the
 // actual NativeSignInHandoff write inline during Apple's own callback —
-// see that callback for why). redirectTo goes to chrps://native-auth-complete,
-// a custom URL scheme AppleSignInSessionPlugin.swift's
-// ASWebAuthenticationSession intercepts and auto-dismisses on — see that
-// file and lib/auth.config.ts's redirect callback (which allow-lists this
-// one scheme past Auth.js's default same-origin-only redirect check).
-// models/NativeSignInHandoff.ts has the full handoff. Plain web has no
-// such split (it's the same browser tab throughout), so it skips the
-// detour and goes straight to callbackUrl.
+// see that callback for why). redirectTo goes to the real
+// app/auth/native-complete page, NOT chrps://native-auth-complete
+// directly — Auth.js validates its own callbackUrl cookie against a
+// same-origin http(s) check before lib/auth.config.ts's redirect()
+// callback ever runs (confirmed live: "InvalidCallbackUrl", thrown before
+// that callback's own log line ever printed), so a custom scheme can
+// never be redirectTo itself. That landing page does the chrps:// hop
+// itself, client-side, once loaded — see its own comment for why that's
+// safe from the WKWebView-suspension bug the rest of this flow works
+// around. models/NativeSignInHandoff.ts has the full handoff. Plain web
+// has no such split (it's the same browser tab throughout), so it skips
+// the detour and goes straight to callbackUrl.
 export async function GET(request: NextRequest) {
   const callbackUrl = request.nextUrl.searchParams.get("callbackUrl") || "/welcome";
   const handoffId = request.nextUrl.searchParams.get("handoffId");
 
-  const redirectTo = handoffId ? "chrps://native-auth-complete" : callbackUrl;
+  const redirectTo = handoffId ? new URL("/auth/native-complete", request.url).toString() : callbackUrl;
 
   const url = await signIn("apple", { redirectTo, redirect: false });
   const response = NextResponse.redirect(url);
