@@ -63,7 +63,14 @@ export const config = {
   // external API surface (Shortcuts/Siri App Intents, NFC silent triggers)
   // — but that whole surface was removed; see docs/features/nfc.md's
   // history note on why.
+  //
+  // api/native-apple-signin is excluded for the same reason api/auth is:
+  // it's the unauthenticated entry point that KICKS OFF sign-in (see
+  // components/AppleSignInButton.tsx), so it's hit with no session by
+  // definition — without this exclusion this middleware 401s it before
+  // its own route handler ever runs, the same {"error":"Unauthorized"}
+  // failure mode the api/cron comment above already documents for QStash.
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|api/auth|api/cron|manifest\\.json|sw\\.js|.*\\.(?:png|jpg|jpeg|svg|ico|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|api/auth|api/cron|api/native-apple-signin|manifest\\.json|sw\\.js|.*\\.(?:png|jpg|jpeg|svg|ico|webp)$).*)",
   ],
 };
