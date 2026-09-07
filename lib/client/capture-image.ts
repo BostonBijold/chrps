@@ -15,12 +15,25 @@ export type CapturePhotoResult =
 // second option alongside it. quality/width are a starting point to keep a
 // reference photo comfortably under POST /api/blob/upload's size cap
 // without relying on the server cap alone — see that route's own comment.
+//
+// resultType is Base64, not Uri: an earlier Uri-based version returned
+// photo.webPath and converted it via fetch(photo.webPath).blob() — that
+// works fine for the default local capacitor://localhost webview, but this
+// app loads its content from a remote origin instead (capacitor.config.ts's
+// server.url), and a live https: page fetching a local file: resource is
+// blocked as mixed content. @capacitor/camera's own webPath doc comment
+// only promises it's usable as an <img> src (the WebView's native resource
+// loader, not the page's own fetch()) — never actually documented as
+// fetch()-able. That fetch rejected, uncaught, which hung the caller
+// forever (setCapturing never ran) instead of surfacing an error. Base64
+// sidesteps this: the image comes back as plain data on the JS side, no
+// second network/scheme-dependent read required.
 export async function capturePhoto(): Promise<CapturePhotoResult> {
   let photo;
   try {
     photo = await Camera.getPhoto({
       source: CameraSource.Camera,
-      resultType: CameraResultType.Uri,
+      resultType: CameraResultType.Base64,
       quality: 80,
       width: 1600,
       correctOrientation: true,
@@ -37,15 +50,26 @@ export async function capturePhoto(): Promise<CapturePhotoResult> {
     return { status: "error", message };
   }
 
-  if (!photo.webPath) {
+  if (!photo.base64String) {
     return { status: "error", message: "Camera returned no image data." };
   }
-  const response = await fetch(photo.webPath);
-  const blob = await response.blob();
-  // Wrapped in a File (not returned as a bare Blob) so the calling code's
-  // existing type/size validation and Blob pathname-from-filename logic —
-  // written for the old <input type="file"> flow — need no changes beyond
-  // swapping what produces the file.
-  const file = new File([blob], `photo-${Date.now()}.jpg`, { type: "image/jpeg" });
-  return { status: "ok", file };
+  // Everything past this point is synchronous, local decoding — no fetch,
+  // no dependency on how the webview's document origin/scheme is set up.
+  // Wrapped in try/catch (unlike the old fetch-based version, whose
+  // rejection was never caught) so any decode failure surfaces as a normal
+  // {status: "error"} result instead of an unhandled rejection that leaves
+  // the caller's "capturing" state stuck forever.
+  try {
+    const byteString = atob(photo.base64String);
+    const bytes = new Uint8Array(byteString.length);
+    for (let i = 0; i < byteString.length; i++) bytes[i] = byteString.charCodeAt(i);
+    // Wrapped in a File (not returned as a bare Blob) so the calling code's
+    // existing type/size validation and Blob pathname-from-filename logic —
+    // written for the old <input type="file"> flow — need no changes beyond
+    // swapping what produces the file.
+    const file = new File([bytes], `photo-${Date.now()}.jpg`, { type: "image/jpeg" });
+    return { status: "ok", file };
+  } catch (err) {
+    return { status: "error", message: err instanceof Error ? err.message : "Failed to process the captured photo." };
+  }
 }
