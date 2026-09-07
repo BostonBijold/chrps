@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
+import type { PluginListenerHandle } from "@capacitor/core";
 
 // Apple's sign-in page won't run inside Capacitor's own WKWebView — iOS
 // hands navigation to appleid.apple.com off to the system browser instead
@@ -23,61 +24,183 @@ import { Capacitor } from "@capacitor/core";
 // That same cookie-jar split means the session Apple's callback
 // establishes ALSO never reaches the app's own webview on its own
 // (confirmed live: the app stayed signed out after the sheet closed) — a
-// handoffId generated here, threaded through the whole flow, and picked up
-// by app/api/native-handoff/status once the sheet closes is what actually
-// signs the app itself in. See models/NativeSignInHandoff.ts for the full
-// mechanism and why Universal Links weren't reliable enough to carry this
-// on their own.
+// handoffId generated here, threaded through the whole flow, is what
+// actually signs the app itself in. See models/NativeSignInHandoff.ts for
+// the full mechanism and why Universal Links weren't reliable enough to
+// carry this on their own.
+//
+// The app polls app/api/native-handoff/status WHILE the sheet is still
+// open (rather than waiting for the user to close it first, which used to
+// be the only trigger and left the sheet stranded open with no way to
+// know sign-in had actually finished) and closes the sheet itself the
+// moment the handoff succeeds. The browserFinished listener is kept only
+// as a fallback for a user who manually dismisses the sheet early.
 //
 // Plain web (not the native app) keeps the simple top-level redirect the
 // Google button still uses — Browser.open() on web just opens a new tab,
 // and the handoff mechanism above only matters for the split-cookie-jar
 // problem native has.
+
+const POLL_INTERVAL_MS = 1500;
+const POLL_TIMEOUT_MS = 90_000;
+
 export default function AppleSignInButton({ destination }: { destination: string }) {
   const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const mountedRef = useRef(true);
+  const settledRef = useRef(false);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const listenerHandleRef = useRef<PluginListenerHandle | null>(null);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      cleanupTimers();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function cleanupTimers() {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+    if (listenerHandleRef.current) {
+      listenerHandleRef.current.remove();
+      listenerHandleRef.current = null;
+    }
+  }
+
+  async function closeSheetBestEffort() {
+    try {
+      const { Browser } = await import("@capacitor/browser");
+      await Browser.close();
+    } catch {
+      // Already closed (e.g. the user tapped "Done" right as this
+      // resolved) — Browser.close() rejects with "No active window to
+      // close!" in that case, which is an expected benign race, not a
+      // real failure.
+    }
+  }
+
+  async function checkHandoffStatus(handoffId: string): Promise<boolean> {
+    try {
+      const res = await fetch(`/api/native-handoff/status?handoffId=${handoffId}`);
+      const { done } = await res.json();
+      return Boolean(done);
+    } catch {
+      return false;
+    }
+  }
+
+  async function checkExistingSession(): Promise<boolean> {
+    try {
+      const res = await fetch("/api/auth/session");
+      const session = await res.json();
+      return Boolean(session?.user);
+    } catch {
+      return false;
+    }
+  }
+
+  async function finishSuccess() {
+    if (settledRef.current) return;
+    settledRef.current = true;
+    cleanupTimers();
+    await closeSheetBestEffort();
+    if (mountedRef.current) {
+      window.location.href = destination;
+    }
+  }
+
+  async function finishFailure(message: string) {
+    if (settledRef.current) return;
+    // A poll tick's request can succeed server-side (consuming the
+    // handoff row, setting the session cookie) even if its response never
+    // reaches this client — re-check for an actual session before
+    // reporting a false failure.
+    if (await checkExistingSession()) {
+      await finishSuccess();
+      return;
+    }
+    settledRef.current = true;
+    cleanupTimers();
+    await closeSheetBestEffort();
+    if (mountedRef.current) {
+      setPending(false);
+      setError(message);
+    }
+  }
+
+  async function pollTick(handoffId: string) {
+    if (settledRef.current) return;
+    const done = await checkHandoffStatus(handoffId);
+    if (done) {
+      await finishSuccess();
+    }
+    // A false/failed tick isn't terminal — the next tick or the timeout
+    // resolves it.
+  }
 
   async function handleClick() {
     setPending(true);
+    setError(null);
     try {
       if (!Capacitor.isNativePlatform()) {
         window.location.href = `${window.location.origin}/api/native-apple-signin?callbackUrl=${encodeURIComponent(destination)}`;
         return;
       }
 
+      settledRef.current = false;
       const handoffId = crypto.randomUUID();
       const url = `${window.location.origin}/api/native-apple-signin?callbackUrl=${encodeURIComponent(destination)}&handoffId=${handoffId}`;
 
       const { Browser } = await import("@capacitor/browser");
-      const handle = await Browser.addListener("browserFinished", async () => {
-        handle.remove();
-        try {
-          const res = await fetch(`/api/native-handoff/status?handoffId=${handoffId}`);
-          const { done } = await res.json();
-          if (done) {
-            window.location.href = destination;
-          } else {
-            setPending(false);
-          }
-        } catch {
-          setPending(false);
+      listenerHandleRef.current = await Browser.addListener("browserFinished", async () => {
+        if (settledRef.current) return;
+        const done = await checkHandoffStatus(handoffId);
+        if (done) {
+          await finishSuccess();
+        } else {
+          await finishFailure("Sign-in wasn't completed. Please try again.");
         }
       });
+
       await Browser.open({ url });
+
+      pollIntervalRef.current = setInterval(() => {
+        void pollTick(handoffId);
+      }, POLL_INTERVAL_MS);
+      timeoutRef.current = setTimeout(() => {
+        void finishFailure("Sign-in timed out. Please try again.");
+      }, POLL_TIMEOUT_MS);
     } catch {
+      cleanupTimers();
       setPending(false);
+      setError("Something went wrong. Please try again.");
     }
   }
 
   return (
-    <button
-      type="button"
-      onClick={handleClick}
-      disabled={pending}
-      className="w-full flex items-center justify-center gap-3 bg-black border-2 border-black text-white py-4 rounded-xl font-body font-medium hover:bg-gray-900 transition-colors disabled:opacity-60"
-    >
-      <AppleIcon />
-      Continue with Apple
-    </button>
+    <div>
+      <button
+        type="button"
+        onClick={handleClick}
+        disabled={pending}
+        className="w-full flex items-center justify-center gap-3 bg-black border-2 border-black text-white py-4 rounded-xl font-body font-medium hover:bg-gray-900 transition-colors disabled:opacity-60"
+      >
+        <AppleIcon />
+        Continue with Apple
+      </button>
+      {error && <p className="text-burgundy-light text-xs text-center mt-2">{error}</p>}
+    </div>
   );
 }
 
