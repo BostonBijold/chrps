@@ -94,13 +94,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           try {
             const cookieStore = cookies();
             const handoffId = cookieStore.get(NATIVE_HANDOFF_COOKIE)?.value;
+            console.log("[auth] apple jwt callback — handoffId cookie present:", Boolean(handoffId));
             if (handoffId) {
               await connectDB();
-              await NativeSignInHandoff.create({
+              const record = await NativeSignInHandoff.create({
                 handoffId,
                 userId: user.id,
                 expiresAt: new Date(Date.now() + 5 * 60 * 1000),
               });
+              console.log("[auth] wrote NativeSignInHandoff row:", record._id.toString(), "for handoffId:", handoffId);
               cookieStore.delete(NATIVE_HANDOFF_COOKIE);
             }
           } catch (err) {

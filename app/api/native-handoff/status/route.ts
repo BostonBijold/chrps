@@ -14,7 +14,11 @@ export async function GET(request: NextRequest) {
   const handoffId = request.nextUrl.searchParams.get("handoffId");
   if (!handoffId) return NextResponse.json({ done: false });
 
-  const resultUrl = await signIn("credentials", { handoffId, redirect: false }).catch(() => null);
+  const resultUrl = await signIn("credentials", { handoffId, redirect: false }).catch((err) => {
+    console.log("[native-handoff/status] signIn threw for handoffId:", handoffId, err);
+    return null;
+  });
   const done = !!resultUrl && !resultUrl.includes("error=");
+  console.log("[native-handoff/status] handoffId:", handoffId, "resultUrl:", resultUrl, "done:", done);
   return NextResponse.json({ done });
 }

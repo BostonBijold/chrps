@@ -17,5 +17,6 @@ class MainViewController: CAPBridgeViewController {
     override func capacitorDidLoad() {
         bridge?.registerPluginInstance(LiveActivityPlugin())
         bridge?.registerPluginInstance(NfcScanPlugin())
+        bridge?.registerPluginInstance(AppleSignInSessionPlugin())
     }
 }
