@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 import { NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
 import User from "@/models/User";
-import { resolveSessionUser } from "@/lib/session";
+import { resolveSessionUser, isOwner } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +21,7 @@ const ROLE_RANK: Record<string, number> = { owner: 0, manager: 1, employee: 2 };
 export async function GET() {
   const sessionUser = await resolveSessionUser();
   if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const { companyId, activeLocationId } = sessionUser;
+  const { companyId, role, activeLocationId } = sessionUser;
   if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
 
   await connectDB();
@@ -33,7 +33,13 @@ export async function GET() {
   // as lib/task-list-session-actions.ts's getOpenSessionLocks(). No real
   // company ever has that id, so there's nothing to find either way.
   const query: Record<string, unknown> = { companyId };
-  if (activeLocationId) query.locationId = activeLocationId;
+  // Gate on role, not just presence: activeLocationId is meant to be
+  // owner-only (set exclusively by the owner-gated PATCH
+  // /api/session/active-location), but nothing clears it if a hand-edit in
+  // MongoDB later demotes that user away from "owner" — a stale value would
+  // otherwise silently filter this manager/employee's own roster down to
+  // one location.
+  if (isOwner(role) && activeLocationId) query.locationId = activeLocationId;
   const users = mongoose.isValidObjectId(companyId)
     ? await User.find(query, "name image role createdAt companyJoinedAt locationId jobTags").lean()
     : [];
