@@ -221,13 +221,13 @@ private func finishLine(_ state: RoutineActivityAttributes.ContentState) -> some
 // recorded a check with no data captured, or failed outright with no way
 // to show why. A plain Link (not an intent) needs no KeychainHelper/API
 // call at all — it just needs Universal Links to route it into the app,
-// the same applinks:chrps.app entitlement the NFC tap-to-trigger
+// the same applinks:www.chrps.app entitlement the NFC tap-to-trigger
 // flow already relies on (see nfc.md's "Native setup") — landing on
 // /tasks, where the FAB's existing active-timer resume pill already picks
 // up whatever's in_progress with no query param needed (see
 // components/BottomNav.tsx's fetchActiveTimer).
 private func openAppButton() -> some View {
-    Link(destination: URL(string: "https://chrps.app/tasks")!) {
+    Link(destination: URL(string: "https://www.chrps.app/tasks")!) {
         Text("Open App")
             .font(.system(size: 13, weight: .semibold))
             .frame(maxWidth: .infinity)
