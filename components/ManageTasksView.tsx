@@ -24,8 +24,10 @@ const COLLAPSE_THRESHOLD = 5;
 // Mirrors app/api/blob/upload/route.ts's onBeforeGenerateToken constraints
 // exactly — checking client-side first turns an oversized/wrong-type photo
 // into an immediate, specific error message instead of a round-trip to
-// Vercel Blob that comes back as a generic 400.
-const MAX_INSTRUCTION_IMAGE_BYTES = 5 * 1024 * 1024;
+// Vercel Blob that comes back as a generic 400. In practice a captured
+// photo is already resized well under this by lib/client/capture-image.ts;
+// this cap is the backstop, matching the server's own.
+const MAX_INSTRUCTION_IMAGE_BYTES = 8 * 1024 * 1024;
 const ALLOWED_INSTRUCTION_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 
 interface DefinitionPlacement {

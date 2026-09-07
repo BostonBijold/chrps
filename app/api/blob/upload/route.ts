@@ -35,7 +35,18 @@ export async function POST(req: NextRequest) {
       request: req,
       onBeforeGenerateToken: async () => ({
         allowedContentTypes: ["image/jpeg", "image/png", "image/webp"],
-        maximumSizeInBytes: 5 * 1024 * 1024, // 5MB
+        // 8MB backstop, not the primary defense — the real size control is
+        // lib/client/capture-image.ts's client-side resize/quality options;
+        // this just covers a browser/OS edge case where that step is
+        // skipped or fails. See docs/features/instruction-steps-camera-capture.md.
+        maximumSizeInBytes: 8 * 1024 * 1024,
+        // Vercel's client-upload token defaults to a 30s validUntil — fine
+        // for a file-picker upload (the photo's already chosen) but a live
+        // camera flow adds real time (permission prompt, framing, a
+        // possible retake) that can easily exceed it. 5 minutes comfortably
+        // covers a manager fumbling with the shot on this manager-gated
+        // endpoint.
+        validUntil: Date.now() + 5 * 60 * 1000,
         addRandomSuffix: true,
         tokenPayload: JSON.stringify({ companyId }),
       }),
