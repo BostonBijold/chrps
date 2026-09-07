@@ -1,16 +1,19 @@
 // Shown inside the @capacitor/browser in-app sheet after Sign in with
 // Apple finishes — see app/api/native-handoff/complete/route.ts. Purely
-// informational: the actual sign-in-into-the-app handoff happens once the
-// user dismisses this sheet (SFSafariViewController's own Done button) and
-// components/AppleSignInButton.tsx's browserFinished listener polls
-// app/api/native-handoff/status from the app's own webview.
+// transitional: components/AppleSignInButton.tsx is polling
+// app/api/native-handoff/status from the app's own webview while this
+// renders, and closes this sheet itself the moment that succeeds. The
+// sheet's own "Done" button still works as a manual fallback if the app
+// hasn't auto-closed it yet.
 export default function NativeAuthCompletePage() {
   return (
     <main className="min-h-dvh bg-bg flex flex-col items-center justify-center p-6 text-center">
+      <div
+        className="w-8 h-8 rounded-full border-2 border-border border-t-olive animate-spin mb-4"
+        aria-hidden="true"
+      />
       <h1 className="font-brand font-bold text-2xl text-text mb-3">You&apos;re signed in</h1>
-      <p className="text-muted text-sm max-w-mobile">
-        Tap &quot;Done&quot; above to return to the Ch&apos;rps app.
-      </p>
+      <p className="text-muted text-sm max-w-mobile">Returning to the app&hellip;</p>
     </main>
   );
 }
