@@ -25,17 +25,13 @@ import AppIcon, { IconPicker } from "@/components/AppIcon";
 import AddTaskSheet from "@/components/AddTaskSheet";
 import TaskFieldsEditor from "@/components/TaskFieldsEditor";
 import LinkInventoryItemSheet from "@/components/LinkInventoryItemSheet";
-import { scanNfcTag } from "@/lib/native/nfc-scan";
-import { Capacitor } from "@capacitor/core";
+import NfcBindingPanel from "@/components/task-panels/NfcBindingPanel";
+import InstructionsEditorPanel, { type InstructionStepView } from "@/components/task-panels/InstructionsEditorPanel";
+import RequiresPhotoTogglePanel from "@/components/task-panels/RequiresPhotoTogglePanel";
+import LinkedInventoryPanel from "@/components/task-panels/LinkedInventoryPanel";
+import { useTaskDefinitionPanel, type DefinitionInstructionStep } from "@/lib/client/use-task-definition-panel";
+import { useInventoryLinks } from "@/lib/client/use-inventory-links";
 import type { TaskType, FormFieldDef } from "@/models/TaskDefinition";
-
-interface InventoryLink {
-  itemTypeId: string;
-  name: string;
-  unit: string | null;
-  nfcTagUid: string | null;
-  required: boolean;
-}
 
 export interface EditTask {
   _id: string;
@@ -49,6 +45,12 @@ export interface EditTask {
   successThreshold: number; // how many of this week's scheduled days = 100%
   nfcTagCode: string | null; // tagCode of the NFC tag linked to this task, if any — see docs/features/nfc.md
   nfcTagUid: string | null; // raw UID of the physical tag bound for scan-to-complete, if any — see docs/features/nfc.md
+  // Definition-level fields — shared with the Task Catalog's CatalogRow via
+  // lib/client/use-task-definition-panel.ts/use-inventory-links.ts, see
+  // docs/features/unified-task-edit-surface.md.
+  definitionId: string;
+  instructionSteps: DefinitionInstructionStep[];
+  requiresPhoto: boolean;
 }
 
 interface Props {
@@ -126,131 +128,21 @@ function SortableRow({
     }
   }
 
-  // Scan-to-complete binding — a raw physical UID stored directly on the
-  // task, distinct from nfcTagCode above (that's the tagCode/URL
-  // tap-to-trigger system). See docs/features/nfc.md's "In-app
-  // scan-to-complete binding". Local state so bind/unbind reflects
-  // immediately without a full page refresh.
-  const [nfcTagUid, setNfcTagUid] = useState<string | null>(task.nfcTagUid);
-  const [bindBusy, setBindBusy] = useState(false);
-  const [bindError, setBindError] = useState<string | null>(null);
-  // Other active targets already bound to the same UID — a tag can now back
-  // more than one target (see docs/features/nfc.md's "Multi-target
-  // binding"), so binding here never fails or clears another's binding, it
-  // just informs the manager the tag is about to do double duty.
-  const [alsoBoundTo, setAlsoBoundTo] = useState<string[]>([]);
-
-  async function handleScanToLink() {
-    setBindError(null);
-    if (!Capacitor.isNativePlatform()) {
-      setBindError("Open the app on your phone to scan a tag.");
-      return;
-    }
-    setBindBusy(true);
-    const result = await scanNfcTag();
-    if (result.status !== "ok") {
-      setBindBusy(false);
-      setBindError(result.status === "unsupported" ? "NFC isn't available on this device." : result.message);
-      return;
-    }
-    try {
-      const res = await fetch(`/api/tasks/${task._id}/nfc-tag`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ uid: result.uid }),
-      });
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Failed to bind tag");
-      const body = await res.json();
-      setNfcTagUid(result.uid);
-      setAlsoBoundTo(body.alsoBoundTo ?? []);
-    } catch (err) {
-      setBindError(err instanceof Error ? err.message : "Failed to bind tag");
-    } finally {
-      setBindBusy(false);
-    }
-  }
-
-  async function handleUnbindTag() {
-    setBindBusy(true);
-    setBindError(null);
-    try {
-      const res = await fetch(`/api/tasks/${task._id}/nfc-tag`, { method: "DELETE" });
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Failed to unbind tag");
-      setNfcTagUid(null);
-      setAlsoBoundTo([]);
-    } catch (err) {
-      setBindError(err instanceof Error ? err.message : "Failed to unbind tag");
-    } finally {
-      setBindBusy(false);
-    }
-  }
+  // Scan-to-complete binding, Instructions, and Require Photo — all
+  // definitionId-scoped and shared with the Task Catalog's CatalogRow, see
+  // lib/client/use-task-definition-panel.ts and
+  // docs/features/unified-task-edit-surface.md. Distinct from nfcTagCode
+  // above (that's the tagCode/URL tap-to-trigger system).
+  const panel = useTaskDefinitionPanel(task.definitionId, {
+    nfcTagUid: task.nfcTagUid,
+    instructionSteps: task.instructionSteps,
+    requiresPhoto: task.requiresPhoto,
+  });
 
   // Linked Inventory — see docs/features/inventory.md's "Task ↔ Inventory
-  // Linking". Fetched lazily only once this row's edit panel is open
-  // (isEditing), same as the rest of this panel's local state.
-  const [inventoryLinks, setInventoryLinks] = useState<InventoryLink[] | null>(null);
+  // Linking". Fetched lazily only once this row's edit panel is open.
+  const inventory = useInventoryLinks(task.definitionId, isEditing);
   const [showLinkPicker, setShowLinkPicker] = useState(false);
-  const [linkBusyId, setLinkBusyId] = useState<string | null>(null);
-  const [linkError, setLinkError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!isEditing) return;
-    fetch(`/api/tasks/${task._id}/inventory-links`)
-      .then((r) => (r.ok ? r.json() : []))
-      .then(setInventoryLinks)
-      .catch(() => setInventoryLinks([]));
-  }, [isEditing, task._id]);
-
-  async function handleAddInventoryLink(itemTypeId: string) {
-    setLinkBusyId(itemTypeId);
-    setLinkError(null);
-    try {
-      const res = await fetch(`/api/tasks/${task._id}/inventory-links`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ itemTypeId, required: false }),
-      });
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Failed to link item");
-      setInventoryLinks(await res.json());
-      setShowLinkPicker(false);
-    } catch (err) {
-      setLinkError(err instanceof Error ? err.message : "Failed to link item");
-    } finally {
-      setLinkBusyId(null);
-    }
-  }
-
-  async function handleToggleInventoryLinkRequired(itemTypeId: string, required: boolean) {
-    setLinkBusyId(itemTypeId);
-    setLinkError(null);
-    try {
-      const res = await fetch(`/api/tasks/${task._id}/inventory-links/${itemTypeId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ required }),
-      });
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Failed to update link");
-      setInventoryLinks(await res.json());
-    } catch (err) {
-      setLinkError(err instanceof Error ? err.message : "Failed to update link");
-    } finally {
-      setLinkBusyId(null);
-    }
-  }
-
-  async function handleRemoveInventoryLink(itemTypeId: string) {
-    setLinkBusyId(itemTypeId);
-    setLinkError(null);
-    try {
-      const res = await fetch(`/api/tasks/${task._id}/inventory-links/${itemTypeId}`, { method: "DELETE" });
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Failed to unlink item");
-      setInventoryLinks((prev) => (prev ? prev.filter((l) => l.itemTypeId !== itemTypeId) : prev));
-    } catch (err) {
-      setLinkError(err instanceof Error ? err.message : "Failed to unlink item");
-    } finally {
-      setLinkBusyId(null);
-    }
-  }
 
   function toggleEditDay(day: number) {
     setEditScheduledDays((prev) => {
@@ -428,117 +320,74 @@ function SortableRow({
             </div>
           )}
 
-          {/* Scan-to-complete binding — a raw UID stored on the task itself,
-              distinct from the tap-to-trigger "NFC Tag" section above. See
-              docs/features/nfc.md's "In-app scan-to-complete binding". */}
+          {/* Scan-to-complete binding, Instructions, Require Photo, and
+              Linked Inventory — all definitionId-scoped, shared with the
+              Task Catalog's CatalogRow (components/ManageTasksView.tsx),
+              see docs/features/unified-task-edit-surface.md. */}
           {isManager && (
-            <div className="pt-2 border-t border-border">
-              <p className="font-mono text-[10px] uppercase tracking-widest text-dim mb-1.5">
-                Scan-to-Complete Tag
-              </p>
-              {nfcTagUid ? (
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-[11px] text-olive flex-1 truncate">
-                    Bound · {nfcTagUid}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleUnbindTag}
-                    disabled={bindBusy}
-                    className="font-mono text-[11px] text-burgundy-light px-2 py-1 disabled:opacity-40"
-                  >
-                    Unbind
-                  </button>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleScanToLink}
-                  disabled={bindBusy}
-                  className="font-mono text-[11px] text-olive border border-olive/30 bg-olive/10 px-3 py-1.5 rounded-pill disabled:opacity-40"
-                >
-                  {bindBusy ? "Hold near tag…" : "Scan to Link"}
-                </button>
-              )}
-              <p className="font-body text-[11px] text-dim mt-1.5">
-                {nfcTagUid
-                  ? "Completing this task requires scanning this exact tag instead of just tapping Save."
-                  : "Optional — bind a physical tag so this task can only be completed by scanning it."}
-              </p>
-              {bindError && (
-                <p className="font-mono text-[11px] text-burgundy-light mt-1.5">{bindError}</p>
-              )}
-              {alsoBoundTo.length > 0 && (
-                <p className="font-mono text-[11px] text-dim mt-1.5">
-                  Also bound to: {alsoBoundTo.join(", ")}
-                </p>
-              )}
-            </div>
+            <NfcBindingPanel
+              tagBinding={{
+                nfcTagUid: panel.nfcTagUid,
+                busy: panel.bindBusy,
+                error: panel.bindError,
+                alsoBoundTo: panel.alsoBoundTo,
+                onScanToLink: panel.handleScanToLink,
+                onUnbind: panel.handleUnbindTag,
+              }}
+            />
           )}
 
-          {/* Linked Inventory — see docs/features/inventory.md's "Task ↔
-              Inventory Linking". A separate concept from the NFC panels
-              above: an InventoryItemType attached here gets a count input on
-              this task's own form, independent of whether either has a
-              bound tag. */}
           {isManager && (
-            <div className="pt-2 border-t border-border">
-              <p className="font-mono text-[10px] uppercase tracking-widest text-dim mb-1.5">
-                Linked Inventory
-              </p>
-              {inventoryLinks === null ? (
-                <p className="font-mono text-[11px] text-dim">Loading…</p>
-              ) : inventoryLinks.length === 0 ? (
-                <p className="font-mono text-[11px] text-dim">Nothing linked yet.</p>
-              ) : (
-                <div className="space-y-1.5">
-                  {inventoryLinks.map((link) => (
-                    <div key={link.itemTypeId} className="flex items-center gap-2">
-                      <span className="font-mono text-[11px] text-text flex-1 truncate">
-                        {link.name}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => handleToggleInventoryLinkRequired(link.itemTypeId, !link.required)}
-                        disabled={linkBusyId === link.itemTypeId}
-                        className={`font-mono text-[10px] uppercase tracking-widest px-2 py-1 rounded-pill disabled:opacity-40 ${
-                          link.required ? "bg-olive/15 text-olive" : "bg-card-hover text-muted"
-                        }`}
-                      >
-                        {link.required ? "Required" : "Optional"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveInventoryLink(link.itemTypeId)}
-                        disabled={linkBusyId === link.itemTypeId}
-                        className="font-mono text-[11px] text-burgundy-light px-2 py-1 disabled:opacity-40"
-                      >
-                        Unlink
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <button
-                type="button"
-                onClick={() => setShowLinkPicker(true)}
-                className="mt-2 font-mono text-[11px] text-olive border border-olive/30 bg-olive/10 px-3 py-1.5 rounded-pill"
-              >
-                + Add Item
-              </button>
-              {linkError && (
-                <p className="font-mono text-[11px] text-burgundy-light mt-1.5">{linkError}</p>
-              )}
-            </div>
+            <InstructionsEditorPanel
+              instructions={{
+                steps: panel.instructionSteps.map((s): InstructionStepView => ({
+                  key: s._id,
+                  description: s.description,
+                  imageUrl: s.imageUrl,
+                })),
+                maxSteps: 3,
+                busy: panel.stepsBusy,
+                error: panel.stepsError,
+                capturing: panel.capturing,
+                captureError: panel.captureError,
+                onTakePhoto: panel.handleTakePhoto,
+                onAddStep: panel.handleAddStep,
+                onDeleteStep: panel.handleDeleteStep,
+              }}
+            />
+          )}
+
+          {isManager && (
+            <RequiresPhotoTogglePanel
+              toggle={{
+                value: panel.requiresPhoto,
+                busy: panel.requiresPhotoBusy,
+                onChange: panel.handleToggleRequiresPhoto,
+              }}
+            />
+          )}
+
+          {isManager && (
+            <LinkedInventoryPanel
+              links={inventory.links}
+              busyId={inventory.busyId}
+              error={inventory.error}
+              onAdd={() => setShowLinkPicker(true)}
+              onToggleRequired={inventory.toggleRequired}
+              onRemove={inventory.removeLink}
+            />
           )}
         </div>
       )}
 
       {showLinkPicker && (
         <LinkInventoryItemSheet
-          excludeItemTypeIds={(inventoryLinks ?? []).map((l) => l.itemTypeId)}
-          busy={linkBusyId !== null}
-          onPick={handleAddInventoryLink}
+          excludeItemTypeIds={(inventory.links ?? []).map((l) => l.itemTypeId)}
+          busy={inventory.busyId !== null}
+          onPick={async (itemTypeId) => {
+            const ok = await inventory.addLink(itemTypeId);
+            if (ok) setShowLinkPicker(false);
+          }}
           onClose={() => setShowLinkPicker(false)}
         />
       )}
@@ -691,6 +540,9 @@ export default function TaskListEditView({ isManager, taskList, tasks: initialTa
         successThreshold: newTask.successThreshold ?? successThreshold,
         nfcTagCode: null,
         nfcTagUid: null,
+        definitionId: newTask.definitionId,
+        instructionSteps: newTask.instructionSteps ?? [],
+        requiresPhoto: newTask.requiresPhoto ?? false,
       },
     ]);
     setShowAddSheet(false);
@@ -723,6 +575,9 @@ export default function TaskListEditView({ isManager, taskList, tasks: initialTa
         successThreshold: newTask.successThreshold ?? 7,
         nfcTagCode: null,
         nfcTagUid: newTask.nfcTagUid ?? null,
+        definitionId: newTask.definitionId,
+        instructionSteps: newTask.instructionSteps ?? [],
+        requiresPhoto: newTask.requiresPhoto ?? false,
       },
     ]);
     setShowAddSheet(false);

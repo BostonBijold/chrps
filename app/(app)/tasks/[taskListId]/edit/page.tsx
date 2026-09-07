@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { connectDB } from "@/lib/mongoose";
 import TaskList from "@/models/TaskList";
 import Task from "@/models/Task";
-import type { TaskType } from "@/models/TaskDefinition";
+import type { TaskType, InstructionStep } from "@/models/TaskDefinition";
 import NfcTag from "@/models/NfcTag";
 import TaskListEditView from "@/components/TaskListEditView";
 import { resolveTasks } from "@/lib/task-definitions";
@@ -70,6 +70,17 @@ export default async function EditTaskListPage({
         successThreshold: t.successThreshold ?? (t.scheduledDays?.length ?? 7),
         nfcTagCode: nfcTagCodeByTaskId.get(t._id.toString()) ?? null,
         nfcTagUid: t.nfcTagUid ?? null,
+        // Definition-level fields — see docs/features/unified-task-edit-surface.md.
+        // definitionId lets SortableRow's Instructions/Require Photo/Linked
+        // Inventory panels call the definitionId-scoped routes directly,
+        // same as the Task Catalog's CatalogRow does.
+        definitionId: t.definitionId.toString(),
+        instructionSteps: (t.instructionSteps ?? []).map((s: InstructionStep) => ({
+          _id: s._id.toString(),
+          description: s.description ?? null,
+          imageUrl: s.imageUrl ?? null,
+        })),
+        requiresPhoto: t.requiresPhoto ?? false,
       }))}
     />
   );

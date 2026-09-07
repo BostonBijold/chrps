@@ -10,9 +10,11 @@ import AppIcon from "@/components/AppIcon";
 import AddTaskListSheet from "@/components/AddTaskListSheet";
 import AddTaskSheet from "@/components/AddTaskSheet";
 import ManageTaskDetailSheet, { type InstructionStepView } from "@/components/ManageTaskDetailSheet";
+import LinkInventoryItemSheet from "@/components/LinkInventoryItemSheet";
 import { scanNfcTag } from "@/lib/native/nfc-scan";
+import { useTaskDefinitionPanel } from "@/lib/client/use-task-definition-panel";
+import { useInventoryLinks } from "@/lib/client/use-inventory-links";
 import type { FormFieldDef } from "@/models/TaskDefinition";
-import { uploadImageDirect, withUploadTimeout, MAX_UPLOAD_IMAGE_BYTES, ALLOWED_UPLOAD_IMAGE_TYPES } from "@/lib/client/upload-image";
 
 // Sections default to collapsed once they pass this many items — keeps the
 // screen scannable as a company's catalog/standalone-task count grows,
@@ -81,12 +83,6 @@ function fmtTime(t: string) {
   return `${h12}:${m.toString().padStart(2, "0")} ${period}`;
 }
 
-function fieldsAndPlacementsMeta(definition: Definition) {
-  const fields = `${definition.formFields.length} field${definition.formFields.length === 1 ? "" : "s"}`;
-  if (definition.placements.length === 0) return `${fields} · not placed in any list`;
-  return `${fields} · used in ${definition.placements.map((p) => p.taskListName).join(", ")}`;
-}
-
 // ── Company task catalog row — a compact single-line row that opens a
 // detail sheet on tap (see ManageTaskDetailSheet.tsx) rather than rendering
 // field count / used-in / tag-binding / delete inline for every item at
@@ -112,160 +108,56 @@ function CatalogRow({
   deleting: boolean;
   blockedMessage: string | null;
 }) {
-  const [nfcTagUid, setNfcTagUid] = useState<string | null>(definition.nfcTagUid);
-  const [bindBusy, setBindBusy] = useState(false);
-  const [bindError, setBindError] = useState<string | null>(null);
-  // Other active targets already bound to the same UID — a tag can now back
-  // more than one target (see docs/features/nfc.md's "Multi-target
-  // binding"), so binding here never fails or clears another's binding, it
-  // just informs the manager the tag is about to do double duty.
-  const [alsoBoundTo, setAlsoBoundTo] = useState<string[]>([]);
+  // Scan-to-complete binding, Instructions, and Require Photo — all
+  // definitionId-scoped and shared with TaskListEditView.tsx's SortableRow,
+  // see lib/client/use-task-definition-panel.ts and
+  // docs/features/unified-task-edit-surface.md.
+  const panel = useTaskDefinitionPanel(definition._id, {
+    nfcTagUid: definition.nfcTagUid,
+    instructionSteps: definition.instructionSteps,
+    requiresPhoto: definition.requiresPhoto,
+  });
 
-  // Instruction steps (docs/features/task-completion-instructions.md) —
-  // an image (uploaded straight to Vercel Blob from the browser via a
-  // client-upload token, see app/api/blob/upload/route.ts) and/or a
-  // caption, up to 3 per task. The whole array is re-saved through the
-  // existing PATCH /api/task-definitions/[id] on every add/delete, same
-  // as formFields — no separate per-step save endpoint.
-  const [instructionSteps, setInstructionSteps] = useState<DefinitionInstructionStep[]>(definition.instructionSteps);
-  const [stepsBusy, setStepsBusy] = useState(false);
-  const [stepsError, setStepsError] = useState<string | null>(null);
+  // Name/icon/form fields/estimated-time — net-new for the Task Catalog
+  // (previously only editable from a Task Lists placement row). Local
+  // state so the collapsed row and sheet header reflect an edit
+  // immediately, same pattern as panel's own instructionSteps/requiresPhoto
+  // above. Saves to the TaskDefinition's own defaults, not a placement
+  // override — see components/task-panels/CoreFieldsEditor.tsx.
+  const [coreName, setCoreName] = useState(definition.name);
+  const [coreIcon, setCoreIcon] = useState(definition.icon);
+  const [coreFields, setCoreFields] = useState(definition.formFields as FormFieldDef[]);
+  const [coreMins, setCoreMins] = useState(definition.projectedMinutes);
+  const [coreSaving, setCoreSaving] = useState(false);
 
-  // Whether an employee must attach a completion photo before marking this
-  // task done — see docs/features/task-completion-photo.md. Same re-save-
-  // through-PATCH pattern as instructionSteps above, just a single boolean
-  // field instead of an array.
-  const [requiresPhoto, setRequiresPhoto] = useState(definition.requiresPhoto);
-  const [requiresPhotoBusy, setRequiresPhotoBusy] = useState(false);
-
-  async function saveInstructionSteps(next: Array<{ description: string | null; imageUrl: string | null }>): Promise<boolean> {
-    setStepsBusy(true);
-    setStepsError(null);
+  async function handleSaveCore(name: string, icon: string, formFields: FormFieldDef[], projectedMinutes: number) {
+    setCoreSaving(true);
     try {
       const res = await fetch(`/api/task-definitions/${definition._id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ instructionSteps: next }),
+        body: JSON.stringify({ name, icon, formFields, projectedMinutes }),
       });
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Failed to save");
-      const body = await res.json();
-      setInstructionSteps(body.instructionSteps ?? []);
-      return true;
-    } catch (err) {
-      console.error("[instruction-steps] save failed:", err);
-      setStepsError(err instanceof Error ? err.message : "Failed to save");
-      return false;
-    } finally {
-      setStepsBusy(false);
-    }
-  }
-
-  async function handleToggleRequiresPhoto() {
-    const next = !requiresPhoto;
-    setRequiresPhotoBusy(true);
-    setRequiresPhoto(next); // optimistic — reverted below on failure
-    try {
-      const res = await fetch(`/api/task-definitions/${definition._id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ requiresPhoto: next }),
-      });
-      if (!res.ok) throw new Error();
-    } catch {
-      setRequiresPhoto(!next);
-    } finally {
-      setRequiresPhotoBusy(false);
-    }
-  }
-
-  async function handleAddStep({ description, file }: { description: string | null; file: File | null }): Promise<boolean> {
-    setStepsBusy(true);
-    setStepsError(null);
-    let imageUrl: string | null = null;
-    if (file) {
-      if (!ALLOWED_UPLOAD_IMAGE_TYPES.includes(file.type)) {
-        setStepsError(`"${file.type || "unknown"}" isn't a supported image type — use JPEG, PNG, or WEBP.`);
-        setStepsBusy(false);
-        return false;
+      if (res.ok) {
+        setCoreName(name);
+        setCoreIcon(icon);
+        setCoreFields(formFields);
+        setCoreMins(projectedMinutes);
       }
-      if (file.size > MAX_UPLOAD_IMAGE_BYTES) {
-        setStepsError(`That photo is ${(file.size / 1024 / 1024).toFixed(1)}MB — must be 8MB or smaller.`);
-        setStepsBusy(false);
-        return false;
-      }
-      const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "-");
-      const pathname = `instruction-steps/${definition._id}-${Date.now()}-${safeName}`;
-      try {
-        imageUrl = await withUploadTimeout(
-          uploadImageDirect(file, pathname),
-          30000,
-          "Upload timed out — check your connection and try again."
-        );
-      } catch (err) {
-        console.error("[instruction-steps] image upload failed:", err);
-        setStepsError(err instanceof Error ? err.message : "Failed to upload image");
-        setStepsBusy(false);
-        return false;
-      }
-    }
-    setStepsBusy(false);
-    return saveInstructionSteps([
-      ...instructionSteps.map((s) => ({ description: s.description, imageUrl: s.imageUrl })),
-      { description, imageUrl },
-    ]);
-  }
-
-  async function handleDeleteStep(index: number) {
-    const next = instructionSteps
-      .filter((_, i) => i !== index)
-      .map((s) => ({ description: s.description, imageUrl: s.imageUrl }));
-    await saveInstructionSteps(next);
-  }
-
-  async function handleScanToLink() {
-    setBindError(null);
-    if (!Capacitor.isNativePlatform()) {
-      setBindError("Open the app on your phone to scan a tag.");
-      return;
-    }
-    setBindBusy(true);
-    const result = await scanNfcTag();
-    if (result.status !== "ok") {
-      setBindBusy(false);
-      setBindError(result.status === "unsupported" ? "NFC isn't available on this device." : result.message);
-      return;
-    }
-    try {
-      const res = await fetch(`/api/task-definitions/${definition._id}/nfc-tag`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ uid: result.uid }),
-      });
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Failed to bind tag");
-      const body = await res.json();
-      setNfcTagUid(result.uid);
-      setAlsoBoundTo(body.alsoBoundTo ?? []);
-    } catch (err) {
-      setBindError(err instanceof Error ? err.message : "Failed to bind tag");
     } finally {
-      setBindBusy(false);
+      setCoreSaving(false);
     }
   }
 
-  async function handleUnbindTag() {
-    setBindBusy(true);
-    setBindError(null);
-    try {
-      const res = await fetch(`/api/task-definitions/${definition._id}/nfc-tag`, { method: "DELETE" });
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Failed to unbind tag");
-      setNfcTagUid(null);
-      setAlsoBoundTo([]);
-    } catch (err) {
-      setBindError(err instanceof Error ? err.message : "Failed to unbind tag");
-    } finally {
-      setBindBusy(false);
-    }
-  }
+  // Linked Inventory — see docs/features/inventory.md's "Task ↔ Inventory
+  // Linking". Fetched lazily only once this row's sheet is open.
+  const inventory = useInventoryLinks(definition._id, open);
+  const [showLinkPicker, setShowLinkPicker] = useState(false);
+
+  const fieldsCount = `${coreFields.length} field${coreFields.length === 1 ? "" : "s"}`;
+  const meta = definition.placements.length === 0
+    ? `${fieldsCount} · not placed in any list`
+    : `${fieldsCount} · used in ${definition.placements.map((p) => p.taskListName).join(", ")}`;
 
   return (
     <>
@@ -275,47 +167,64 @@ function CatalogRow({
         className="w-full flex items-center gap-3 bg-card rounded-card border border-border p-3 text-left hover:bg-card-hover transition-colors min-h-[44px]"
       >
         <div className="w-8 flex items-center justify-center flex-shrink-0">
-          <AppIcon name={definition.icon} size={18} className="text-muted" />
+          <AppIcon name={coreIcon} size={18} className="text-muted" />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="font-body text-sm text-text truncate">{definition.name}</p>
-          <p className="font-mono text-[10px] text-dim truncate mt-0.5">
-            {fieldsAndPlacementsMeta(definition)}
-          </p>
+          <p className="font-body text-sm text-text truncate">{coreName}</p>
+          <p className="font-mono text-[10px] text-dim truncate mt-0.5">{meta}</p>
         </div>
         <ChevronRight size={16} className="text-dim flex-shrink-0" />
       </button>
 
       {open && (
         <ManageTaskDetailSheet
-          icon={definition.icon}
-          name={definition.name}
-          meta={`${definition.formFields.length} field${definition.formFields.length === 1 ? "" : "s"}`}
+          icon={coreIcon}
+          name={coreName}
+          meta={fieldsCount}
           usedIn={definition.placements.map((p) => ({ taskListId: p.taskListId, taskListName: p.taskListName }))}
+          coreEdit={{
+            name: coreName,
+            icon: coreIcon,
+            formFields: coreFields,
+            projectedMinutes: coreMins,
+            onSave: handleSaveCore,
+            saving: coreSaving,
+          }}
           tagBinding={{
-            nfcTagUid,
-            busy: bindBusy,
-            error: bindError,
-            alsoBoundTo,
-            onScanToLink: handleScanToLink,
-            onUnbind: handleUnbindTag,
+            nfcTagUid: panel.nfcTagUid,
+            busy: panel.bindBusy,
+            error: panel.bindError,
+            alsoBoundTo: panel.alsoBoundTo,
+            onScanToLink: panel.handleScanToLink,
+            onUnbind: panel.handleUnbindTag,
           }}
           instructions={{
-            steps: instructionSteps.map((s): InstructionStepView => ({
+            steps: panel.instructionSteps.map((s): InstructionStepView => ({
               key: s._id,
               description: s.description,
               imageUrl: s.imageUrl,
             })),
             maxSteps: 3,
-            busy: stepsBusy,
-            error: stepsError,
-            onAddStep: handleAddStep,
-            onDeleteStep: handleDeleteStep,
+            busy: panel.stepsBusy,
+            error: panel.stepsError,
+            capturing: panel.capturing,
+            captureError: panel.captureError,
+            onTakePhoto: panel.handleTakePhoto,
+            onAddStep: panel.handleAddStep,
+            onDeleteStep: panel.handleDeleteStep,
           }}
           requiresPhotoToggle={{
-            value: requiresPhoto,
-            busy: requiresPhotoBusy,
-            onChange: handleToggleRequiresPhoto,
+            value: panel.requiresPhoto,
+            busy: panel.requiresPhotoBusy,
+            onChange: panel.handleToggleRequiresPhoto,
+          }}
+          inventoryLinks={{
+            links: inventory.links,
+            busyId: inventory.busyId,
+            error: inventory.error,
+            onAdd: () => setShowLinkPicker(true),
+            onToggleRequired: inventory.toggleRequired,
+            onRemove: inventory.removeLink,
           }}
           editHref={definition.placements.length > 0 ? `/tasks/${definition.placements[0].taskListId}/edit` : undefined}
           editLabel={definition.placements.length > 0 ? `Edit in ${definition.placements[0].taskListName}` : undefined}
@@ -324,6 +233,18 @@ function CatalogRow({
           deleting={deleting}
           blockedMessage={blockedMessage}
           onClose={() => onOpenChange(false)}
+        />
+      )}
+
+      {showLinkPicker && (
+        <LinkInventoryItemSheet
+          excludeItemTypeIds={(inventory.links ?? []).map((l) => l.itemTypeId)}
+          busy={inventory.busyId !== null}
+          onPick={async (itemTypeId) => {
+            const ok = await inventory.addLink(itemTypeId);
+            if (ok) setShowLinkPicker(false);
+          }}
+          onClose={() => setShowLinkPicker(false)}
         />
       )}
     </>

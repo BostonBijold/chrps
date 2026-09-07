@@ -47,7 +47,7 @@ One consequence worth calling out explicitly, same as the pre-existing NFC-bound
 
 ## Manager UI
 
-`ManageTaskDetailSheet.tsx` gains a **"Require Photo at Completion"** toggle (a `requiresPhotoToggle` prop), rendered as its own section right after the Instructions panel — both are properties of the same `TaskDefinition`. Wired from `ManageTasksView.tsx`'s `CatalogRow` (`handleToggleRequiresPhoto`), which optimistically flips local state and `PATCH`es `/api/task-definitions/[id]` with `{ requiresPhoto }`, reverting on failure. Same re-save-through-`PATCH` pattern as `instructionSteps`, just a single boolean instead of an array. Standalone Tasks' detail sheet (no `instructions`/`tagBinding` either) doesn't get this toggle, same scoping as instruction-step authoring.
+As of [`unified-task-edit-surface.md`](unified-task-edit-surface.md), the **"Require Photo at Completion"** toggle is a shared component, `components/task-panels/RequiresPhotoTogglePanel.tsx`, backed by `lib/client/use-task-definition-panel.ts`'s `useTaskDefinitionPanel` hook (`handleToggleRequiresPhoto`, which optimistically flips local state and `PATCH`es `/api/task-definitions/[id]` with `{ requiresPhoto }`, reverting on failure — same re-save-through-`PATCH` pattern as `instructionSteps`, just a single boolean instead of an array). It renders in `ManageTaskDetailSheet.tsx` (right after the Instructions panel — both are properties of the same `TaskDefinition`), wired from `ManageTasksView.tsx`'s `CatalogRow`, and also inline in `components/TaskListEditView.tsx`'s `SortableRow` edit form, wired the same way. Standalone Tasks' detail sheet (no `instructions`/`tagBinding` either) doesn't get this toggle, same scoping as instruction-step authoring.
 
 ## Employee UI
 

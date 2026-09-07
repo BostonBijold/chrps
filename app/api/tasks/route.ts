@@ -90,5 +90,7 @@ export async function POST(req: NextRequest) {
     successThreshold: task.successThreshold,
     formFields: definition.formFields,
     nfcTagUid: definition.nfcTagUid,
+    instructionSteps: definition.instructionSteps ?? [],
+    requiresPhoto: definition.requiresPhoto ?? false,
   });
 }

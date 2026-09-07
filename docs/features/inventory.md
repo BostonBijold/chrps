@@ -338,21 +338,29 @@ item type can be required on one task and optional on another. Lives at the
 binding") — a link set from one list's edit screen is shared by every list
 this saved task is placed in. `lib/inventory.ts`'s
 `getInventoryLinksForTaskDefinition`/`addOrUpdateInventoryLink`/
-`removeInventoryLink` are the only writers/readers; both API routes below
-resolve a specific `Task` placement to its `definitionId` first, same
-placement-to-definition split as `app/api/tasks/[id]/nfc-tag`.
+`removeInventoryLink` are the only writers/readers. Two API route pairs call
+them: the original placement-keyed `app/api/tasks/[id]/inventory-links`
+(resolves a `Task` placement to its `definitionId` first, same
+placement-to-definition split as `app/api/tasks/[id]/nfc-tag`), and — as of
+[`unified-task-edit-surface.md`](unified-task-edit-surface.md) — a
+definitionId-keyed `app/api/task-definitions/[id]/inventory-links` pair for
+editing from the Task Catalog, which has no placement in context.
 
-**Manager side**: a "Linked Inventory" panel on a task's inline edit row in
-`TaskListEditView.tsx`'s `SortableRow`, alongside the existing
-"Scan-to-Complete Tag" panel — lists current links (name + a
+**Manager side**: a shared "Linked Inventory" panel,
+`components/task-panels/LinkedInventoryPanel.tsx` (backed by
+`lib/client/use-inventory-links.ts`'s `useInventoryLinks` hook), rendered in
+two places — inline on a task's edit row in `TaskListEditView.tsx`'s
+`SortableRow` (alongside the existing "Scan-to-Complete Tag" panel), and in
+the Task Catalog's `ManageTaskDetailSheet.tsx` — so the same links show and
+edit identically from either entry point. Lists current links (name + a
 Required/Optional toggle pill + Unlink), plus "+ Add Item" opens
 `components/LinkInventoryItemSheet.tsx`, a picker over the company's active
 `InventoryItemType`s (already-linked ones excluded) fetched from the same
-`GET /api/inventory-item-types` the Inventory tab itself uses. Removing a
-link (`DELETE /api/tasks/[id]/inventory-links/[itemTypeId]`) only deletes
-that one `TaskInventoryLink` row — the item type and its `InventoryLog`
-history are completely untouched, no confirmation prompt (a low-stakes,
-easily-re-added action).
+`GET /api/inventory-item-types` the Inventory tab itself uses — each screen
+still owns its own picker instance and `showLinkPicker` state. Removing a
+link only deletes that one `TaskInventoryLink` row — the item type and its
+`InventoryLog` history are completely untouched, no confirmation prompt (a
+low-stakes, easily-re-added action).
 
 **Employee side — the task form**: when a task has one or more links,
 `TaskFormScreen.tsx` self-fetches them (`GET

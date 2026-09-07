@@ -40,7 +40,7 @@ Mongoose's automatic per-subdocument `_id` (the schema does *not* set `_id: fals
 
 ## Manager UI
 
-Lives inside `components/ManageTaskDetailSheet.tsx` (the per-task detail sheet reached from a Company Task Catalog row's tap, wired up in `ManageTasksView.tsx`'s `CatalogRow`) — an **"Instructions"** section, alongside the existing "Used In" list, NFC panel, and (see [`task-completion-photo.md`](task-completion-photo.md)) the "Require Photo at Completion" toggle.
+As of [`unified-task-edit-surface.md`](unified-task-edit-surface.md), the Instructions section is a shared component, `components/task-panels/InstructionsEditorPanel.tsx`, backed by `lib/client/use-task-definition-panel.ts`'s `useTaskDefinitionPanel` hook. It renders in two places: `components/ManageTaskDetailSheet.tsx` (the per-task detail sheet reached from a Company Task Catalog row's tap, wired up in `ManageTasksView.tsx`'s `CatalogRow`) — alongside the existing "Used In" list, NFC panel, and (see [`task-completion-photo.md`](task-completion-photo.md)) the "Require Photo at Completion" toggle — and inline in `components/TaskListEditView.tsx`'s `SortableRow` edit form (a Task Lists placement row), so a manager sees and edits the same steps from either entry point.
 
 - Shows up to 3 step cards (thumbnail + caption, whichever is present).
 - Each step card has a **Delete** icon (removes that step, no confirmation — same low-stakes-edit treatment as removing a `formFields` entry).
