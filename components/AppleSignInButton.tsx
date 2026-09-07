@@ -74,6 +74,9 @@ export default function AppleSignInButton({ destination }: { destination: string
         return;
       }
       if (result.status !== "ok") {
+        if (result.status === "error") {
+          console.error("[AppleSignIn] native session error:", result.message);
+        }
         setPending(false);
         setError(
           result.status === "unsupported"
@@ -100,7 +103,8 @@ export default function AppleSignInButton({ destination }: { destination: string
         setPending(false);
         setError("Sign-in wasn't completed. Please try again.");
       }
-    } catch {
+    } catch (err) {
+      console.error("[AppleSignIn] unexpected error:", err);
       setPending(false);
       setError("Something went wrong. Please try again.");
     }

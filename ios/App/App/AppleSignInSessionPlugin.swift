@@ -59,6 +59,7 @@ public class AppleSignInSessionPlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthent
                        nsError.code == ASWebAuthenticationSessionError.canceledLogin.rawValue {
                         call.reject("User cancelled")
                     } else {
+                        print("[AppleSignInSession] failed: domain=\(nsError.domain) code=\(nsError.code) desc=\(error.localizedDescription)")
                         call.reject(error.localizedDescription)
                     }
                     return
@@ -72,6 +73,10 @@ public class AppleSignInSessionPlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthent
     }
 
     public func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-        return self.bridge?.viewController?.view.window ?? ASPresentationAnchor()
+        guard let window = self.bridge?.viewController?.view.window else {
+            print("[AppleSignInSession] presentationAnchor: no bridge/viewController/window available, falling back to a bare ASPresentationAnchor()")
+            return ASPresentationAnchor()
+        }
+        return window
     }
 }
