@@ -30,6 +30,8 @@
 	<string>Ch'rps uses NFC to link a physical tag to a task and to verify it when the task is completed.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Ch'rps uses the camera to attach reference and completion photos to tasks.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Ch'rps may save a copy of a captured task photo to your photo library.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
