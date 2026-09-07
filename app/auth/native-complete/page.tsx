@@ -1,10 +1,12 @@
-// Shown inside the @capacitor/browser in-app sheet after Sign in with
-// Apple finishes — see app/api/native-handoff/complete/route.ts. Purely
-// transitional: components/AppleSignInButton.tsx is polling
-// app/api/native-handoff/status from the app's own webview while this
-// renders, and closes this sheet itself the moment that succeeds. The
-// sheet's own "Done" button still works as a manual fallback if the app
-// hasn't auto-closed it yet.
+// Shown inside the @capacitor/browser in-app sheet right after Apple's
+// OAuth callback redirects here — see app/api/native-apple-signin/route.ts
+// and lib/auth.ts's jwt callback, which writes the NativeSignInHandoff row
+// inline during that callback (before this page ever loads), not via any
+// request this page or its close triggers. Purely transitional:
+// components/AppleSignInButton.tsx is polling app/api/native-handoff/status
+// from the app's own webview while this renders, and closes this sheet
+// itself the moment that succeeds. The sheet's own "Done" button still
+// works as a manual fallback if the app hasn't auto-closed it yet.
 export default function NativeAuthCompletePage() {
   return (
     <main className="min-h-dvh bg-bg flex flex-col items-center justify-center p-6 text-center">
