@@ -115,7 +115,7 @@ export default function LocationsPanel({ locations, onCreate, onRename, onArchiv
         {locations === null ? (
           <p className="text-dim font-mono text-xs">Loading…</p>
         ) : locations.length === 0 ? (
-          <p className="text-dim font-mono text-xs">No locations yet — add this company's first store above.</p>
+          <p className="text-dim font-mono text-xs">No locations yet — add this company&apos;s first store above.</p>
         ) : (
           <div className="divide-y divide-border">
             {locations.map((loc) => (
