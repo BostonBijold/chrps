@@ -69,6 +69,18 @@ public class AppleSignInSessionPlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthent
                 }
                 call.resolve(["url": callbackURL?.absoluteString ?? ""])
             }
+            // Without this, ASWebAuthenticationSession shares its cookie
+            // jar with Safari and with this app's own PAST sessions —
+            // confirmed live: an "InvalidCallbackUrl" error citing a
+            // chrps:// value from a since-fixed earlier build, even after
+            // the server stopped ever sending that value, because a stale
+            // callbackUrl cookie from that older test was still sitting
+            // in the shared store and got read back. Ephemeral gives every
+            // sign-in attempt a clean jar — cookies set-then-read WITHIN
+            // this one session (state/nonce/callbackUrl/native_handoff_id)
+            // still work exactly the same, only cross-session/cross-app
+            // persistence is what's gone.
+            newSession.prefersEphemeralWebBrowserSession = true
             newSession.presentationContextProvider = self
             self.session = newSession
             newSession.start()
