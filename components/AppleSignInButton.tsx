@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { Capacitor } from "@capacitor/core";
-import { getAppleSignInUrl } from "@/app/login/actions";
 
 // Apple's sign-in page won't run inside Capacitor's own WKWebView — iOS
 // hands navigation to appleid.apple.com off to the system browser instead
@@ -17,6 +16,15 @@ import { getAppleSignInUrl } from "@/app/login/actions";
 // only a fallback for when the user manually dismisses the sheet instead
 // (or a destination Universal Links doesn't cover).
 //
+// Opens app/api/native-apple-signin directly (not a server action that
+// fetches the Apple URL first) — a server action invoked from this
+// component runs in the app's own WKWebView context, and that turned out
+// NOT to share a cookie jar with the @capacitor/browser sheet (confirmed
+// via a live InvalidCheck: state value could not be parsed failure): the
+// state cookie set there was invisible to Apple's callback landing in the
+// sheet. Loading the route directly means the cookie-set and the eventual
+// callback both happen inside the one browsing context the sheet owns.
+//
 // Plain web (not the native app) keeps the simple top-level redirect the
 // Google button still uses — Browser.open() on web just opens a new tab,
 // which would leave this page stranded with no equivalent of
@@ -27,7 +35,7 @@ export default function AppleSignInButton({ destination }: { destination: string
   async function handleClick() {
     setPending(true);
     try {
-      const url = await getAppleSignInUrl(destination);
+      const url = `${window.location.origin}/api/native-apple-signin?callbackUrl=${encodeURIComponent(destination)}`;
 
       if (!Capacitor.isNativePlatform()) {
         window.location.href = url;
