@@ -53,6 +53,14 @@ export interface ITaskLog extends Document {
   // Set only on the terminal log for a "form" task (see
   // components/TaskFormScreen.tsx) — every other log leaves this null.
   formData?: Record<string, FormFieldValue> | null;
+  // Blob URL of the employee-captured completion photo — set only when the
+  // completing write actually included one (see
+  // docs/features/task-completion-photo.md). Required by
+  // lib/task-log-actions.ts's assertPhotoProvided before a "done" write is
+  // accepted for a task whose resolved TaskDefinition.requiresPhoto is
+  // true; null/unset otherwise, including every "missed" log (never
+  // required — a missed task was never done, nothing to photograph).
+  photoUrl?: string | null;
   // NFC/card identifier that triggered this log, if any — populated when a
   // log is started via a tag-triggered external path; null for an in-app
   // manual start. Field exists ahead of the NFC reader itself (separate
@@ -77,6 +85,7 @@ const TaskLogSchema = new Schema<ITaskLog>(
     isBackEntry: { type: Boolean, default: false },
     sessionTaskListId: { type: Schema.Types.ObjectId, ref: "TaskList", default: null },
     formData: { type: Schema.Types.Mixed, default: null },
+    photoUrl: { type: String, default: null },
     tagId: { type: String, default: null },
   },
   { timestamps: true }

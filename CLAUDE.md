@@ -135,7 +135,7 @@ specifically to separate completion indicators from the broader blue accent.
 
 ## Data Models
 
-Ch'rps is multi-tenant: every restaurant, gym, or hotel using it is a
+Ch'rps is multi-tenant: every restaurant, gym, or hotel using Ch'rps is a
 Company, and every other collection scopes its data either to the Company
 (shared configuration) or to the Company plus the specific user who acted
 (activity records). See "Multi-Tenancy" below for the full reasoning.
@@ -336,6 +336,13 @@ these two collections server-side on every read.
                      //   collection used for tap-to-trigger. Binding lives here, one layer
                      //   above any single placement, so every list a task is placed in
                      //   shares the same tag.
+  instructionSteps,  // up to 3 manager-authored { description, imageUrl } steps showing what the
+                     //   finished result should look like — see
+                     //   docs/features/task-completion-instructions.md. Same layer as formFields.
+  requiresPhoto,     // bool, default false — whether an employee must attach a completion photo
+                     //   before a "done" write for this task is accepted, enforced server-side —
+                     //   see docs/features/task-completion-photo.md. Same layer as formFields/
+                     //   instructionSteps, applies to every taskType.
   isActive: bool,    // soft-delete — blocked while any active Task placement still references it
 }
 ```
@@ -364,6 +371,9 @@ locations both running the same shared list get independent logs).
   //            no code path can write a new one
   startedAt, pausedSeconds, sessionTaskListId, // timer bookkeeping — see docs/features/timer.md
   formData,         // { [fieldKey]: string | number | boolean } — captured field values for a form task
+  photoUrl,         // string | null — Blob URL of the employee-captured completion photo, set only
+                    //   when the completing write actually included one — see
+                    //   docs/features/task-completion-photo.md
   note,             // optional manual back-entry note
   isBackEntry: bool,
   createdAt
@@ -845,8 +855,8 @@ is in `docs/features/locations.md`.
       (`app/api/blob/upload/route.ts`), text lives on
       `TaskDefinition.instructionSteps` in MongoDB. The employee-side
       "attach a photo to complete the task" half is a separate, later
-      piece and is NOT built — see
-      docs/features/task-completion-instructions.md
+      piece — see docs/features/task-completion-instructions.md and, for
+      that later piece, docs/features/task-completion-photo.md
 - [x] Task Instructions — Employee View — a read-only "Instructions" button
       under the task's title/name on every screen a task appears on: the
       collapsed list row (`TaskRow.tsx` for shift-window tasks,
@@ -858,7 +868,8 @@ is in `docs/features/locations.md`.
       (image-forward steps, no edit affordances). Not a gate on
       completion, no per-employee dismiss state — see
       docs/features/task-instructions-employee-view.md. The employee
-      *photo-capture-on-completion* half is still not built.
+      *photo-capture-on-completion* half is now built separately — see
+      docs/features/task-completion-photo.md.
 - [x] Manage Tasks Task Lists / Task Catalog toggle (mobile) — a top-level
       segmented control on `/tasks/manage` (mirroring the Admin Console's
       `TaskManagementView.tsx`) splits the screen into a Task Lists tab
@@ -873,6 +884,18 @@ is in `docs/features/locations.md`.
       `POST /api/blob/upload` a live camera flow needs over an
       already-chosen file — see
       docs/features/instruction-steps-camera-capture.md
+- [x] Task Completion — Required Photo — the employee-side half of the
+      two-sided photo feature: a manager toggles "Require Photo at
+      Completion" per `TaskDefinition`
+      (`components/ManageTaskDetailSheet.tsx`, alongside its Instructions
+      panel), and an employee must attach a completion photo via the
+      shared `components/TaskPhotoCaptureButton.tsx` (reusing
+      `capturePhoto()` and a newly-shared `lib/client/upload-image.ts`)
+      before Done becomes tappable on `TimerScreen.tsx`,
+      `TaskFormScreen.tsx`, and `TaskCard.tsx`'s back-entry mode.
+      Server-enforced (not just a disabled button) at every `state: "done"`
+      write boundary via `lib/task-log-actions.ts`'s
+      `assertPhotoProvided` — see docs/features/task-completion-photo.md
 
 Personal-habit-tracker features from before the restaurant pivot — the
 timer-based Countdown/Stopwatch/Checkbox item types and the Sunday "Routine
@@ -998,8 +1021,9 @@ table is a quick reference, not authoritative.
 - Team & Invites: BUILT — Team tab roster (everyone) + manager-only invite-link generation/revocation and role-switching/removal, see "Team & Invites" above and `docs/features/team-invites.md`
 - Inventory: BUILT — Inventory tab (top-up count tracker), grouped into manager-defined sections with search and a below-par red-tint cascade, manager-managed item-type catalog with optional NFC location binding (and a per-item `nfcRequiredToLog` toggle that turns that binding into an actual gate), plus a manager-only "Manage Inventory" hub (`/inventory/manage`) for name/unit/parLevel/group/tag editing and Groups CRUD, see "Inventory" above and `docs/features/inventory.md`
 - Task ↔ Inventory Linking: BUILT — a manager can attach Inventory item types to a task (required or optional per link); the task form then captures a count per linked item on Save, sharing NFC verification with the task's own scan when the tags match, see "Inventory" above and `docs/features/inventory.md`'s "Task ↔ Inventory Linking"
-- Task Completion Instructions: BUILT (manager-authoring side) — up to 3 photo/caption steps per `TaskDefinition`, authored from the Company Task Catalog detail sheet via a direct device-camera capture (`lib/client/capture-image.ts`'s `capturePhoto()`, not a file picker — see `docs/features/instruction-steps-camera-capture.md`), images stored in Vercel Blob (`app/api/blob/upload/route.ts`) via a direct upload call (`components/ManageTasksView.tsx`'s `uploadImageDirect` — not `@vercel/blob/client`'s `upload()`, which silently masked errors behind retries, see the doc's "Blob upload flow"); employee-side read view also BUILT (see next line); the employee *photo-capture-on-completion* half is not built, see `docs/features/task-completion-instructions.md`
+- Task Completion Instructions: BUILT (manager-authoring side) — up to 3 photo/caption steps per `TaskDefinition`, authored from the Company Task Catalog detail sheet via a direct device-camera capture (`lib/client/capture-image.ts`'s `capturePhoto()`, not a file picker — see `docs/features/instruction-steps-camera-capture.md`), images stored in Vercel Blob (`app/api/blob/upload/route.ts`) via a direct upload call (`lib/client/upload-image.ts`'s `uploadImageDirect` — not `@vercel/blob/client`'s `upload()`, which silently masked errors behind retries, see the doc's "Blob upload flow"); employee-side read view also BUILT (see next line); the employee *photo-capture-on-completion* half is now built too, see `docs/features/task-completion-photo.md`
 - Task Instructions — Employee View: BUILT — a read-only "Instructions" button under the task title/name on the list row (`TaskRow.tsx`/`TaskCard.tsx`) AND the active-task screens (`TaskFormScreen.tsx`, `TimerScreen.tsx`), shown only when a task has instruction steps, opening `TaskInstructionsSheet.tsx`; not a completion gate, see `docs/features/task-instructions-employee-view.md`
+- Task Completion — Required Photo: BUILT — a manager-set `TaskDefinition.requiresPhoto` toggle (`ManageTaskDetailSheet.tsx`) requires an employee to attach a completion photo (`components/TaskPhotoCaptureButton.tsx`) before Done becomes tappable on `TimerScreen.tsx`/`TaskFormScreen.tsx`/`TaskCard.tsx`'s back-entry mode; enforced server-side on every `state: "done"` write (`lib/task-log-actions.ts`'s `assertPhotoProvided`), stored as `TaskLog.photoUrl`. A manager-facing review surface for the captured photo is not built, see `docs/features/task-completion-photo.md`
 - Manage Tasks Task Lists/Task Catalog toggle: BUILT — `/tasks/manage` now opens on a Task Lists tab (Task Lists + Standalone Tasks) with a separate full-width Task Catalog tab, matching the Admin Console's segmented-control pattern; search and "Scan to Find" scope to whichever tab is active, see `docs/features/manage-tasks-tabs.md`
 - Notifications: BUILT — two independent shift-window alerts: "start-time reminders" fire at a list's exact startTime via its own per-list QStash schedule (managers+employees), "missed" fires 30min past the window's end via a shared QStash sweep every 5min (managers only, tasks still outstanding); device registration via `@capacitor/push-notifications` open to any company user, `Company.timezone`/`notificationsEnabled` drive both, see "Notifications" above and `docs/features/notifications.md`
 - Locations: BUILT — `Location` model, new `owner` role tier, invite/team location assignment, Location CRUD API, locationId-scoping across TaskLog/TaskListSession/InventoryLog/MissedListAlert, and an owner-facing location switcher (`components/LocationSwitcher.tsx`) on Tasks/Team/Reports/Inventory; migration script at `scripts/backfill-locations.mjs`. Job tags now have a catalog + assignment UI (Admin Console's Team page — see `docs/features/admin-console.md`'s "Job Tags catalog"), though the tag-based task-list *targeting* they were originally meant for is still not built. NOT built: per-location split of the start-time-reminder cron — see "Locations" above and `docs/features/locations.md`'s "Known gaps"
@@ -1086,8 +1110,9 @@ QSTASH_URL=                # Upstash account's REGIONAL endpoint (e.g. https://q
                            #   verifies via signing keys, no outbound QStash API calls)
 QSTASH_CURRENT_SIGNING_KEY=
 QSTASH_NEXT_SIGNING_KEY=
-BLOB_READ_WRITE_TOKEN=    # Vercel Blob — instruction-step photo storage, see
-                          # docs/features/task-completion-instructions.md. Auto-populated by
+BLOB_READ_WRITE_TOKEN=    # Vercel Blob — instruction-step and completion-photo storage, see
+                          # docs/features/task-completion-instructions.md and
+                          # docs/features/task-completion-photo.md. Auto-populated by
                           # Vercel when a Blob store is connected to the project; @vercel/blob's
                           # handleUpload (app/api/blob/upload/route.ts) reads it implicitly.
 ```

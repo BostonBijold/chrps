@@ -5,9 +5,11 @@ import type { LogState } from "@/models/TaskLog";
 import type { FormFieldValue } from "@/models/TaskDefinition";
 import {
   assertNfcVerified,
+  assertPhotoProvided,
   assertShiftListSessionAuthorized,
   completeInProgressLog,
   NfcTagRequiredError,
+  PhotoRequiredError,
   serializeLog,
   ShiftListSessionRequiredError,
   startInProgressLog,
@@ -49,12 +51,17 @@ export async function POST(req: NextRequest) {
   const { companyId, userId: performedByUserId } = sessionUser;
   if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
 
-  const { taskId, date, actualMinutes, state, isBackEntry, sessionTaskListId, sessionNav, locationId: requestedLocationId } = (await req.json()) as {
+  const { taskId, date, actualMinutes, state, isBackEntry, sessionTaskListId, sessionNav, photoUrl, locationId: requestedLocationId } = (await req.json()) as {
     taskId: string;
     date: string;
     actualMinutes?: number;
     state: LogState;
     isBackEntry?: boolean;
+    // The Blob URL of a completion photo captured via
+    // components/TaskPhotoCaptureButton.tsx — see
+    // docs/features/task-completion-photo.md. Only meaningful with
+    // state: "done" (see assertPhotoProvided below); ignored for "missed".
+    photoUrl?: string | null;
     sessionTaskListId?: string | null; // set by TaskListSessionView to anchor this timer inside a session
     // Set by TaskListSessionView when moving between tasks (advancing or
     // jumping). Still enforces a single running timer — whatever was active
@@ -131,9 +138,13 @@ export async function POST(req: NextRequest) {
   if (state === "done") {
     try {
       await assertNfcVerified(taskId, null);
+      await assertPhotoProvided(taskId, photoUrl ?? null);
     } catch (err) {
       if (err instanceof NfcTagRequiredError) {
         return NextResponse.json({ error: err.message }, { status: 409 });
+      }
+      if (err instanceof PhotoRequiredError) {
+        return NextResponse.json({ error: err.message }, { status: 400 });
       }
       throw err;
     }
@@ -149,6 +160,9 @@ export async function POST(req: NextRequest) {
         sessionTaskListId: null,
         pausedSeconds: 0,
         performedByUserId,
+        // Only meaningful for a "done" write — a "missed" task was never
+        // done, so its photoUrl (if any pre-existing value) is left alone.
+        ...(state === "done" ? { photoUrl: photoUrl ?? null } : {}),
       },
     },
     { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
@@ -178,6 +192,7 @@ export async function PATCH(req: NextRequest) {
     formData,
     verifiedNfcUid,
     inventoryCounts,
+    photoUrl,
     locationId: requestedLocationId,
   } = (await req.json()) as {
     taskId: string;
@@ -206,6 +221,11 @@ export async function PATCH(req: NextRequest) {
     // whether a required link actually got a count (that gate is
     // client-side only, same as this route's existing formData trust).
     inventoryCounts?: Array<{ itemTypeId: string; count: number; verifiedNfcUid?: string | null }>;
+    // The Blob URL of a completion photo captured via
+    // components/TaskPhotoCaptureButton.tsx — see
+    // docs/features/task-completion-photo.md. Only meaningful with
+    // state: "done"; ignored for "missed", same as formData.
+    photoUrl?: string | null;
     // Only meaningful for an owner acting on a location other than their
     // default — see docs/features/locations.md.
     locationId?: string;
@@ -240,7 +260,7 @@ export async function PATCH(req: NextRequest) {
     // with the external trigger-task endpoint's complete-the-active-task half.
     try {
       const log = await completeInProgressLog(
-        companyId, locationId, performedByUserId, taskId, date, fallbackMins ?? 1, formData ?? null, verifiedNfcUid ?? null
+        companyId, locationId, performedByUserId, taskId, date, fallbackMins ?? 1, formData ?? null, verifiedNfcUid ?? null, photoUrl ?? null
       );
       if (inventoryCounts && inventoryCounts.length > 0) {
         await writeInventoryLogsForTaskCompletion(companyId, locationId, performedByUserId, taskId, inventoryCounts);
@@ -249,6 +269,9 @@ export async function PATCH(req: NextRequest) {
     } catch (err) {
       if (err instanceof NfcTagRequiredError) {
         return NextResponse.json({ error: err.message }, { status: 409 });
+      }
+      if (err instanceof PhotoRequiredError) {
+        return NextResponse.json({ error: err.message }, { status: 400 });
       }
       throw err;
     }
@@ -267,9 +290,13 @@ export async function PATCH(req: NextRequest) {
   if (state === "done" && priorLog?.state !== "done") {
     try {
       await assertNfcVerified(taskId, null);
+      await assertPhotoProvided(taskId, photoUrl ?? null);
     } catch (err) {
       if (err instanceof NfcTagRequiredError) {
         return NextResponse.json({ error: err.message }, { status: 409 });
+      }
+      if (err instanceof PhotoRequiredError) {
+        return NextResponse.json({ error: err.message }, { status: 400 });
       }
       throw err;
     }
@@ -292,6 +319,10 @@ export async function PATCH(req: NextRequest) {
   // completeInProgressLog since there's no in_progress log to complete.
   if (state === "done" && formData) {
     setData.formData = formData;
+  }
+
+  if (state === "done" && photoUrl) {
+    setData.photoUrl = photoUrl;
   }
 
   const log = await TaskLog.findOneAndUpdate(

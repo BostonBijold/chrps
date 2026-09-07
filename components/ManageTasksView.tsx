@@ -12,6 +12,7 @@ import AddTaskSheet from "@/components/AddTaskSheet";
 import ManageTaskDetailSheet, { type InstructionStepView } from "@/components/ManageTaskDetailSheet";
 import { scanNfcTag } from "@/lib/native/nfc-scan";
 import type { FormFieldDef } from "@/models/TaskDefinition";
+import { uploadImageDirect, withUploadTimeout, MAX_UPLOAD_IMAGE_BYTES, ALLOWED_UPLOAD_IMAGE_TYPES } from "@/lib/client/upload-image";
 
 // Sections default to collapsed once they pass this many items — keeps the
 // screen scannable as a company's catalog/standalone-task count grows,
@@ -20,15 +21,6 @@ import type { FormFieldDef } from "@/models/TaskDefinition";
 // CLAUDE.md rules out localStorage/sessionStorage for app state, and a
 // MongoDB-backed per-user preference is more than this is worth for now.
 const COLLAPSE_THRESHOLD = 5;
-
-// Mirrors app/api/blob/upload/route.ts's onBeforeGenerateToken constraints
-// exactly — checking client-side first turns an oversized/wrong-type photo
-// into an immediate, specific error message instead of a round-trip to
-// Vercel Blob that comes back as a generic 400. In practice a captured
-// photo is already resized well under this by lib/client/capture-image.ts;
-// this cap is the backstop, matching the server's own.
-const MAX_INSTRUCTION_IMAGE_BYTES = 8 * 1024 * 1024;
-const ALLOWED_INSTRUCTION_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 
 interface DefinitionPlacement {
   taskId: string;
@@ -51,6 +43,11 @@ interface Definition {
   projectedMinutes: number;
   nfcTagUid: string | null;
   instructionSteps: DefinitionInstructionStep[];
+  // Gates whether an employee must attach a completion photo before
+  // marking this task done — see docs/features/task-completion-photo.md.
+  // Same layer as instructionSteps: content of the check itself, cascades
+  // to every list this definition is placed in.
+  requiresPhoto: boolean;
   placements: DefinitionPlacement[];
 }
 
@@ -88,53 +85,6 @@ function fieldsAndPlacementsMeta(definition: Definition) {
   const fields = `${definition.formFields.length} field${definition.formFields.length === 1 ? "" : "s"}`;
   if (definition.placements.length === 0) return `${fields} · not placed in any list`;
   return `${fields} · used in ${definition.placements.map((p) => p.taskListName).join(", ")}`;
-}
-
-// Uploads an instruction-step image without going through @vercel/blob/
-// client's upload() — that SDK call was silently retrying a 400 (its
-// getBlobError() falls back to a retryable "unknown_error" classification
-// whenever a response body doesn't parse into its exact expected shape,
-// which masked the real failure behind up to 10 retries with exponential
-// backoff) and never surfaced the actual reason. This replicates just the
-// two requests upload() makes internally — token retrieval via our own
-// /api/blob/upload route, then the PUT to Vercel's Blob API — with no
-// retries, so any failure's real response text reaches the UI on the
-// first attempt. See docs/features/task-completion-instructions.md.
-async function uploadImageDirect(file: File, pathname: string): Promise<string> {
-  const tokenRes = await fetch("/api/blob/upload", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      type: "blob.generate-client-token",
-      payload: { pathname, clientPayload: null, multipart: false },
-    }),
-  });
-  if (!tokenRes.ok) {
-    const body = await tokenRes.json().catch(() => ({}));
-    throw new Error(body.error || `Token request failed (${tokenRes.status})`);
-  }
-  const { clientToken } = (await tokenRes.json()) as { clientToken: string };
-  const storeId = clientToken.split("_")[3] ?? "";
-
-  const params = new URLSearchParams({ pathname });
-  const putRes = await fetch(`https://vercel.com/api/blob/?${params.toString()}`, {
-    method: "PUT",
-    headers: {
-      authorization: `Bearer ${clientToken}`,
-      "x-content-type": file.type,
-      "x-api-version": "12",
-      "x-vercel-blob-store-id": storeId,
-      "x-api-blob-request-id": `${storeId}:${Date.now()}:${Math.random().toString(16).slice(2)}`,
-      "x-api-blob-request-attempt": "0",
-    },
-    body: file,
-  });
-  if (!putRes.ok) {
-    const text = await putRes.text().catch(() => "");
-    throw new Error(`Blob upload failed (${putRes.status}): ${text.slice(0, 300) || "no response body"}`);
-  }
-  const json = (await putRes.json()) as { url: string };
-  return json.url;
 }
 
 // ── Company task catalog row — a compact single-line row that opens a
@@ -181,6 +131,13 @@ function CatalogRow({
   const [stepsBusy, setStepsBusy] = useState(false);
   const [stepsError, setStepsError] = useState<string | null>(null);
 
+  // Whether an employee must attach a completion photo before marking this
+  // task done — see docs/features/task-completion-photo.md. Same re-save-
+  // through-PATCH pattern as instructionSteps above, just a single boolean
+  // field instead of an array.
+  const [requiresPhoto, setRequiresPhoto] = useState(definition.requiresPhoto);
+  const [requiresPhotoBusy, setRequiresPhotoBusy] = useState(false);
+
   async function saveInstructionSteps(next: Array<{ description: string | null; imageUrl: string | null }>): Promise<boolean> {
     setStepsBusy(true);
     setStepsError(null);
@@ -203,25 +160,22 @@ function CatalogRow({
     }
   }
 
-  // 30s cap on the Blob upload — without this, a hung request (bad token,
-  // network stall, a browser-bundling quirk in @vercel/blob/client) leaves
-  // stepsBusy stuck true forever with no error ever surfacing, since a
-  // promise that never settles never reaches either the try's success path
-  // or the catch. Better to fail loud after a timeout than hang silently.
-  function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(message)), ms);
-      promise.then(
-        (value) => {
-          clearTimeout(timer);
-          resolve(value);
-        },
-        (err) => {
-          clearTimeout(timer);
-          reject(err);
-        }
-      );
-    });
+  async function handleToggleRequiresPhoto() {
+    const next = !requiresPhoto;
+    setRequiresPhotoBusy(true);
+    setRequiresPhoto(next); // optimistic — reverted below on failure
+    try {
+      const res = await fetch(`/api/task-definitions/${definition._id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requiresPhoto: next }),
+      });
+      if (!res.ok) throw new Error();
+    } catch {
+      setRequiresPhoto(!next);
+    } finally {
+      setRequiresPhotoBusy(false);
+    }
   }
 
   async function handleAddStep({ description, file }: { description: string | null; file: File | null }): Promise<boolean> {
@@ -229,20 +183,20 @@ function CatalogRow({
     setStepsError(null);
     let imageUrl: string | null = null;
     if (file) {
-      if (!ALLOWED_INSTRUCTION_IMAGE_TYPES.includes(file.type)) {
+      if (!ALLOWED_UPLOAD_IMAGE_TYPES.includes(file.type)) {
         setStepsError(`"${file.type || "unknown"}" isn't a supported image type — use JPEG, PNG, or WEBP.`);
         setStepsBusy(false);
         return false;
       }
-      if (file.size > MAX_INSTRUCTION_IMAGE_BYTES) {
-        setStepsError(`That photo is ${(file.size / 1024 / 1024).toFixed(1)}MB — must be 5MB or smaller.`);
+      if (file.size > MAX_UPLOAD_IMAGE_BYTES) {
+        setStepsError(`That photo is ${(file.size / 1024 / 1024).toFixed(1)}MB — must be 8MB or smaller.`);
         setStepsBusy(false);
         return false;
       }
       const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "-");
       const pathname = `instruction-steps/${definition._id}-${Date.now()}-${safeName}`;
       try {
-        imageUrl = await withTimeout(
+        imageUrl = await withUploadTimeout(
           uploadImageDirect(file, pathname),
           30000,
           "Upload timed out — check your connection and try again."
@@ -357,6 +311,11 @@ function CatalogRow({
             error: stepsError,
             onAddStep: handleAddStep,
             onDeleteStep: handleDeleteStep,
+          }}
+          requiresPhotoToggle={{
+            value: requiresPhoto,
+            busy: requiresPhotoBusy,
+            onChange: handleToggleRequiresPhoto,
           }}
           editHref={definition.placements.length > 0 ? `/tasks/${definition.placements[0].taskListId}/edit` : undefined}
           editLabel={definition.placements.length > 0 ? `Edit in ${definition.placements[0].taskListName}` : undefined}

@@ -25,6 +25,9 @@ export interface RowItem {
   // docs/features/task-instructions-employee-view.md (this read-only
   // view). Undefined/empty = no Instructions button renders at all.
   instructionSteps?: TaskInstructionStep[];
+  // Gates whether an employee must attach a completion photo before this
+  // task can be marked done — see docs/features/task-completion-photo.md.
+  requiresPhoto?: boolean;
 }
 
 interface Props {

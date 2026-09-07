@@ -34,6 +34,7 @@ export async function PATCH(
   if (typeof updates.projectedMinutes === "number") patch.projectedMinutes = updates.projectedMinutes;
   if ("formFields" in updates) patch.formFields = sanitizeFormFields(updates.formFields);
   if ("instructionSteps" in updates) patch.instructionSteps = sanitizeInstructionSteps(updates.instructionSteps);
+  if (typeof updates.requiresPhoto === "boolean") patch.requiresPhoto = updates.requiresPhoto;
 
   await connectDB();
 
@@ -57,6 +58,7 @@ export async function PATCH(
       description: s.description ?? null,
       imageUrl: s.imageUrl ?? null,
     })),
+    requiresPhoto: definition.requiresPhoto ?? false,
   });
 }
 

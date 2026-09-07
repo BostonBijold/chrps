@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Nfc, Check, ClipboardList } from "lucide-react";
 import AppIcon from "@/components/AppIcon";
 import TaskInstructionsSheet from "@/components/TaskInstructionsSheet";
+import TaskPhotoCaptureButton from "@/components/TaskPhotoCaptureButton";
 import type { TimerItem } from "@/components/TimerScreen";
 import type { FormFieldValue } from "@/models/TaskDefinition";
 import { scanNfcTag } from "@/lib/native/nfc-scan";
@@ -54,7 +55,8 @@ interface Props {
     formData: Record<string, FieldValue>,
     actualMinutes: number,
     verifiedNfcUid?: string | null,
-    inventoryCounts?: InventoryCountEntry[]
+    inventoryCounts?: InventoryCountEntry[],
+    photoUrl?: string | null
   ) => Promise<void>;
   onMissed: () => void;
   onClose: () => void;
@@ -131,6 +133,12 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
 
   const [values, setValues] = useState<Record<string, FieldValue>>({});
   const [error, setError] = useState("");
+
+  // Required completion photo — see docs/features/task-completion-photo.md.
+  // One more condition on the same Save gate every field already sits
+  // behind (handleSave below), not a separate mechanism.
+  const requiresPhoto = !!item.requiresPhoto;
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
 
   // Linked InventoryItemTypes (see docs/features/inventory.md's "Task ↔
   // Inventory Linking") — self-fetched, same pattern as Header.tsx's own
@@ -217,11 +225,15 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
         return;
       }
     }
+    if (requiresPhoto && !photoUrl) {
+      setError("Add a photo to complete this task");
+      return;
+    }
     const actualMinutes = Math.max(1, Math.round(elapsed / 60));
 
     if (!requiresNfcScan) {
       try {
-        await onComplete(values, actualMinutes, undefined, buildInventoryCounts(null));
+        await onComplete(values, actualMinutes, undefined, buildInventoryCounts(null), photoUrl);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to save — please try again.");
       }
@@ -230,7 +242,7 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
 
     if (alreadyVerified) {
       try {
-        await onComplete(values, actualMinutes, preVerifiedNfcUid, buildInventoryCounts(preVerifiedNfcUid));
+        await onComplete(values, actualMinutes, preVerifiedNfcUid, buildInventoryCounts(preVerifiedNfcUid), photoUrl);
         playNotificationSound(notificationSound);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to save — please try again.");
@@ -256,7 +268,7 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
       return;
     }
     try {
-      await onComplete(values, actualMinutes, result.uid, buildInventoryCounts(result.uid));
+      await onComplete(values, actualMinutes, result.uid, buildInventoryCounts(result.uid), photoUrl);
       playNotificationSound(notificationSound);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save — please try again.");
@@ -427,6 +439,16 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
               </div>
             );
           })}
+
+          {/* Required completion photo — see
+              docs/features/task-completion-photo.md. Positioned after the
+              task's own fields, before Linked Inventory. */}
+          {requiresPhoto && (
+            <div className="space-y-1.5 pt-4 border-t border-border">
+              <p className="font-mono text-[10px] text-dim uppercase tracking-widest">Completion Photo</p>
+              <TaskPhotoCaptureButton taskId={item._id} photoUrl={photoUrl} onChange={setPhotoUrl} />
+            </div>
+          )}
 
           {/* Linked Inventory — count inputs for this task's linked
               InventoryItemTypes (see docs/features/inventory.md's "Task ↔

@@ -43,6 +43,12 @@ interface InstructionsPanel {
   onDeleteStep: (index: number) => void;
 }
 
+interface RequiresPhotoToggle {
+  value: boolean;
+  busy: boolean;
+  onChange: () => void;
+}
+
 interface Props {
   icon: string;
   name: string;
@@ -50,6 +56,7 @@ interface Props {
   usedIn?: UsedInEntry[];
   tagBinding?: TagBinding;
   instructions?: InstructionsPanel;
+  requiresPhotoToggle?: RequiresPhotoToggle;
   editHref?: string;
   editLabel?: string;
   onDelete: () => void;
@@ -72,6 +79,7 @@ export default function ManageTaskDetailSheet({
   usedIn,
   tagBinding,
   instructions,
+  requiresPhotoToggle,
   editHref,
   editLabel,
   onDelete,
@@ -299,6 +307,28 @@ export default function ManageTaskDetailSheet({
                       + Add Step
                     </button>
                   ))}
+              </div>
+            )}
+
+            {requiresPhotoToggle && (
+              <div className="pt-3 border-t border-border flex items-center justify-between gap-2">
+                <p className="font-mono text-[11px] text-text">Require Photo at Completion</p>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={requiresPhotoToggle.value}
+                  onClick={requiresPhotoToggle.onChange}
+                  disabled={requiresPhotoToggle.busy}
+                  className={`relative w-10 h-6 rounded-pill transition-colors disabled:opacity-50 flex-shrink-0 ${
+                    requiresPhotoToggle.value ? "bg-olive" : "bg-border-light"
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 w-5 h-5 rounded-full bg-bg shadow transition-transform ${
+                      requiresPhotoToggle.value ? "translate-x-[18px]" : "translate-x-0.5"
+                    }`}
+                  />
+                </button>
               </div>
             )}
 

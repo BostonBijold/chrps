@@ -52,6 +52,34 @@ export async function assertNfcVerified(taskId: string, verifiedNfcUid?: string 
   }
 }
 
+// Thrown by assertPhotoProvided below — every route that can reach a `done`
+// write must catch this and turn it into a clean 400.
+export class PhotoRequiredError extends Error {
+  constructor() {
+    super("This task requires a photo before it can be completed");
+    this.name = "PhotoRequiredError";
+  }
+}
+
+// Blocks a `done` write for a task whose resolved TaskDefinition has
+// requiresPhoto set (see docs/features/task-completion-photo.md) unless the
+// caller already produced an uploaded photo URL. Mirrors assertNfcVerified
+// exactly, one layer up: requiresPhoto lives on TaskDefinition (the saved
+// check), not any one list placement, so this always resolves through the
+// placement's definitionId. Every completion path that can reach a `done`
+// write — the standalone timer/form screens, back-entry, tap-to-trigger —
+// calls this the same way it calls assertNfcVerified; a path with no photo-
+// capture UI (tap-to-trigger) simply always fails it for a requiresPhoto
+// task, same as it already does for an NFC-bound one.
+export async function assertPhotoProvided(taskId: string, photoUrl?: string | null) {
+  const task = await Task.findById(taskId).select("definitionId").lean();
+  if (!task) return;
+  const definition = await TaskDefinition.findById(task.definitionId).select("requiresPhoto").lean();
+  if (definition?.requiresPhoto && !photoUrl) {
+    throw new PhotoRequiredError();
+  }
+}
+
 // Thrown by assertShiftListSessionAuthorized below — every route that can
 // reach a task-log mutation must catch this and turn it into a clean 4xx.
 export class ShiftListSessionRequiredError extends Error {
@@ -102,6 +130,7 @@ export function serializeLog(l: {
   state: LogState;
   sessionTaskListId?: { toString(): string } | null;
   formData?: Record<string, FormFieldValue> | null;
+  photoUrl?: string | null;
   tagId?: string | null;
   performedByUserId?: string | null;
   updatedAt?: Date | null;
@@ -117,6 +146,7 @@ export function serializeLog(l: {
     state: l.state,
     sessionTaskListId: l.sessionTaskListId ? l.sessionTaskListId.toString() : null,
     formData: l.formData ?? null,
+    photoUrl: l.photoUrl ?? null,
     tagId: l.tagId ?? null,
     // Offline-cache fields (see docs/features/offline.md) — informational
     // only, not read by any online consumer. updatedAt drives the offline
@@ -340,9 +370,11 @@ export async function startImmediateLog(
   taskId: string,
   date: string,
   taskListId: string | null = null,
-  verifiedNfcUid: string | null = null
+  verifiedNfcUid: string | null = null,
+  photoUrl: string | null = null
 ) {
   await assertNfcVerified(taskId, verifiedNfcUid);
+  await assertPhotoProvided(taskId, photoUrl);
   await completeStrayInProgressLogs(companyId, performedByUserId, taskId);
 
   const log = await TaskLog.findOneAndUpdate(
@@ -356,6 +388,7 @@ export async function startImmediateLog(
         pausedSeconds: 0,
         isBackEntry: false,
         sessionTaskListId: null,
+        photoUrl,
         performedByUserId,
       },
     },
@@ -384,9 +417,11 @@ export async function completeInProgressLog(
   date: string,
   fallbackMinutes = 1,
   formData: Record<string, FormFieldValue> | null = null,
-  verifiedNfcUid: string | null = null
+  verifiedNfcUid: string | null = null,
+  photoUrl: string | null = null
 ) {
   await assertNfcVerified(taskId, verifiedNfcUid);
+  await assertPhotoProvided(taskId, photoUrl);
   const existing = await TaskLog.findOne({ companyId, locationId, taskId, date }).lean();
   const startedAt = existing?.startedAt ? new Date(existing.startedAt) : null;
   const banked = existing?.pausedSeconds ?? 0;
@@ -409,6 +444,7 @@ export async function completeInProgressLog(
         pausedSeconds: 0,
         sessionTaskListId: null,
         formData,
+        photoUrl,
         performedByUserId,
       },
     },

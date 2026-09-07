@@ -36,7 +36,7 @@ The plugin's `webPath` result is `fetch()`ed into a `Blob`, then **wrapped in a 
 - **`validUntil`**: extended from the default 30 seconds to `Date.now() + 5 * 60 * 1000` (5 minutes) — comfortably covers a manager fumbling with the shot, still short enough to not be a meaningful concern on a manager-gated endpoint.
 - **`maximumSizeInBytes`**: bumped from 5MB to 8MB as a safety-net backstop, not the primary defense — the real size control is the client-side resize in `capturePhoto()`; this just covers a browser/OS edge case where the resize step is skipped or fails.
 
-`components/ManageTasksView.tsx`'s `MAX_INSTRUCTION_IMAGE_BYTES` mirrors the new 8MB cap for the same client-side-fail-fast reason described in [`task-completion-instructions.md`](task-completion-instructions.md). No change to `allowedContentTypes` — camera-captured JPEGs already fall under the existing `image/jpeg` allowance.
+`lib/client/upload-image.ts`'s `MAX_UPLOAD_IMAGE_BYTES` mirrors the new 8MB cap for the same client-side-fail-fast reason described in [`task-completion-instructions.md`](task-completion-instructions.md) — shared by both this feature's `ManageTasksView.tsx` caller and [`task-completion-photo.md`](task-completion-photo.md)'s `TaskPhotoCaptureButton.tsx`. No change to `allowedContentTypes` — camera-captured JPEGs already fall under the existing `image/jpeg` allowance.
 
 ## Manager UI change
 
@@ -49,7 +49,7 @@ In the "+ Add Step" inline editor (`ManageTaskDetailSheet.tsx`, wired up from `M
 
 ## iOS permission (App Store requirement)
 
-`@capacitor/camera` is installed (`package.json`) and synced into the iOS project (`npx cap sync ios` — see `ios/App/App/Package.swift`'s plugin list). `ios/App/App/Info.plist` has an `NSCameraUsageDescription` entry: *"Ch'rps uses the camera to attach reference photos to task instructions."* — matching the existing `NFCReaderUsageDescription` entry's convention (a specific, accurate description, since Apple review checks that this string actually matches what the camera is used for).
+`@capacitor/camera` is installed (`package.json`) and synced into the iOS project (`npx cap sync ios` — see `ios/App/CapApp-SPM/Package.swift`'s plugin list). `ios/App/App/Info.plist` has an `NSCameraUsageDescription` entry, worded to cover both this feature and [`task-completion-photo.md`](task-completion-photo.md)'s employee capture rather than instruction steps alone (Apple review checks that this string actually matches what the camera is used for): *"Ch'rps uses the camera to attach reference and completion photos to tasks."* — matching the existing `NFCReaderUsageDescription` entry's convention.
 
 ## Open questions / deferred
 
@@ -59,4 +59,4 @@ In the "+ Add Step" inline editor (`ManageTaskDetailSheet.tsx`, wired up from `M
 
 ## Depends on
 
-[`task-completion-instructions.md`](task-completion-instructions.md) — the step editor and `POST /api/blob/upload` route this modifies. This doc's `capturePhoto()` helper is written to be reused, not extended per-feature, by the employee-side completion-photo capture referenced there.
+[`task-completion-instructions.md`](task-completion-instructions.md) — the step editor and `POST /api/blob/upload` route this modifies. This doc's `capturePhoto()` helper is written to be reused, not extended per-feature — [`task-completion-photo.md`](task-completion-photo.md) is the employee-side completion-photo feature that reuses it.

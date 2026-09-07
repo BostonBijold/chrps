@@ -5,6 +5,7 @@ import { ClipboardList } from "lucide-react";
 import AppIcon from "@/components/AppIcon";
 import StreakDots from "@/components/StreakDots";
 import TaskInstructionsSheet from "@/components/TaskInstructionsSheet";
+import TaskPhotoCaptureButton from "@/components/TaskPhotoCaptureButton";
 import type { RowItem } from "@/components/TaskRow";
 import type { TaskLogEntry } from "@/components/TasksView";
 import type { LogState } from "@/models/TaskLog";
@@ -25,7 +26,7 @@ interface Props {
   onStartTimer: () => void;
   onStateChange: (
     state: LogState | null,
-    opts?: { actualMinutes?: number; isBackEntry?: boolean; formData?: Record<string, FormFieldValue> }
+    opts?: { actualMinutes?: number; isBackEntry?: boolean; formData?: Record<string, FormFieldValue>; photoUrl?: string | null }
   ) => void;
 }
 
@@ -80,6 +81,14 @@ export default function TaskCard({
     isStopwatch ? "30" : String(item.projectedMinutes || 15)
   );
   const [showSkips, setShowSkips] = useState(false);
+  // Required completion photo for back-entry Done — see
+  // docs/features/task-completion-photo.md. Same gate pattern as the other
+  // back-entry inputs below, just another condition on the Done button.
+  const requiresPhoto = !!item.requiresPhoto;
+  const [backPhotoUrl, setBackPhotoUrl] = useState<string | null>(null);
+  const backPhotoCapture = requiresPhoto && (
+    <TaskPhotoCaptureButton taskId={item._id} photoUrl={backPhotoUrl} onChange={setBackPhotoUrl} />
+  );
   // Back-entry field capture for a form task — see TaskRow.tsx
   // for the same pattern in the timed-groups row.
   const [backFormValues, setBackFormValues] = useState<Record<string, FormFieldValue>>({});
@@ -299,9 +308,10 @@ export default function TaskCard({
                 onStateChange("done", {
                   actualMinutes: Math.max(1, parseInt(backMins) || item.projectedMinutes || 1),
                   isBackEntry: true,
+                  photoUrl: backPhotoUrl,
                 })
               }
-              disabled={nfcBound}
+              disabled={nfcBound || (requiresPhoto && !backPhotoUrl)}
               className="flex items-center gap-1.5 bg-olive/10 border border-olive/30 text-olive font-mono text-xs px-3 py-2 rounded-card min-h-[40px] hover:bg-olive/20 transition-colors disabled:opacity-40"
             >
               {nfcBound ? "Scan NFC to complete" : "✓ Done"}
@@ -321,6 +331,10 @@ export default function TaskCard({
           </div>
         )}
       </div>
+
+      {!isCheckbox && isBackEntry && !isForm && requiresPhoto && (
+        <div className="ml-10">{backPhotoCapture}</div>
+      )}
 
       {/* Form check back-entry: fields replace the plain minutes input above —
           a retroactive check still needs its readings, not just a duration. */}
@@ -422,15 +436,17 @@ export default function TaskCard({
             </div>
             );
           })}
+          {requiresPhoto && backPhotoCapture}
           <button
             onClick={() =>
               onStateChange("done", {
                 actualMinutes: Math.max(1, item.projectedMinutes || 1),
                 isBackEntry: true,
                 formData: backFormValues,
+                photoUrl: backPhotoUrl,
               })
             }
-            disabled={!backFormComplete || nfcBound}
+            disabled={!backFormComplete || nfcBound || (requiresPhoto && !backPhotoUrl)}
             className="w-full flex items-center justify-center gap-1.5 bg-olive/10 border border-olive/30 text-olive font-mono text-xs px-3 py-2 rounded-card min-h-[40px] hover:bg-olive/20 transition-colors disabled:opacity-40"
           >
             {nfcBound ? "Scan NFC to complete" : "✓ Done"}
