@@ -2,51 +2,47 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { X, Nfc, Trash2, Camera as CameraIcon } from "lucide-react";
+import { X } from "lucide-react";
 import AppIcon from "@/components/AppIcon";
-import { capturePhoto } from "@/lib/client/capture-image";
+import NfcBindingPanel, { type TagBinding } from "@/components/task-panels/NfcBindingPanel";
+import InstructionsEditorPanel, {
+  type InstructionsPanel,
+  type InstructionStepView,
+} from "@/components/task-panels/InstructionsEditorPanel";
+import RequiresPhotoTogglePanel, { type RequiresPhotoToggle } from "@/components/task-panels/RequiresPhotoTogglePanel";
+import LinkedInventoryPanel from "@/components/task-panels/LinkedInventoryPanel";
+import CoreFieldsEditor from "@/components/task-panels/CoreFieldsEditor";
+import type { InventoryLink } from "@/lib/client/use-inventory-links";
+import type { FormFieldDef } from "@/models/TaskDefinition";
+
+export type { InstructionStepView };
 
 interface UsedInEntry {
   taskListId: string;
   taskListName: string;
 }
 
-interface TagBinding {
-  nfcTagUid: string | null;
-  busy: boolean;
+// Editable name/icon/form fields/estimated-time block — see
+// components/task-panels/CoreFieldsEditor.tsx and
+// docs/features/unified-task-edit-surface.md. Only present for a Company
+// Task Catalog row (CatalogRow already has this from a Task Lists
+// placement row, so a Standalone Tasks sheet doesn't get this prop).
+interface CoreEditPanel {
+  name: string;
+  icon: string;
+  formFields: FormFieldDef[];
+  projectedMinutes: number;
+  onSave: (name: string, icon: string, formFields: FormFieldDef[], projectedMinutes: number) => Promise<void>;
+  saving: boolean;
+}
+
+interface InventoryLinksPanel {
+  links: InventoryLink[] | null;
+  busyId: string | null;
   error: string | null;
-  alsoBoundTo: string[];
-  onScanToLink: () => void;
-  onUnbind: () => void;
-}
-
-// A manager-authored "what this should look like when done" step (photo
-// and/or caption) — see docs/features/task-completion-instructions.md.
-// `key` is the step's Mongo subdocument _id for an already-saved step, or
-// a locally-generated placeholder for one just added in this session.
-export interface InstructionStepView {
-  key: string;
-  description: string | null;
-  imageUrl: string | null;
-}
-
-interface InstructionsPanel {
-  steps: InstructionStepView[];
-  maxSteps: number;
-  busy: boolean;
-  error: string | null;
-  // Returns whether the add actually succeeded — the inline editor only
-  // closes on success (see confirmAddStep below), so a failure stays open
-  // with the draft intact and instructions.error visible, instead of
-  // silently closing either way and leaving no sign anything went wrong.
-  onAddStep: (input: { description: string | null; file: File | null }) => Promise<boolean>;
-  onDeleteStep: (index: number) => void;
-}
-
-interface RequiresPhotoToggle {
-  value: boolean;
-  busy: boolean;
-  onChange: () => void;
+  onAdd: () => void;
+  onToggleRequired: (itemTypeId: string, required: boolean) => void;
+  onRemove: (itemTypeId: string) => void;
 }
 
 interface Props {
@@ -54,9 +50,11 @@ interface Props {
   name: string;
   meta: string;
   usedIn?: UsedInEntry[];
+  coreEdit?: CoreEditPanel;
   tagBinding?: TagBinding;
   instructions?: InstructionsPanel;
   requiresPhotoToggle?: RequiresPhotoToggle;
+  inventoryLinks?: InventoryLinksPanel;
   editHref?: string;
   editLabel?: string;
   onDelete: () => void;
@@ -72,14 +70,19 @@ interface Props {
 // detail that used to render inline on every card, but only when they
 // actually tap in for it. `usedIn`/`tagBinding` are omitted for a
 // Standalone Tasks row, which has neither concept at the placement level.
+// Every panel below (NFC/Instructions/Require Photo/Linked Inventory) is a
+// shared component also rendered inline by TaskListEditView.tsx's
+// SortableRow — see docs/features/unified-task-edit-surface.md.
 export default function ManageTaskDetailSheet({
   icon,
   name,
   meta,
   usedIn,
+  coreEdit,
   tagBinding,
   instructions,
   requiresPhotoToggle,
+  inventoryLinks,
   editHref,
   editLabel,
   onDelete,
@@ -89,46 +92,6 @@ export default function ManageTaskDetailSheet({
   onClose,
 }: Props) {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
-  const [addingStep, setAddingStep] = useState(false);
-  const [draftDescription, setDraftDescription] = useState("");
-  const [draftFile, setDraftFile] = useState<File | null>(null);
-  const [capturing, setCapturing] = useState(false);
-  const [captureError, setCaptureError] = useState<string | null>(null);
-
-  const canAddDraft = draftDescription.trim().length > 0 || draftFile !== null;
-
-  function resetDraft() {
-    setAddingStep(false);
-    setDraftDescription("");
-    setDraftFile(null);
-    setCaptureError(null);
-  }
-
-  // Opens the device camera directly (@capacitor/camera via
-  // lib/client/capture-image.ts) — replaces the old file-picker input, no
-  // "choose from library" fallback. See
-  // docs/features/instruction-steps-camera-capture.md.
-  async function handleTakePhoto() {
-    setCaptureError(null);
-    setCapturing(true);
-    const result = await capturePhoto();
-    setCapturing(false);
-    if (result.status === "ok") {
-      setDraftFile(result.file);
-    } else if (result.status === "denied") {
-      setCaptureError("Camera access is off for Ch'rps — enable it in Settings to add a photo.");
-    } else if (result.status === "error") {
-      setCaptureError(result.message);
-    }
-    // "cancelled" (user backed out of the camera sheet): no error, just
-    // stay on the draft editor, same as backing out of a file picker used to.
-  }
-
-  async function confirmAddStep() {
-    if (!instructions || !canAddDraft) return;
-    const ok = await instructions.onAddStep({ description: draftDescription.trim() || null, file: draftFile });
-    if (ok) resetDraft();
-  }
 
   return (
     <>
@@ -156,6 +119,17 @@ export default function ManageTaskDetailSheet({
           </div>
 
           <div className="px-4 pb-8 overflow-y-auto space-y-4">
+            {coreEdit && (
+              <CoreFieldsEditor
+                name={coreEdit.name}
+                icon={coreEdit.icon}
+                formFields={coreEdit.formFields}
+                projectedMinutes={coreEdit.projectedMinutes}
+                onSave={coreEdit.onSave}
+                saving={coreEdit.saving}
+              />
+            )}
+
             {usedIn && (
               <div>
                 <p className="font-mono text-[10px] uppercase tracking-widest text-dim mb-1.5">
@@ -171,165 +145,21 @@ export default function ManageTaskDetailSheet({
               </div>
             )}
 
-            {tagBinding && (
-              <div className="pt-3 border-t border-border">
-                <p className="font-mono text-[10px] uppercase tracking-widest text-dim mb-1.5 flex items-center gap-1.5">
-                  <Nfc size={11} strokeWidth={1.75} />
-                  Scan-to-Complete Tag
-                </p>
-                {tagBinding.nfcTagUid ? (
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-[11px] text-olive flex-1 truncate">
-                      Bound · {tagBinding.nfcTagUid}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={tagBinding.onUnbind}
-                      disabled={tagBinding.busy}
-                      className="font-mono text-[11px] text-burgundy-light px-2 py-1 disabled:opacity-40"
-                    >
-                      Unbind
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={tagBinding.onScanToLink}
-                    disabled={tagBinding.busy}
-                    className="font-mono text-[11px] text-olive border border-olive/30 bg-olive/10 px-3 py-1.5 rounded-pill disabled:opacity-40"
-                  >
-                    {tagBinding.busy ? "Hold near tag…" : "Scan to Link"}
-                  </button>
-                )}
-                {tagBinding.error && (
-                  <p className="font-mono text-[11px] text-burgundy-light mt-1.5">{tagBinding.error}</p>
-                )}
-                {tagBinding.alsoBoundTo.length > 0 && (
-                  <p className="font-mono text-[11px] text-dim mt-1.5">
-                    Also bound to: {tagBinding.alsoBoundTo.join(", ")}
-                  </p>
-                )}
-              </div>
-            )}
+            {tagBinding && <NfcBindingPanel tagBinding={tagBinding} />}
 
-            {instructions && (
-              <div className="pt-3 border-t border-border">
-                <p className="font-mono text-[10px] uppercase tracking-widest text-dim mb-1.5">
-                  Instructions
-                </p>
+            {instructions && <InstructionsEditorPanel instructions={instructions} />}
 
-                {instructions.steps.length > 0 && (
-                  <div className="space-y-2 mb-2">
-                    {instructions.steps.map((step, i) => (
-                      <div
-                        key={step.key}
-                        className="flex items-start gap-2 bg-bg border border-border rounded-card p-2"
-                      >
-                        {step.imageUrl && (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={step.imageUrl}
-                            alt=""
-                            className="w-14 h-14 object-cover rounded-md flex-shrink-0"
-                          />
-                        )}
-                        {step.description && (
-                          <p className="font-body text-xs text-text flex-1 min-w-0 pt-1">
-                            {step.description}
-                          </p>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => instructions.onDeleteStep(i)}
-                          disabled={instructions.busy}
-                          aria-label="Delete step"
-                          className="text-dim hover:text-burgundy-light flex-shrink-0 min-h-[32px] min-w-[32px] flex items-center justify-center disabled:opacity-40"
-                        >
-                          <Trash2 size={14} strokeWidth={1.75} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
+            {requiresPhotoToggle && <RequiresPhotoTogglePanel toggle={requiresPhotoToggle} />}
 
-                {instructions.error && (
-                  <p className="font-mono text-[11px] text-burgundy-light mb-1.5">{instructions.error}</p>
-                )}
-
-                {instructions.steps.length < instructions.maxSteps &&
-                  (addingStep ? (
-                    <div className="space-y-2 bg-bg border border-border rounded-card p-2.5">
-                      <button
-                        type="button"
-                        onClick={handleTakePhoto}
-                        disabled={capturing || instructions.busy}
-                        className="w-full flex items-center gap-2 font-mono text-[11px] text-muted min-h-[44px] disabled:opacity-40"
-                      >
-                        <CameraIcon size={14} strokeWidth={1.75} className="flex-shrink-0" />
-                        <span className="flex-1 truncate text-left">
-                          {capturing ? "Opening camera…" : draftFile ? draftFile.name : "Take Photo (optional)"}
-                        </span>
-                      </button>
-                      {captureError && (
-                        <p className="font-mono text-[11px] text-burgundy-light">{captureError}</p>
-                      )}
-                      <textarea
-                        value={draftDescription}
-                        onChange={(e) => setDraftDescription(e.target.value)}
-                        placeholder="Description (optional)"
-                        rows={2}
-                        className="w-full bg-card border border-border rounded-md px-2.5 py-2 font-body text-xs text-text placeholder:text-dim outline-none resize-none"
-                      />
-                      <div className="flex items-center justify-end gap-3">
-                        <button
-                          type="button"
-                          onClick={resetDraft}
-                          className="font-mono text-[11px] text-dim uppercase tracking-widest"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="button"
-                          onClick={confirmAddStep}
-                          disabled={!canAddDraft || instructions.busy || capturing}
-                          className="font-mono text-[11px] text-olive uppercase tracking-widest disabled:opacity-40"
-                        >
-                          {instructions.busy ? "Adding…" : "Add"}
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setAddingStep(true)}
-                      className="w-full flex items-center justify-center gap-2 border border-dashed border-border-light text-dim font-mono text-[11px] py-2.5 rounded-card hover:border-olive/40 hover:text-olive transition-colors min-h-[40px]"
-                    >
-                      + Add Step
-                    </button>
-                  ))}
-              </div>
-            )}
-
-            {requiresPhotoToggle && (
-              <div className="pt-3 border-t border-border flex items-center justify-between gap-2">
-                <p className="font-mono text-[11px] text-text">Require Photo at Completion</p>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={requiresPhotoToggle.value}
-                  onClick={requiresPhotoToggle.onChange}
-                  disabled={requiresPhotoToggle.busy}
-                  className={`relative w-10 h-6 rounded-pill transition-colors disabled:opacity-50 flex-shrink-0 ${
-                    requiresPhotoToggle.value ? "bg-olive" : "bg-border-light"
-                  }`}
-                >
-                  <span
-                    className={`absolute top-0.5 w-5 h-5 rounded-full bg-bg shadow transition-transform ${
-                      requiresPhotoToggle.value ? "translate-x-[18px]" : "translate-x-0.5"
-                    }`}
-                  />
-                </button>
-              </div>
+            {inventoryLinks && (
+              <LinkedInventoryPanel
+                links={inventoryLinks.links}
+                busyId={inventoryLinks.busyId}
+                error={inventoryLinks.error}
+                onAdd={inventoryLinks.onAdd}
+                onToggleRequired={inventoryLinks.onToggleRequired}
+                onRemove={inventoryLinks.onRemove}
+              />
             )}
 
             <div className="pt-3 border-t border-border flex items-center justify-between gap-2">

@@ -896,6 +896,30 @@ is in `docs/features/locations.md`.
       Server-enforced (not just a disabled button) at every `state: "done"`
       write boundary via `lib/task-log-actions.ts`'s
       `assertPhotoProvided` — see docs/features/task-completion-photo.md
+- [x] Unified Task Edit Surface (Task Lists ↔ Task Catalog) — a manager
+      opening a task from either tab of `/tasks/manage` now sees the same
+      field set: Instructions and "Require Photo at Completion" (previously
+      Task Catalog-only, in `ManageTaskDetailSheet.tsx`) are now also on a
+      Task Lists placement row's inline edit form
+      (`TaskListEditView.tsx`'s `SortableRow`), and Name/Icon/Form Fields/
+      Estimated Time and Linked Inventory (previously Task Lists-only) are
+      now also on the Task Catalog's detail sheet. Scan-to-complete NFC
+      binding was already dual-editable and is unaffected. Scheduled days/
+      success threshold stay Task Lists-only, since they're inherently a
+      placement concept with no list to attach to from the catalog. The
+      four fields that were always definition-level regardless of entry
+      point (NFC, Instructions, Require Photo, Linked Inventory) are now
+      backed by shared client hooks
+      (`lib/client/use-task-definition-panel.ts`,
+      `lib/client/use-inventory-links.ts`) and shared presentational
+      components (`components/task-panels/*.tsx`) instead of two
+      hand-duplicated implementations, all calling definitionId-scoped
+      routes (`PATCH /api/task-definitions/[id]`,
+      `POST/DELETE /api/task-definitions/[id]/nfc-tag`, and a new
+      `GET/POST /api/task-definitions/[id]/inventory-links` +
+      `PATCH/DELETE .../inventory-links/[itemTypeId]` pair mirroring the
+      existing placement-keyed inventory-links routes) — see
+      docs/features/unified-task-edit-surface.md
 
 Personal-habit-tracker features from before the restaurant pivot — the
 timer-based Countdown/Stopwatch/Checkbox item types and the Sunday "Routine
@@ -1025,6 +1049,7 @@ table is a quick reference, not authoritative.
 - Task Instructions — Employee View: BUILT — a read-only "Instructions" button under the task title/name on the list row (`TaskRow.tsx`/`TaskCard.tsx`) AND the active-task screens (`TaskFormScreen.tsx`, `TimerScreen.tsx`), shown only when a task has instruction steps, opening `TaskInstructionsSheet.tsx`; not a completion gate, see `docs/features/task-instructions-employee-view.md`
 - Task Completion — Required Photo: BUILT — a manager-set `TaskDefinition.requiresPhoto` toggle (`ManageTaskDetailSheet.tsx`) requires an employee to attach a completion photo (`components/TaskPhotoCaptureButton.tsx`) before Done becomes tappable on `TimerScreen.tsx`/`TaskFormScreen.tsx`/`TaskCard.tsx`'s back-entry mode; enforced server-side on every `state: "done"` write (`lib/task-log-actions.ts`'s `assertPhotoProvided`), stored as `TaskLog.photoUrl`. A manager-facing review surface for the captured photo is not built, see `docs/features/task-completion-photo.md`
 - Manage Tasks Task Lists/Task Catalog toggle: BUILT — `/tasks/manage` now opens on a Task Lists tab (Task Lists + Standalone Tasks) with a separate full-width Task Catalog tab, matching the Admin Console's segmented-control pattern; search and "Scan to Find" scope to whichever tab is active, see `docs/features/manage-tasks-tabs.md`
+- Unified Task Edit Surface: BUILT — a Task Lists placement row (`TaskListEditView.tsx`'s `SortableRow`) and the Task Catalog's detail sheet (`ManageTaskDetailSheet.tsx`) now edit the same field set (Name/Icon/Form Fields/Estimated Time, Scan-to-Complete NFC, Instructions, Require Photo, Linked Inventory) regardless of which one a manager opens a task from — only Scheduled Days/Success Threshold stay Task Lists-only. The four definition-level panels are shared components/hooks (`components/task-panels/*.tsx`, `lib/client/use-task-definition-panel.ts`, `lib/client/use-inventory-links.ts`) calling definitionId-scoped routes, including a new `GET/POST /api/task-definitions/[id]/inventory-links` + `PATCH/DELETE .../inventory-links/[itemTypeId]` pair, see `docs/features/unified-task-edit-surface.md`
 - Notifications: BUILT — two independent shift-window alerts: "start-time reminders" fire at a list's exact startTime via its own per-list QStash schedule (managers+employees), "missed" fires 30min past the window's end via a shared QStash sweep every 5min (managers only, tasks still outstanding); device registration via `@capacitor/push-notifications` open to any company user, `Company.timezone`/`notificationsEnabled` drive both, see "Notifications" above and `docs/features/notifications.md`
 - Locations: BUILT — `Location` model, new `owner` role tier, invite/team location assignment, Location CRUD API, locationId-scoping across TaskLog/TaskListSession/InventoryLog/MissedListAlert, and an owner-facing location switcher (`components/LocationSwitcher.tsx`) on Tasks/Team/Reports/Inventory; migration script at `scripts/backfill-locations.mjs`. Job tags now have a catalog + assignment UI (Admin Console's Team page — see `docs/features/admin-console.md`'s "Job Tags catalog"), though the tag-based task-list *targeting* they were originally meant for is still not built. NOT built: per-location split of the start-time-reminder cron — see "Locations" above and `docs/features/locations.md`'s "Known gaps"
 - Admin Console: BUILT — desktop-first `/console` section (`app/(console)/console/**`, gated manager-or-above in its `layout.tsx`, blocked from the native iOS shell): a Rollup Dashboard (`GET /api/reports/rollup`) as `/console`'s own homepage, giving an owner a cross-location snapshot (completion rate, tasks logged, missed lists, below-par items, active employees) that has no mobile equivalent (Locations CRUD, the console's original Phase 1a page, was removed entirely; Rollup moved off its own `/console/rollup` route to become the homepage in its place), a company-wide Team & Access table + invite panel + Job Tags catalog (create/rename/archive tags, per-teammate toggle assignment), Task & Task List Management (`/console/tasks`, manager-or-above) — a two-pane task-list/task editor reusing mobile's exact APIs and field-editing building blocks, NFC status-only (no scan action), plus a Task Catalog pane for editing/creating/deleting a saved task independent of any list placement — a Reports page (`/console/reports`, manager-or-above) — desktop-shaped stat strip/leaderboard table/task-list grid/Logs table/Inventory card grid, all fed by mobile's exact `GET /api/reports`/`/api/reports/leaderboard`/`/api/reports/inventory`/`GET /api/task-logs/history` responses (new presentational layouts, reused pure math/types from `components/reports/shared.ts`) — and an Inventory Management page (`/console/inventory`, manager-or-above) — grouped item-type table with always-visible log-a-count input + expandable history per row, plus a persistent Manage Groups panel below it; no NFC anywhere (an item with `nfcRequiredToLog` set from mobile 409s here with console-specific error copy, not mobile's "use Save via NFC"). Team & Access and the Rollup Dashboard homepage stay owner-only, each self-gating now that the blanket layout check loosened; Task Management, Reports, and Inventory are the three manager-and-up pages. Reached via a manager-or-above card on the Profile page (`components/ProfileView.tsx`) — login itself still always lands on Tasks, same as every other role — see `docs/features/admin-console.md`, `docs/features/console-task-management.md`, `docs/features/console-reports.md`, and `docs/features/console-inventory.md`
