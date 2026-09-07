@@ -1,169 +1,59 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { Capacitor } from "@capacitor/core";
-import type { PluginListenerHandle } from "@capacitor/core";
+import { startAppleSignInSession } from "@/lib/native/apple-signin-session";
 
 // Apple's sign-in page won't run inside Capacitor's own WKWebView — iOS
 // hands navigation to appleid.apple.com off to the system browser instead
 // of honoring capacitor.config.ts's allowNavigation, which used to strand
 // the user in standalone Safari with no way back into the app. Opening it
-// in an in-app browser sheet (@capacitor/browser, backed by
-// SFSafariViewController on iOS) keeps it visually inside the app.
+// in a dedicated in-app auth session
+// (ios/App/App/AppleSignInSessionPlugin.swift's ASWebAuthenticationSession)
+// keeps it visually inside the app.
 //
-// Opens app/api/native-apple-signin directly (not a server action that
-// fetches the Apple URL first) — a server action invoked from this
-// component runs in the app's own WKWebView context, and that turned out
-// NOT to share a cookie jar with the @capacitor/browser sheet (confirmed
-// via a live InvalidCheck: state value could not be parsed failure): the
-// state cookie set there was invisible to Apple's callback landing in the
-// sheet. Loading the route directly means the cookie-set and Apple's
-// eventual callback both happen inside the one browsing context the sheet
-// owns.
+// That session runs in its own browsing context, separate from the app's
+// own WKWebView — same split @capacitor/browser's plain SFSafariViewController
+// had before it (confirmed via a live InvalidCheck: state value could not
+// be parsed failure when this used a server action from the app's own
+// webview instead of loading app/api/native-apple-signin directly), and
+// the session's establishment of Apple's cookie/session never reaches the
+// app's own WKWebView on its own either (confirmed live: the app stayed
+// signed out afterward). A handoffId generated here, threaded through the
+// whole flow, is what actually signs the app itself in — see
+// models/NativeSignInHandoff.ts for the full mechanism.
 //
-// That same cookie-jar split means the session Apple's callback
-// establishes ALSO never reaches the app's own webview on its own
-// (confirmed live: the app stayed signed out after the sheet closed) — a
-// handoffId generated here, threaded through the whole flow, is what
-// actually signs the app itself in. See models/NativeSignInHandoff.ts for
-// the full mechanism and why Universal Links weren't reliable enough to
-// carry this on their own.
-//
-// The app polls app/api/native-handoff/status WHILE the sheet is still
-// open (rather than waiting for the user to close it first, which used to
-// be the only trigger and left the sheet stranded open with no way to
-// know sign-in had actually finished) and closes the sheet itself the
-// moment the handoff succeeds. The browserFinished listener is kept only
-// as a fallback for a user who manually dismisses the sheet early.
+// This used to open @capacitor/browser's SFSafariViewController and have
+// this component's own JS poll for completion and close the sheet itself.
+// Live device testing across three rounds of fixes showed the app's
+// WKWebView stops running JS entirely while that sheet covers it — no
+// poll tick, no timeout, ever fired until the user manually dismissed it
+// — making any JS-driven detection fundamentally unreliable regardless of
+// how the polling itself was tuned. ASWebAuthenticationSession replaces
+// that: iOS itself watches for the OAuth flow's final redirect
+// (chrps://native-auth-complete, see app/api/native-apple-signin/route.ts)
+// and auto-dismisses the session the instant it sees it, entirely in
+// native code — so by the time startAppleSignInSession() below resolves,
+// the app's own WKWebView is guaranteed foregrounded and running again,
+// and the single handoff-status check that follows can be trusted to
+// actually execute. No polling, no listeners, no manual Browser.close()
+// needed anymore.
 //
 // Plain web (not the native app) keeps the simple top-level redirect the
-// Google button still uses — Browser.open() on web just opens a new tab,
-// and the handoff mechanism above only matters for the split-cookie-jar
-// problem native has.
-
-const POLL_INTERVAL_MS = 1500;
-const POLL_TIMEOUT_MS = 90_000;
-
+// Google button still uses — the handoff mechanism above only matters for
+// the split-browsing-context problem native has.
 export default function AppleSignInButton({ destination }: { destination: string }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const mountedRef = useRef(true);
-  const settledRef = useRef(false);
-  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const listenerHandleRef = useRef<PluginListenerHandle | null>(null);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      cleanupTimers();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  function cleanupTimers() {
-    if (pollIntervalRef.current) {
-      clearInterval(pollIntervalRef.current);
-      pollIntervalRef.current = null;
-    }
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-    }
-    if (listenerHandleRef.current) {
-      listenerHandleRef.current.remove();
-      listenerHandleRef.current = null;
-    }
-  }
-
-  // Tagged so it's easy to filter in the device console (Capacitor's own
-  // "⚡️ To Native ->" bridge logging only shows plugin calls, not fetch
-  // results — these are what actually explain a poll/handoff failure).
-  function log(...args: unknown[]) {
-    // eslint-disable-next-line no-console
-    console.log("[AppleSignIn]", ...args);
-  }
-
-  async function closeSheetBestEffort() {
-    try {
-      const { Browser } = await import("@capacitor/browser");
-      await Browser.close();
-    } catch (err) {
-      // Already closed (e.g. the user tapped "Done" right as this
-      // resolved) — Browser.close() rejects with "No active window to
-      // close!" in that case, which is an expected benign race, not a
-      // real failure.
-      log("Browser.close() rejected (sheet likely already closed):", err);
-    }
-  }
 
   async function checkHandoffStatus(handoffId: string): Promise<boolean> {
     try {
       const res = await fetch(`/api/native-handoff/status?handoffId=${handoffId}`);
       const { done } = await res.json();
-      log("handoff status check ->", { handoffId, httpStatus: res.status, done });
       return Boolean(done);
-    } catch (err) {
-      log("handoff status check failed:", err);
+    } catch {
       return false;
     }
-  }
-
-  async function checkExistingSession(): Promise<boolean> {
-    try {
-      const res = await fetch("/api/auth/session");
-      const session = await res.json();
-      const hasUser = Boolean(session?.user);
-      log("existing session check ->", { httpStatus: res.status, hasUser });
-      return hasUser;
-    } catch (err) {
-      log("existing session check failed:", err);
-      return false;
-    }
-  }
-
-  async function finishSuccess(opts: { skipClose?: boolean } = {}) {
-    if (settledRef.current) return;
-    settledRef.current = true;
-    log("finishSuccess — navigating to", destination);
-    cleanupTimers();
-    if (!opts.skipClose) await closeSheetBestEffort();
-    if (mountedRef.current) {
-      window.location.href = destination;
-    }
-  }
-
-  async function finishFailure(message: string, opts: { skipClose?: boolean } = {}) {
-    if (settledRef.current) return;
-    // A poll tick's request can succeed server-side (consuming the
-    // handoff row, setting the session cookie) even if its response never
-    // reaches this client — re-check for an actual session before
-    // reporting a false failure.
-    if (await checkExistingSession()) {
-      log("finishFailure superseded — a session already exists, treating as success");
-      await finishSuccess(opts);
-      return;
-    }
-    settledRef.current = true;
-    log("finishFailure —", message);
-    cleanupTimers();
-    if (!opts.skipClose) await closeSheetBestEffort();
-    if (mountedRef.current) {
-      setPending(false);
-      setError(message);
-    }
-  }
-
-  async function pollTick(handoffId: string) {
-    if (settledRef.current) return;
-    const done = await checkHandoffStatus(handoffId);
-    if (done) {
-      await finishSuccess();
-    }
-    // A false/failed tick isn't terminal — the next tick or the timeout
-    // resolves it.
   }
 
   async function handleClick() {
@@ -175,38 +65,42 @@ export default function AppleSignInButton({ destination }: { destination: string
         return;
       }
 
-      settledRef.current = false;
       const handoffId = crypto.randomUUID();
       const url = `${window.location.origin}/api/native-apple-signin?callbackUrl=${encodeURIComponent(destination)}&handoffId=${handoffId}`;
 
-      const { Browser } = await import("@capacitor/browser");
-      listenerHandleRef.current = await Browser.addListener("browserFinished", async () => {
-        if (settledRef.current) return;
-        // browserFinished only ever fires once the native sheet is ALREADY
-        // gone (the user tapped "Done"/dismissed it) — never as a result of
-        // our own Browser.close() call (confirmed: that bypasses this
-        // delegate entirely). So there is never a sheet left to close here;
-        // skipClose avoids an always-guaranteed-to-fail Browser.close() call.
-        log("browserFinished fired (user dismissed the sheet manually)");
-        const done = await checkHandoffStatus(handoffId);
-        if (done) {
-          await finishSuccess({ skipClose: true });
-        } else {
-          await finishFailure("Sign-in wasn't completed. Please try again.", { skipClose: true });
-        }
-      });
+      const result = await startAppleSignInSession(url);
+      if (result.status === "cancelled") {
+        setPending(false);
+        return;
+      }
+      if (result.status !== "ok") {
+        setPending(false);
+        setError(
+          result.status === "unsupported"
+            ? "Apple sign-in isn't supported here."
+            : "Something went wrong. Please try again."
+        );
+        return;
+      }
 
-      log("opening sheet, handoffId =", handoffId);
-      await Browser.open({ url });
+      // The session only resolves once the app is foregrounded and
+      // running again, so the handoff row (written inline during Apple's
+      // own callback — see lib/auth.ts's jwt callback) should already be
+      // there. A couple of short retries cover only the status check's
+      // own network round trip, not the underlying write.
+      let done = false;
+      for (let attempt = 0; attempt < 3 && !done; attempt++) {
+        if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 500));
+        done = await checkHandoffStatus(handoffId);
+      }
 
-      pollIntervalRef.current = setInterval(() => {
-        void pollTick(handoffId);
-      }, POLL_INTERVAL_MS);
-      timeoutRef.current = setTimeout(() => {
-        void finishFailure("Sign-in timed out. Please try again.");
-      }, POLL_TIMEOUT_MS);
+      if (done) {
+        window.location.href = destination;
+      } else {
+        setPending(false);
+        setError("Sign-in wasn't completed. Please try again.");
+      }
     } catch {
-      cleanupTimers();
       setPending(false);
       setError("Something went wrong. Please try again.");
     }

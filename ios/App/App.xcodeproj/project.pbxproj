@@ -20,6 +20,7 @@
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
 		7538C3E4D4E825678198C8F7 /* RoutineActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F4DAFFA55EBB5146C26AD59 /* RoutineActivityAttributes.swift */; };
 		95188469829199D735AA7DA8 /* NfcScanPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDE554091724E91093BE43C9 /* NfcScanPlugin.swift */; };
+		D7E43300470A1ED06AB82ABC /* AppleSignInSessionPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C028A51F155A0B19B86DDC9 /* AppleSignInSessionPlugin.swift */; };
 		9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9582B6822FE993A50072D4E8 /* SceneDelegate.swift */; };
 		AC49076C0AECEAE985237245 /* LiveActivityPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9180AC6D74EE8D27D82C2A65 /* LiveActivityPlugin.swift */; };
 		F1C4D8F2F6194CB115EF6EF1 /* MainViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 589FC9ECDCB68AA23B353864 /* MainViewController.swift */; };
@@ -69,6 +70,7 @@
 		9582B6822FE993A50072D4E8 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
 		BDE554091724E91093BE43C9 /* NfcScanPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NfcScanPlugin.swift; sourceTree = "<group>"; };
+		7C028A51F155A0B19B86DDC9 /* AppleSignInSessionPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppleSignInSessionPlugin.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -162,6 +164,7 @@
 				7F56C32234441094199A01A3 /* App.entitlements */,
 				9180AC6D74EE8D27D82C2A65 /* LiveActivityPlugin.swift */,
 				BDE554091724E91093BE43C9 /* NfcScanPlugin.swift */,
+				7C028A51F155A0B19B86DDC9 /* AppleSignInSessionPlugin.swift */,
 				0F4DAFFA55EBB5146C26AD59 /* RoutineActivityAttributes.swift */,
 			);
 			path = App;
@@ -293,6 +296,7 @@
 				F1C4D8F2F6194CB115EF6EF1 /* MainViewController.swift in Sources */,
 				AC49076C0AECEAE985237245 /* LiveActivityPlugin.swift in Sources */,
 				95188469829199D735AA7DA8 /* NfcScanPlugin.swift in Sources */,
+				D7E43300470A1ED06AB82ABC /* AppleSignInSessionPlugin.swift in Sources */,
 				7538C3E4D4E825678198C8F7 /* RoutineActivityAttributes.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
