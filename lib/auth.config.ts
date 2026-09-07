@@ -33,11 +33,21 @@ export default {
   // fixes it; only applied in production since None requires Secure, which
   // plain http://localhost can't set — Google's redirect-based flow is
   // unaffected either way, since None is a superset of Lax for GETs.
+  //
+  // callbackUrl gets the same treatment for the same reason: it's the
+  // cookie that actually carries native-apple-signin's redirectTo
+  // (chrps://native-auth-complete) across Apple's cross-site POST to the
+  // redirect() callback below — without it, that cookie is withheld same
+  // as state/nonce were, redirect() never sees the chrps:// URL, and the
+  // ASWebAuthenticationSession sheet lands on the plain site instead of
+  // ever hitting a scheme it can intercept (confirmed live: jwt/signIn
+  // both completed successfully, but the sheet never closed).
   cookies:
     process.env.NODE_ENV === "production"
       ? {
           state: { options: { sameSite: "none", secure: true } },
           nonce: { options: { sameSite: "none", secure: true } },
+          callbackUrl: { options: { sameSite: "none", secure: true } },
         }
       : undefined,
   callbacks: {
@@ -53,6 +63,7 @@ export default {
     // default same-origin-only behavior — this only special-cases that one
     // known, fixed scheme, not arbitrary external URLs.
     redirect({ url, baseUrl }) {
+      console.log("[auth] redirect callback — url:", url, "baseUrl:", baseUrl);
       if (url.startsWith("chrps://")) return url;
       if (url.startsWith("/")) return `${baseUrl}${url}`;
       try {
