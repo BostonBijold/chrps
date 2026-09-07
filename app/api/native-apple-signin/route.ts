@@ -13,8 +13,19 @@ import { signIn } from "@/lib/auth";
 // which Route Handlers support same as Server Actions) and the eventual
 // Apple callback both happen inside the one browsing context the sheet
 // owns, start to finish.
+//
+// Once Apple's callback completes (still inside the sheet), redirectTo
+// sends the sheet to app/api/native-handoff/complete instead of the real
+// destination directly — the session that Apple's callback just
+// established lives only in the sheet's own cookie jar, not the app's own
+// WKWebView (confirmed live — the app stayed signed out after the sheet
+// closed), so that hop is what actually gets the user signed in inside
+// the real app. See models/NativeSignInHandoff.ts for the full handoff.
 export async function GET(request: NextRequest) {
   const callbackUrl = request.nextUrl.searchParams.get("callbackUrl") || "/welcome";
-  const url = await signIn("apple", { redirectTo: callbackUrl, redirect: false });
+  const handoffId = request.nextUrl.searchParams.get("handoffId") || "";
+  const completeUrl = new URL("/api/native-handoff/complete", request.url);
+  completeUrl.searchParams.set("handoffId", handoffId);
+  const url = await signIn("apple", { redirectTo: completeUrl.toString(), redirect: false });
   return NextResponse.redirect(url);
 }

@@ -64,13 +64,18 @@ export const config = {
   // — but that whole surface was removed; see docs/features/nfc.md's
   // history note on why.
   //
-  // api/native-apple-signin is excluded for the same reason api/auth is:
-  // it's the unauthenticated entry point that KICKS OFF sign-in (see
-  // components/AppleSignInButton.tsx), so it's hit with no session by
-  // definition — without this exclusion this middleware 401s it before
-  // its own route handler ever runs, the same {"error":"Unauthorized"}
-  // failure mode the api/cron comment above already documents for QStash.
+  // api/native-apple-signin and api/native-handoff are excluded for the
+  // same reason api/auth is: they're unauthenticated entry points in the
+  // Sign in with Apple flow (see components/AppleSignInButton.tsx) — the
+  // former kicks off sign-in with no session yet by definition,
+  // api/native-handoff/status is literally the request that ESTABLISHES
+  // the app's own session (see models/NativeSignInHandoff.ts), so it can
+  // never itself require one. Without this exclusion this middleware 401s
+  // them before their own route handlers ever run, the same
+  // {"error":"Unauthorized"} failure mode the api/cron comment above
+  // already documents for QStash — confirmed live for
+  // api/native-apple-signin before this exclusion existed.
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|api/auth|api/cron|api/native-apple-signin|manifest\\.json|sw\\.js|.*\\.(?:png|jpg|jpeg|svg|ico|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|api/auth|api/cron|api/native-apple-signin|api/native-handoff|manifest\\.json|sw\\.js|.*\\.(?:png|jpg|jpeg|svg|ico|webp)$).*)",
   ],
 };

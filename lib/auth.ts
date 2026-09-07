@@ -4,6 +4,7 @@ import { MongoDBAdapter } from "@auth/mongodb-adapter";
 import clientPromise from "@/lib/mongodb-client";
 import { connectDB } from "@/lib/mongoose";
 import User from "@/models/User";
+import NativeSignInHandoff from "@/models/NativeSignInHandoff";
 import authConfig from "@/lib/auth.config";
 import { verifyPassword } from "@/lib/password";
 
@@ -17,8 +18,26 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
     ...authConfig.providers,
     Credentials({
-      credentials: { email: {}, password: {} },
+      credentials: { email: {}, password: {}, handoffId: {} },
       async authorize(credentials) {
+        // Native Sign in with Apple handoff (see
+        // app/api/native-handoff/status/route.ts, models/NativeSignInHandoff.ts)
+        // — not a real password check, a one-time, expiring, server-issued
+        // token proving a session already exists for this user inside the
+        // in-app browser sheet.
+        const handoffId = String(credentials?.handoffId ?? "");
+        if (handoffId) {
+          await connectDB();
+          const record = await NativeSignInHandoff.findOneAndUpdate(
+            { handoffId, consumed: false, expiresAt: { $gt: new Date() } },
+            { $set: { consumed: true } }
+          );
+          if (!record) return null;
+          const user = await User.findById(record.userId);
+          if (!user || user.deletedAt) return null;
+          return { id: user._id.toString(), email: user.email, name: user.name };
+        }
+
         const email = String(credentials?.email ?? "").toLowerCase().trim();
         const password = String(credentials?.password ?? "");
         if (!email || !password) return null;

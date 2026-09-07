@@ -1,16 +1,16 @@
 import { NextResponse } from "next/server";
 
 // Universal Links config for the NFC feature (see docs/features/nfc.md) —
-// scoped to /nfc/* only, not the whole site — plus /welcome and /tasks for
-// the Sign in with Apple in-app-browser flow (see
-// docs/features/task-completion-photo.md's App Store submission notes and
-// components/AppleSignInButton.tsx): Apple's own auth page can't run
-// inside Capacitor's WKWebView (iOS hands it to an in-app Safari sheet via
-// @capacitor/browser instead), so the only way back into the app once
-// sign-in finishes is Universal Links intercepting the post-auth landing
-// page and closing that sheet — components/UniversalLinkHandler.tsx does
-// the actual in-app routing once that handoff fires. Not widened to the
-// whole site, same deliberate scoping as /nfc/*.
+// scoped to /nfc/* only, not the whole site. Served as a route handler
+// rather than a static public/ file so Content-Type: application/json is
+// guaranteed regardless of static-file content-type quirks; Apple fetches
+// this over HTTPS with no redirect allowed.
+//
+// Sign in with Apple's in-app-browser flow (components/AppleSignInButton.tsx)
+// briefly used /welcome and /tasks here too, relying on Universal Links to
+// auto-close the sheet — dropped in favor of an explicit handoffId polling
+// mechanism (models/NativeSignInHandoff.ts) after that auto-close proved
+// unreliable in testing.
 //
 // appID's team ID (X3DPK5Y29G) is the paid Developer Program team — update
 // this (and ios/App/App.xcodeproj's DEVELOPMENT_TEAM) together if the app
@@ -23,7 +23,7 @@ export async function GET() {
       details: [
         {
           appID: "X3DPK5Y29G.com.bostonbijold.chrps",
-          paths: ["/nfc/*", "/welcome", "/tasks"],
+          paths: ["/nfc/*"],
         },
       ],
     },
