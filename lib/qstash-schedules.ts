@@ -23,7 +23,7 @@ const QSTASH_BASE_URL = process.env.QSTASH_URL ?? "https://qstash.upstash.io";
 // Associated Domains entitlement. See docs/features/nfc.md's "Domain
 // permanence" note for the same caveat applied elsewhere: if this domain
 // ever changes, every list's schedule needs re-pointing.
-const PRODUCTION_ORIGIN = "https://chrps.vercel.app";
+const PRODUCTION_ORIGIN = "https://www.chrps.app";
 
 function requireEnv(name: string): string {
   const value = process.env[name];
