@@ -7,7 +7,7 @@ const config: CapacitorConfig = {
   server: {
     url: 'https://chrps.vercel.app',
     cleartext: false,
-    allowNavigation: ['accounts.google.com']
+    allowNavigation: ['accounts.google.com', 'appleid.apple.com']
   },
   ios: {
     backgroundColor: '#ffffff'
