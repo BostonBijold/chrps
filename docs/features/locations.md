@@ -144,7 +144,12 @@ Two actions are gated tighter, **owner-only**:
 company's active locations, `{ _id, name, address, timezone }[]`) and
 `POST` (owner-only create). `app/api/locations/[id]/route.ts` — `PATCH`
 (owner-only rename/re-address/re-zone) and `DELETE` (owner-only soft-delete,
-`isActive: false`).
+`isActive: false`). UI: `components/console/LocationsPanel.tsx`, an
+owner-only create/rename/archive panel embedded in the Admin Console's
+Team & Access page (`/console/team`) — no `timezone` field in that UI yet,
+only `PATCH` supports setting it. See
+[`admin-console.md`](admin-console.md)'s "Removed: Locations CRUD... then
+reintroduced" for why this lives there rather than its own page.
 
 ## TaskLog/TaskListSession/Inventory write-path propagation
 
@@ -215,7 +220,14 @@ company, sees no UI change at all.
     id filters to `{ companyId, locationId }`. Team's switcher instance
     passes `allowAll`, adding an "All Locations" entry that simply
     `PATCH`es `activeLocationId` back to `null` — not a separate sentinel
-    value.
+    value. **Gated on `isOwner(role)`, not just `activeLocationId` being
+    truthy** (`app/api/team/route.ts`): the field is meant to be
+    owner-only, set exclusively by the owner-gated `PATCH
+    /api/session/active-location`, but nothing clears it if a hand-edit in
+    MongoDB later demotes that user away from `owner` — without the role
+    check, a stale `activeLocationId` left over from before the demotion
+    would silently filter a manager's or employee's own roster view down
+    to one location instead of showing the whole company.
 - **Tasks writes need no separate wiring.** `/api/task-logs`'s
   start/complete/miss handlers already resolved their location via
   `pickActiveLocationId` before this feature existed (originally only

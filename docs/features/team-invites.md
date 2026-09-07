@@ -54,6 +54,16 @@ strict superset of `manager`. Separately, the enum also allows `null` — the st
 
 The atomic increment-with-filter is what keeps a `maxUses: 1` link from being redeemed twice by two people who open it at the same moment — same spirit as the single-active-timer invariant elsewhere in this app, just applied to invite consumption instead of task logs.
 
+All of the validation/redemption logic above now lives in one shared helper, `lib/invites.ts`'s `redeemInvite(token, sessionUser)`, called by both `app/invite/[token]/page.tsx` (opening the link directly) and `POST /api/invites/redeem` (below) — the two entry points differ only in how they got the token and what they do with the result, not in any redemption rule.
+
+## Joining without leaving the app (paste-link redemption)
+
+`components/NoCompanyMessage.tsx` — shown to a signed-in user with no `companyId` yet — used to be a dead end unless the recipient physically opened their invite link (email, text, AirDrop). It now has a "Have an invite link?" field: pasting the full `.../invite/<token>` URL, or just the bare token, and tapping **Join** calls `POST /api/invites/redeem` with `{ link }`. `extractToken()` in that route pulls the token out of a pasted URL via `/\/invite\/([^/?#\s]+)/`, falling back to the trimmed input itself so a bare copied token still works. On success, `router.refresh()` re-runs the page's server component — since `companyId`/`role` are always resolved fresh from the `User` document per request (see CLAUDE.md's "Multi-Tenancy"), the newly-attached company shows up immediately, no re-sign-in needed. On failure, the same two messages `app/invite/[token]/page.tsx` renders ("already part of a different team" / "invite isn't valid") come back as inline errors instead.
+
+This exists for the case a link only reaches someone as plain text they can't tap through as a URL (read aloud, texted without a live preview, etc.) — the original tap-the-link flow is unchanged and still the primary path.
+
+`NoCompanyMessage.tsx` also has its own **Sign out** button (`signOut({ callbackUrl: "/login" })`) — this screen renders before the app shell (`Header.tsx`/bottom nav) exists, so there's otherwise no way back out of a wrong-account sign-in short of killing the app/clearing cookies by hand.
+
 ## API
 
 Auth follows the existing pattern throughout: `lib/session.ts`'s `resolveSessionUser()`, `SKIP_AUTH`-gated dev fallback, `401` otherwise. `companyId`/`role` read fresh from the `User` document on every call, never trusted from the client.
@@ -66,6 +76,9 @@ Auth follows the existing pattern throughout: `lib/session.ts`'s `resolveSession
 
 ### `DELETE /api/invites/[id]`
 **Manager-or-above**. Sets `revokedAt: new Date()` — `404` if not found or not this company's. Soft-delete, not a hard remove, so a redemption already in flight still fails cleanly against the revoked state rather than a missing document.
+
+### `POST /api/invites/redeem`
+**Any signed-in user** (not company-gated — this is exactly how someone with no `companyId` gets one). Body: `{ link: string }` — a pasted invite URL or bare token, see "Joining without leaving the app" above. `400` if `link` is missing/blank. Delegates to `lib/invites.ts`'s `redeemInvite()`, the same helper `app/invite/[token]/page.tsx` uses. `400` with a user-facing message on `"different-company"` or `"invalid"`; `200 { ok: true }` on success (including the idempotent already-a-member case). Unlike the page version there's no redirect — the client (`NoCompanyMessage.tsx`) calls `router.refresh()` itself.
 
 ### `GET /api/team`
 **Any signed-in company member** (not manager-gated — this is the read-only roster everyone sees). **Unfiltered by location by default** — returns every `User` in the company regardless of `locationId`, a location-bound manager included — **unless the caller is an owner with a location switcher selection set** (`sessionUser.activeLocationId`, see `docs/features/locations.md`'s "Location switcher"), in which case it filters to `{ companyId, locationId: activeLocationId }`. An employee/manager's `activeLocationId` is always `null` (no switcher for those roles), so this has no effect on them — they always see the full roster, unchanged from before that feature. Every `User` matched: `{ _id, name, image, role, joinedAt }`, owners first, then managers, then alphabetical by name within each. `joinedAt` is `companyJoinedAt ?? createdAt` (falls back for anyone attached before this feature existed). `image` is returned but not currently rendered anywhere — the Team tab uses the same initials-only avatar convention as `Header.tsx`/`ProfileView.tsx`, kept for design consistency rather than introducing photo rendering as a one-off.

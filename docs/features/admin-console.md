@@ -17,13 +17,18 @@ mobile browser stay exactly as documented in
 [`reports.md`](reports.md), and [`inventory.md`](inventory.md). This is
 additive.
 
-**Locations CRUD was removed from the console** (it briefly existed as
-Phase 1a — see "Removed: Locations CRUD" below). `Location` itself, the
-mobile location switcher, and `GET`/`POST`/`PATCH`/`DELETE /api/locations`
-are all untouched — only the console's own management page/nav item is
-gone. A new location, if one's ever needed, is created directly in
-MongoDB by the developer, the same way a company's very first manager
-already is (see CLAUDE.md's "Multi-Tenancy").
+**Locations CRUD was removed from the console, then partially reintroduced**
+— see "Removed: Locations CRUD" below for the full history. It briefly
+existed as its own Phase 1a page (`/console/locations`), was removed once
+that stand-alone page proved unneeded, and later came back in a smaller
+shape as `components/console/LocationsPanel.tsx`, a create/rename/archive
+panel embedded directly in Team & Access (`/console/team`) rather than a
+page/nav item of its own — an owner needs somewhere to add a company's
+first location or a new store before there's anyone to invite there, and
+Team & Access's own pickers (the invite panel's location select, the
+roster's per-row reassignment dropdown) had nothing to source options from
+otherwise. `GET`/`POST`/`PATCH`/`DELETE /api/locations` were never touched
+through any of this — both the removal and the reintroduction were UI-only.
 
 **Why a separate section instead of responsive breakpoints on the
 existing pages:** the mobile UI is built around bottom-sheet modals,
@@ -146,28 +151,41 @@ sidebar/table content — no redirect to `/tasks` (simpler than plumbing a
 message through a query param, and avoids a jarring auto-navigation away
 from a URL the owner explicitly opened).
 
-## Removed: Locations CRUD (was Phase 1a)
+## Removed: Locations CRUD (was Phase 1a), then reintroduced inside Team & Access
 
 Originally shipped as the console's thinnest first slice — a
 `components/console/LocationsTable.tsx` page at `/console/locations`
 wrapping the existing `GET`/`POST /api/locations`, `PATCH`/`DELETE
 /api/locations/[id]` routes. Removed once the console's actual usage
-showed a location-CRUD page wasn't needed there: this owner's company
+showed a location-CRUD *page* wasn't needed there: this owner's company
 runs a small, effectively-fixed set of locations that don't get
 created/renamed/closed often enough to justify a standing nav item, and
 Team & Access's own per-row location `<select>` (Phase 1b, unchanged)
 already covers the recurring need — reassigning a teammate to a location
 that already exists.
 
-**What's actually gone**: `app/(console)/console/locations/page.tsx` and
-`components/console/LocationsTable.tsx` (deleted), and the sidebar's
-Locations nav item. **What's unaffected**: the `Location` model, every
-`/api/locations` route, the mobile location switcher
-(`components/LocationSwitcher.tsx`), and `locations.md`'s full feature —
-this was a console-page removal only. If location CRUD from a browser is
-needed again later, a new location today gets created directly in
-MongoDB by the developer, same as a company's very first manager (see
-CLAUDE.md's "Multi-Tenancy").
+**What was actually removed**: `app/(console)/console/locations/page.tsx`
+and `components/console/LocationsTable.tsx` (deleted), and the sidebar's
+Locations nav item. **What was unaffected**: the `Location` model, every
+`/api/locations` route, and the mobile location switcher
+(`components/LocationSwitcher.tsx`) — this was a console-page removal
+only.
+
+**Reintroduced, in a different shape**: removing the standing page left a
+real gap — a brand-new company (or one opening its second store) had no
+way to create a `Location` at all without a developer doing it by hand in
+MongoDB, and Team & Access's invite panel/roster reassignment dropdowns
+had nothing to list until one existed. `components/console/LocationsPanel.tsx`
+fills that gap as a panel embedded directly at the top of `/console/team`
+(Phase 1b, below) rather than a page or nav item of its own — it doesn't
+resurrect `/console/locations`, `LocationsTable.tsx`, or the sidebar item,
+only a scoped create/rename/archive UI over the same `/api/locations`
+routes the removed page used to call. Create (name + optional address),
+inline rename, and archive (`DELETE /api/locations/[id]`, soft-deletes via
+`Location.isActive: false` — same convention as `TaskList.isActive`) with
+a `window.confirm()` warning that an archived location drops off every
+picker while teammates already assigned there keep their history. Owner-only,
+same gate as the rest of Team & Access.
 
 ## Phase 1b — Team & Access (built)
 
@@ -175,16 +193,27 @@ Reuses existing mobile APIs: `GET`/`POST /api/invites`, `DELETE
 /api/invites/[id]`, `GET /api/team`, `PATCH /api/team/[userId]`, `DELETE
 /api/team/[userId]`, `GET /api/locations` (for pickers).
 
-**One net-new piece of UI wiring, plus one small additive API field**: a
-location-reassignment control. `PATCH /api/team/[userId]`'s owner-only
-`locationId` field has existed since the Locations feature shipped, but —
-per `team-invites.md`'s "Known gaps" — `TeamMemberActionSheet.tsx` (the
+**Two net-new pieces of UI, plus one small additive API field**: a
+location-reassignment control, and (added later) the `LocationsPanel`
+described above. `PATCH /api/team/[userId]`'s owner-only `locationId`
+field has existed since the Locations feature shipped, but — per
+`team-invites.md`'s "Known gaps" — `TeamMemberActionSheet.tsx` (the
 mobile action sheet) has no button that calls it. `components/console
 /TeamTable.tsx`'s roster now has a per-row location `<select>` that calls
 this endpoint directly. This needed one additive field on `GET /api/team`
 that didn't exist before: the response now includes each member's
 `locationId` (`app/api/team/route.ts`) so the dropdown can show a current
 selection — the mobile `TeamView.tsx` ignores the new field, unaffected.
+
+`TeamConsoleView.tsx` (the page-level coordinator described just below)
+now also fetches locations through its own `fetchLocations()` (split out
+so `LocationsPanel`'s create/rename/archive handlers can re-trigger it
+independently of the initial mount effect) and passes the list to
+`LocationsPanel` alongside `TeamTable`/`InvitePanel`. Archiving a location
+also re-fetches the roster: a deactivated location isn't retroactively
+cleared off any teammate/invite already pointing at it, so the roster's
+own dropdown gets a fresh read rather than risking a stale selection
+lingering in state.
 
 Roster table (`TeamTable.tsx`): Name, Role, Location (editable dropdown,
 owner-only per above), Joined date, Actions (make manager/employee,
