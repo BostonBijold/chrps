@@ -59,7 +59,7 @@ export async function DELETE(
 // — projectedMinutes in particular becomes this ONE placement's override of
 // the definition's default, not the default itself, since it's always
 // edited from a specific list's row.
-const DEFINITION_FIELDS = ["name", "icon", "taskType", "formFields"] as const;
+const DEFINITION_FIELDS = ["name", "icon", "taskType", "formFields", "requiresPhoto"] as const;
 const PLACEMENT_FIELDS = ["projectedMinutes", "scheduledDays", "successThreshold"] as const;
 
 export async function PATCH(
@@ -119,5 +119,6 @@ export async function PATCH(
     scheduledDays: resolved.scheduledDays,
     successThreshold: resolved.successThreshold,
     formFields: resolved.formFields,
+    requiresPhoto: resolved.requiresPhoto,
   });
 }

@@ -26,6 +26,7 @@ export interface ResolvedTaskFields {
   templateId: string | null;
   projectedMinutes: number;
   instructionSteps: InstructionStep[];
+  requiresPhoto: boolean;
 }
 
 // Bare minimum shape resolveTasks needs from a lean Task doc — callers can
@@ -45,6 +46,7 @@ const FALLBACK: ResolvedTaskFields = {
   templateId: null,
   projectedMinutes: 0,
   instructionSteps: [],
+  requiresPhoto: false,
 };
 
 // Batch join — one query for every distinct definitionId referenced,
@@ -72,6 +74,7 @@ export async function resolveTasks<T extends LeanTaskLike>(tasks: T[]): Promise<
       templateId: def?.templateId ? def.templateId.toString() : FALLBACK.templateId,
       projectedMinutes: t.projectedMinutes ?? def?.projectedMinutes ?? FALLBACK.projectedMinutes,
       instructionSteps: def?.instructionSteps ?? FALLBACK.instructionSteps,
+      requiresPhoto: def?.requiresPhoto ?? FALLBACK.requiresPhoto,
     };
   });
 }

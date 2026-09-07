@@ -12,6 +12,7 @@
     "@auth/mongodb-adapter": "^3.11.2",
     "@capacitor-community/sqlite": "^8.1.1",
     "@capacitor/app": "^8.1.1",
+    "@capacitor/camera": "^8.2.4",
     "@capacitor/cli": "^8.5.0",
     "@capacitor/core": "^8.5.0",
     "@capacitor/ios": "^8.5.0",

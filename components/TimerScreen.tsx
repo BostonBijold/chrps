@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { ClipboardList } from "lucide-react";
 import AppIcon from "@/components/AppIcon";
 import TaskInstructionsSheet, { type TaskInstructionStep } from "@/components/TaskInstructionsSheet";
+import TaskPhotoCaptureButton from "@/components/TaskPhotoCaptureButton";
 import type { FormFieldDef } from "@/models/TaskDefinition";
 
 export interface TimerItem {
@@ -18,13 +19,17 @@ export interface TimerItem {
   // RowItem (components/TaskRow.tsx), just re-declared here since TimerItem
   // is its own narrower shape.
   instructionSteps?: TaskInstructionStep[];
+  // Gates whether a completion photo (components/TaskPhotoCaptureButton.tsx)
+  // must be attached before Done becomes tappable — see
+  // docs/features/task-completion-photo.md.
+  requiresPhoto?: boolean;
 }
 
 interface Props {
   item: TimerItem;
   initialElapsed?: number; // seconds already elapsed (from server startedAt on resume)
   taskListName?: string | null; // shown as a small kicker above the task name — which shift/list this belongs to
-  onComplete: (actualMinutes: number) => void;
+  onComplete: (actualMinutes: number, photoUrl?: string | null) => void;
   onMissed: () => void;
   onClose: () => void;
 }
@@ -56,6 +61,19 @@ export default function TimerScreen({ item, initialElapsed = 0, taskListName = n
       steps={instructionSteps}
       onClose={() => setShowInstructions(false)}
     />
+  );
+
+  // Required completion photo — see docs/features/task-completion-photo.md.
+  // Purely local until Done actually fires (TaskPhotoCaptureButton's own
+  // doc comment); Done stays disabled until captured, same gate pattern as
+  // TaskFormScreen.tsx's Save button.
+  const requiresPhoto = !!item.requiresPhoto;
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const canComplete = !requiresPhoto || !!photoUrl;
+  const photoCapture = requiresPhoto && (
+    <div className="px-4 mb-3">
+      <TaskPhotoCaptureButton taskId={item._id} photoUrl={photoUrl} onChange={setPhotoUrl} />
+    </div>
   );
 
   const [elapsed, setElapsed] = useState(initialElapsed);
@@ -188,10 +206,12 @@ export default function TimerScreen({ item, initialElapsed = 0, taskListName = n
           </div>
         </div>
 
+        {photoCapture}
         <div className="px-4 pb-12 space-y-3 w-full">
           <button
-            onClick={() => onComplete(actualMinutes)}
-            className="w-full py-4 rounded-card bg-olive text-text font-body font-medium text-base"
+            onClick={() => onComplete(actualMinutes, photoUrl)}
+            disabled={!canComplete}
+            className="w-full py-4 rounded-card bg-olive text-text font-body font-medium text-base disabled:opacity-40"
           >
             Done · log {actualMinutes}m
           </button>
@@ -280,10 +300,12 @@ export default function TimerScreen({ item, initialElapsed = 0, taskListName = n
         </div>
       </div>
 
+      {photoCapture}
       <div className="px-4 pb-12 space-y-3 w-full">
         <button
-          onClick={() => onComplete(actualMinutes)}
-          className="w-full py-4 rounded-card bg-olive text-text font-body font-medium text-base"
+          onClick={() => onComplete(actualMinutes, photoUrl)}
+          disabled={!canComplete}
+          className="w-full py-4 rounded-card bg-olive text-text font-body font-medium text-base disabled:opacity-40"
         >
           Done · log {actualMinutes}m
         </button>

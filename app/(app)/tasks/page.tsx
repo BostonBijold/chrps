@@ -118,6 +118,11 @@ export default async function TasksPage({
         successThreshold: task.successThreshold ?? (task.scheduledDays?.length ?? 7),
         formFields: task.formFields,
         nfcTagUid: task.nfcTagUid,
+        // Gates whether an employee must attach a completion photo before
+        // this task can be marked done — see
+        // docs/features/task-completion-photo.md. Also resolved from
+        // resolveTasks above, same as formFields/nfcTagUid.
+        requiresPhoto: task.requiresPhoto,
         // Manager-authored "what this should look like when done" steps —
         // see docs/features/task-instructions-employee-view.md. Also
         // resolved from resolveTasks above, same as formFields/nfcTagUid.
@@ -145,6 +150,7 @@ export default async function TasksPage({
     pausedSeconds: l.pausedSeconds ?? 0,
     state: l.state as LogState,
     formData: l.formData ?? null,
+    photoUrl: l.photoUrl ?? null,
     // Was missing from this mapping entirely — every fresh server render
     // (e.g. the FAB's "Resume" pill navigating to ?resumeTimer=1, which is
     // a full force-dynamic round-trip, not a client-only state change)

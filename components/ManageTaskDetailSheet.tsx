@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { X, Nfc, Trash2, ImagePlus } from "lucide-react";
+import { X, Nfc, Trash2, Camera as CameraIcon } from "lucide-react";
 import AppIcon from "@/components/AppIcon";
+import { capturePhoto } from "@/lib/client/capture-image";
 
 interface UsedInEntry {
   taskListId: string;
@@ -42,6 +43,12 @@ interface InstructionsPanel {
   onDeleteStep: (index: number) => void;
 }
 
+interface RequiresPhotoToggle {
+  value: boolean;
+  busy: boolean;
+  onChange: () => void;
+}
+
 interface Props {
   icon: string;
   name: string;
@@ -49,6 +56,7 @@ interface Props {
   usedIn?: UsedInEntry[];
   tagBinding?: TagBinding;
   instructions?: InstructionsPanel;
+  requiresPhotoToggle?: RequiresPhotoToggle;
   editHref?: string;
   editLabel?: string;
   onDelete: () => void;
@@ -71,6 +79,7 @@ export default function ManageTaskDetailSheet({
   usedIn,
   tagBinding,
   instructions,
+  requiresPhotoToggle,
   editHref,
   editLabel,
   onDelete,
@@ -83,6 +92,8 @@ export default function ManageTaskDetailSheet({
   const [addingStep, setAddingStep] = useState(false);
   const [draftDescription, setDraftDescription] = useState("");
   const [draftFile, setDraftFile] = useState<File | null>(null);
+  const [capturing, setCapturing] = useState(false);
+  const [captureError, setCaptureError] = useState<string | null>(null);
 
   const canAddDraft = draftDescription.trim().length > 0 || draftFile !== null;
 
@@ -90,6 +101,27 @@ export default function ManageTaskDetailSheet({
     setAddingStep(false);
     setDraftDescription("");
     setDraftFile(null);
+    setCaptureError(null);
+  }
+
+  // Opens the device camera directly (@capacitor/camera via
+  // lib/client/capture-image.ts) — replaces the old file-picker input, no
+  // "choose from library" fallback. See
+  // docs/features/instruction-steps-camera-capture.md.
+  async function handleTakePhoto() {
+    setCaptureError(null);
+    setCapturing(true);
+    const result = await capturePhoto();
+    setCapturing(false);
+    if (result.status === "ok") {
+      setDraftFile(result.file);
+    } else if (result.status === "denied") {
+      setCaptureError("Camera access is off for Ch'rps — enable it in Settings to add a photo.");
+    } else if (result.status === "error") {
+      setCaptureError(result.message);
+    }
+    // "cancelled" (user backed out of the camera sheet): no error, just
+    // stay on the draft editor, same as backing out of a file picker used to.
   }
 
   async function confirmAddStep() {
@@ -227,16 +259,20 @@ export default function ManageTaskDetailSheet({
                 {instructions.steps.length < instructions.maxSteps &&
                   (addingStep ? (
                     <div className="space-y-2 bg-bg border border-border rounded-card p-2.5">
-                      <label className="flex items-center gap-2 font-mono text-[11px] text-muted min-h-[44px]">
-                        <ImagePlus size={14} strokeWidth={1.75} className="flex-shrink-0" />
-                        <span className="flex-1 truncate">{draftFile ? draftFile.name : "Add a photo (optional)"}</span>
-                        <input
-                          type="file"
-                          accept="image/jpeg,image/png,image/webp"
-                          className="hidden"
-                          onChange={(e) => setDraftFile(e.target.files?.[0] ?? null)}
-                        />
-                      </label>
+                      <button
+                        type="button"
+                        onClick={handleTakePhoto}
+                        disabled={capturing || instructions.busy}
+                        className="w-full flex items-center gap-2 font-mono text-[11px] text-muted min-h-[44px] disabled:opacity-40"
+                      >
+                        <CameraIcon size={14} strokeWidth={1.75} className="flex-shrink-0" />
+                        <span className="flex-1 truncate text-left">
+                          {capturing ? "Opening camera…" : draftFile ? draftFile.name : "Take Photo (optional)"}
+                        </span>
+                      </button>
+                      {captureError && (
+                        <p className="font-mono text-[11px] text-burgundy-light">{captureError}</p>
+                      )}
                       <textarea
                         value={draftDescription}
                         onChange={(e) => setDraftDescription(e.target.value)}
@@ -255,7 +291,7 @@ export default function ManageTaskDetailSheet({
                         <button
                           type="button"
                           onClick={confirmAddStep}
-                          disabled={!canAddDraft || instructions.busy}
+                          disabled={!canAddDraft || instructions.busy || capturing}
                           className="font-mono text-[11px] text-olive uppercase tracking-widest disabled:opacity-40"
                         >
                           {instructions.busy ? "Adding…" : "Add"}
@@ -271,6 +307,28 @@ export default function ManageTaskDetailSheet({
                       + Add Step
                     </button>
                   ))}
+              </div>
+            )}
+
+            {requiresPhotoToggle && (
+              <div className="pt-3 border-t border-border flex items-center justify-between gap-2">
+                <p className="font-mono text-[11px] text-text">Require Photo at Completion</p>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={requiresPhotoToggle.value}
+                  onClick={requiresPhotoToggle.onChange}
+                  disabled={requiresPhotoToggle.busy}
+                  className={`relative w-10 h-6 rounded-pill transition-colors disabled:opacity-50 flex-shrink-0 ${
+                    requiresPhotoToggle.value ? "bg-olive" : "bg-border-light"
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 w-5 h-5 rounded-full bg-bg shadow transition-transform ${
+                      requiresPhotoToggle.value ? "translate-x-[18px]" : "translate-x-0.5"
+                    }`}
+                  />
+                </button>
               </div>
             )}
 

@@ -41,6 +41,7 @@ export interface TaskLogEntry {
   state: LogState;
   sessionTaskListId?: string | null; // set when this in_progress timer is anchored inside a Task List Session
   formData?: Record<string, FormFieldValue> | null; // captured readings for a form task — see TaskRow.tsx's view-only shift-list rows
+  photoUrl?: string | null; // Blob URL of the completion photo, if this task's TaskDefinition.requiresPhoto was set — see docs/features/task-completion-photo.md
 }
 
 export type WeekLog = { taskId: string; date: string; state: LogState; actualMinutes: number | null };
@@ -515,6 +516,7 @@ export default function TasksView({
         startedAt?: string;
         completedAt?: string;
         formData?: Record<string, FormFieldValue>;
+        photoUrl?: string | null;
       }
     ) => {
       const prev = logs[taskId];
@@ -603,6 +605,7 @@ export default function TasksView({
           date: selectedDate,
           state: newState,
           actualMinutes: opts?.actualMinutes ?? prev?.actualMinutes,
+          photoUrl: opts?.photoUrl ?? prev?.photoUrl,
         };
         setLogs((l) => ({ ...l, [taskId]: optimistic }));
 
@@ -612,6 +615,7 @@ export default function TasksView({
           state: newState,
           actualMinutes: opts?.actualMinutes,
           isBackEntry: opts?.isBackEntry ?? isPastDate,
+          photoUrl: opts?.photoUrl,
         };
         if (!isOnline) {
           await queueTaskLogMutation({
@@ -745,13 +749,13 @@ export default function TasksView({
   // PATCH the in_progress log to done. Server derives actualMinutes from startedAt.
   // Falls back to client-computed actualMinutes if no server timestamp exists.
   const handleTimerComplete = useCallback(
-    async (actualMinutes: number) => {
+    async (actualMinutes: number, photoUrl?: string | null) => {
       if (!timerItem) return;
       setLogs((l) => ({
         ...l,
-        [timerItem._id]: { ...(l[timerItem._id] ?? { _id: "", taskId: timerItem._id, date: selectedDate }), state: "done", actualMinutes },
+        [timerItem._id]: { ...(l[timerItem._id] ?? { _id: "", taskId: timerItem._id, date: selectedDate }), state: "done", actualMinutes, photoUrl },
       }));
-      const patchBody = { taskId: timerItem._id, date: selectedDate, state: "done" as const, actualMinutes };
+      const patchBody = { taskId: timerItem._id, date: selectedDate, state: "done" as const, actualMinutes, photoUrl };
       if (!isOnline) {
         await queueTaskLogMutation({
           method: "PATCH",
@@ -791,11 +795,12 @@ export default function TasksView({
       formData: Record<string, FormFieldValue>,
       actualMinutes: number,
       verifiedNfcUid?: string | null,
-      inventoryCounts?: InventoryCountEntry[]
+      inventoryCounts?: InventoryCountEntry[],
+      photoUrl?: string | null
     ) => {
       if (!timerItem) return;
       const taskId = timerItem._id;
-      const patchBody = { taskId, date: selectedDate, state: "done" as const, actualMinutes, formData, verifiedNfcUid, inventoryCounts };
+      const patchBody = { taskId, date: selectedDate, state: "done" as const, actualMinutes, formData, verifiedNfcUid, inventoryCounts, photoUrl };
       if (!isOnline) {
         // NFC verification (assertNfcVerified) is a server-side check —
         // offline, verifiedNfcUid (if this task is tag-bound) is trusted
@@ -816,7 +821,7 @@ export default function TasksView({
         refreshPendingCount();
         setLogs((l) => ({
           ...l,
-          [taskId]: { ...(l[taskId] ?? { _id: "", taskId, date: selectedDate }), state: "done", actualMinutes, formData },
+          [taskId]: { ...(l[taskId] ?? { _id: "", taskId, date: selectedDate }), state: "done", actualMinutes, formData, photoUrl },
         }));
       } else {
         const res = await fetch("/api/task-logs", {

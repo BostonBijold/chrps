@@ -123,6 +123,15 @@ export interface ITaskDefinition extends Document {
   // formFields/name/icon: content of the check itself, cascades to every
   // list this definition is placed in. Default [].
   instructionSteps: InstructionStep[];
+  // Whether an employee must attach a completion photo (captured via
+  // components/TaskPhotoCaptureButton.tsx) before a "done" write for this
+  // task is accepted — see docs/features/task-completion-photo.md. Same
+  // layer as instructionSteps/formFields: content of the check itself,
+  // cascades to every list this definition is placed in. Applies to every
+  // taskType, not just "form" — enforced at the TaskLog write boundary
+  // (lib/task-log-actions.ts's assertPhotoProvided), not inside formFields.
+  // Default false.
+  requiresPhoto: boolean;
   // Archived once a manager deletes it from the catalog — blocked while any
   // active Task placement still references it (see
   // app/api/task-definitions/[id]/route.ts), so an isActive: false
@@ -143,6 +152,7 @@ const TaskDefinitionSchema = new Schema<ITaskDefinition>(
     projectedMinutes: { type: Number, default: 0 },
     nfcTagUid: { type: String, default: null },
     instructionSteps: { type: [InstructionStepSchema], default: [] },
+    requiresPhoto: { type: Boolean, default: false },
     isActive: { type: Boolean, default: true },
   },
   { timestamps: true }

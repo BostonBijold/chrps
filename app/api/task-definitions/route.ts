@@ -63,6 +63,7 @@ export async function GET() {
         description: s.description ?? null,
         imageUrl: s.imageUrl ?? null,
       })),
+      requiresPhoto: d.requiresPhoto ?? false,
       updatedAt: d.updatedAt ? new Date(d.updatedAt).toISOString() : null,
       placements: placementsByDefinitionId.get(d._id.toString()) ?? [],
     }))
@@ -113,6 +114,7 @@ export async function POST(req: NextRequest) {
     projectedMinutes: definition.projectedMinutes,
     nfcTagUid: null,
     instructionSteps: [],
+    requiresPhoto: false,
     updatedAt: definition.updatedAt ? new Date(definition.updatedAt).toISOString() : null,
     placements: [],
   });

@@ -3,7 +3,7 @@ import { resolveSessionUser, isManagerOrAbove } from "@/lib/session";
 import { connectDB } from "@/lib/mongoose";
 import { triggerTask } from "@/lib/task-trigger";
 import { resolveTask, resolveTasks } from "@/lib/task-definitions";
-import { NfcTagRequiredError } from "@/lib/task-log-actions";
+import { NfcTagRequiredError, PhotoRequiredError } from "@/lib/task-log-actions";
 import NfcTag from "@/models/NfcTag";
 import PendingNfcLink from "@/models/PendingNfcLink";
 import Task from "@/models/Task";
@@ -166,6 +166,20 @@ export default async function NfcTagPage({
           <h1 className="font-heading text-2xl text-text mb-2">Scan required</h1>
           <p className="text-muted font-body text-sm">
             {task.name} is bound to a specific tag — open it in the app and use Scan NFC to complete it.
+          </p>
+        </Shell>
+      );
+    }
+    // A requiresPhoto task (see docs/features/task-completion-photo.md) can
+    // never be completed via a tap-to-trigger Universal Link — there's no
+    // capture UI on this path — same "this completion path can't satisfy
+    // that requirement" reasoning as the NFC case above.
+    if (err instanceof PhotoRequiredError) {
+      return (
+        <Shell>
+          <h1 className="font-heading text-2xl text-text mb-2">Photo required</h1>
+          <p className="text-muted font-body text-sm">
+            {task.name} requires a completion photo — open it in the app to complete it.
           </p>
         </Shell>
       );

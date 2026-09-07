@@ -436,7 +436,8 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
       actualMinutes: number,
       formData?: Record<string, FormFieldValue>,
       verifiedNfcUid?: string | null,
-      inventoryCounts?: InventoryCountEntry[]
+      inventoryCounts?: InventoryCountEntry[],
+      photoUrl?: string | null
     ) => {
       // A form-task completion carries captured field values — route
       // through PATCH (completeInProgressLog) the same way TasksView's
@@ -444,7 +445,7 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
       // persisted instead of just a bare actualMinutes.
       const method = formData ? "PATCH" : "POST";
       const body = formData
-        ? { taskId, date: today, state, actualMinutes, formData, verifiedNfcUid, inventoryCounts }
+        ? { taskId, date: today, state, actualMinutes, formData, verifiedNfcUid, inventoryCounts, photoUrl }
         : { taskId, date: today, state, actualMinutes };
 
       if (!isOnline) {
@@ -490,13 +491,14 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
       actualMinutes: number,
       formData?: Record<string, FormFieldValue>,
       verifiedNfcUid?: string | null,
-      inventoryCounts?: InventoryCountEntry[]
+      inventoryCounts?: InventoryCountEntry[],
+      photoUrl?: string | null
     ) => {
       if (!currentTask) return;
       const log: SessionLog = { taskId: currentTask._id, state, actualMinutes };
       setSessionLogs((prev) => [...prev, log]);
       try {
-        await saveLog(currentTask._id, state, actualMinutes, formData, verifiedNfcUid, inventoryCounts);
+        await saveLog(currentTask._id, state, actualMinutes, formData, verifiedNfcUid, inventoryCounts, photoUrl);
       } catch (err) {
         // Roll back the optimistic append and stay on the current task
         // instead of silently advancing past a completion the server
@@ -597,8 +599,9 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
     formData: Record<string, FormFieldValue>,
     actualMinutes: number,
     verifiedNfcUid?: string | null,
-    inventoryCounts?: InventoryCountEntry[]
-  ) => advance("done", actualMinutes, formData, verifiedNfcUid, inventoryCounts);
+    inventoryCounts?: InventoryCountEntry[],
+    photoUrl?: string | null
+  ) => advance("done", actualMinutes, formData, verifiedNfcUid, inventoryCounts, photoUrl);
 
   // ── Form task: full-screen takeover, same component/shape TasksView uses
   // for the standalone timer path — a form task has no ring of its own, so
