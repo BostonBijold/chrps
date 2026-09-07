@@ -5,7 +5,7 @@ const config: CapacitorConfig = {
   appName: "Ch'rps",
   webDir: 'public',
   server: {
-    url: 'https://chrps.vercel.app',
+    url: 'https://chrps.app',
     cleartext: false,
     allowNavigation: ['accounts.google.com', 'appleid.apple.com']
   },
