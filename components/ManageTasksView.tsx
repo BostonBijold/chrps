@@ -70,7 +70,6 @@ interface StandaloneTask {
 
 interface Props {
   userName: string;
-  today: string;
   skipAuth: boolean;
   taskLists: ManageTaskList[];
   standaloneTasks: StandaloneTask[];
@@ -260,7 +259,7 @@ function CatalogRow({
   );
 }
 
-export default function ManageTasksView({ userName, today, skipAuth, taskLists, standaloneTasks, userRole, activeLocationId, locationId }: Props) {
+export default function ManageTasksView({ userName, skipAuth, taskLists, standaloneTasks, userRole, activeLocationId, locationId }: Props) {
   const router = useRouter();
   const [definitions, setDefinitions] = useState<Definition[] | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -451,7 +450,6 @@ export default function ManageTasksView({ userName, today, skipAuth, taskLists, 
       <div className="mx-auto max-w-mobile px-4 pb-28">
         <Header
           userName={userName}
-          today={today}
           skipAuth={skipAuth}
           location={{ isOwner: userRole === "owner", activeLocationId, locationId }}
         />

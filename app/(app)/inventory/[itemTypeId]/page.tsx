@@ -49,13 +49,11 @@ export default async function InventoryItemDetailPage({
   const company = await Company.findById(companyId, "notificationSound").lean<{ notificationSound?: string }>();
   const notificationSound = (company?.notificationSound === "male" ? "male" : "standard") as "standard" | "male";
 
-  const today = new Date().toISOString().split("T")[0];
   const userName = session?.user?.name ?? "Developer";
 
   return (
     <InventoryItemDetailView
       userName={userName}
-      today={today}
       skipAuth={skipAuth}
       isManager={isManagerOrAbove(sessionUser.role)}
       notificationSound={notificationSound}

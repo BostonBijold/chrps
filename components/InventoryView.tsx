@@ -29,7 +29,6 @@ interface Group {
 
 interface Props {
   userName: string;
-  today: string;
   skipAuth: boolean;
   isManager: boolean;
   isOwner: boolean;
@@ -85,7 +84,7 @@ function ItemRow({ it, onClick, subtitle }: { it: ItemType; onClick: () => void;
 // cascade from item → group. A top-up count tracker, not a decrement
 // ledger — see docs/features/inventory.md. Tapping a row opens the item's
 // detail/log screen (app/(app)/inventory/[itemTypeId]/page.tsx).
-export default function InventoryView({ userName, today, skipAuth, isManager, isOwner, activeLocationId, locationId }: Props) {
+export default function InventoryView({ userName, skipAuth, isManager, isOwner, activeLocationId, locationId }: Props) {
   const router = useRouter();
   const [itemTypes, setItemTypes] = useState<ItemType[] | null>(null);
   const [groups, setGroups] = useState<Group[] | null>(null);
@@ -144,7 +143,6 @@ export default function InventoryView({ userName, today, skipAuth, isManager, is
       <div className="mx-auto max-w-mobile px-4 pb-28">
         <Header
           userName={userName}
-          today={today}
           skipAuth={skipAuth}
           location={{ isOwner, activeLocationId, locationId, onLocationChanged: fetchAll }}
         />

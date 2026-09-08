@@ -21,13 +21,10 @@ export default async function ProfilePage() {
     hasPassword = !!user?.passwordHash;
   }
 
-  const today = new Date().toISOString().split("T")[0];
-
   return (
     <ProfileView
       name={session?.user?.name ?? "Developer"}
       email={session?.user?.email ?? "dev@local"}
-      today={today}
       skipAuth={skipAuth ?? false}
       isManager={!!sessionUser && isManagerOrAbove(sessionUser.role)}
       isOwner={!!sessionUser && isOwner(sessionUser.role)}

@@ -6,7 +6,6 @@ import ReportsContent from "@/components/ReportsContent";
 
 interface Props {
   userName: string;
-  today: string;
   role: "manager" | "employee" | "owner";
   // Already resolved server-side via pickActiveLocationId — see
   // docs/features/locations.md's "Location switcher".
@@ -17,7 +16,7 @@ interface Props {
   skipAuth?: boolean;
 }
 
-export default function ReportsView({ userName, today, role, activeLocationId, locationId, skipAuth }: Props) {
+export default function ReportsView({ userName, role, activeLocationId, locationId, skipAuth }: Props) {
   // ReportsContent's own sub-tabs (ManagerOverview/EmployeeOverview/
   // LogsTab/InventoryTab) each fetch their own data once on mount — a
   // plain router.refresh() re-runs this page's server component but
@@ -32,7 +31,6 @@ export default function ReportsView({ userName, today, role, activeLocationId, l
       <div className="mx-auto max-w-mobile px-4 pb-12">
         <Header
           userName={userName}
-          today={today}
           skipAuth={skipAuth}
           location={{
             isOwner: role === "owner",

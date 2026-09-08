@@ -7,12 +7,6 @@ import Image from "next/image";
 import { ChevronDown } from "lucide-react";
 import { playNotificationSound, type NotificationSound } from "@/lib/notification-sound";
 
-const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-const MONTHS = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December",
-];
-
 interface Location {
   _id: string;
   name: string;
@@ -49,7 +43,6 @@ interface LocationContext {
 
 interface Props {
   userName: string;
-  today: string;
   skipAuth?: boolean;
   // Location-switcher merge (see docs/features/header-location-switcher.md)
   // — the header's title area shows "which location" instead of the old
@@ -62,12 +55,8 @@ interface Props {
   location?: LocationContext;
 }
 
-export default function Header({ userName, today, skipAuth, location }: Props) {
+export default function Header({ userName, skipAuth, location }: Props) {
   const router = useRouter();
-  const date = new Date(today + "T12:00:00");
-  const dayName = DAYS[date.getDay()];
-  const monthName = MONTHS[date.getMonth()];
-  const dayNum = date.getDate();
 
   // Header is mounted on every page, so it fetches the company's chirp
   // preference itself rather than needing it threaded down through every
@@ -180,9 +169,6 @@ export default function Header({ userName, today, skipAuth, location }: Props) {
               {displayName ?? "Ch&apos;rps"}
             </h1>
           )}
-          <p className="font-mono text-dim text-[10px] mt-0.5 tracking-widest uppercase">
-            {dayName}, {monthName} {dayNum}
-          </p>
         </div>
 
         {/* User avatar */}

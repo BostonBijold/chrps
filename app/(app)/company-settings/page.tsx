@@ -32,12 +32,10 @@ export default async function CompanySettingsPage() {
   }>();
 
   const userName = session?.user?.name ?? "Developer";
-  const today = new Date().toISOString().split("T")[0];
 
   return (
     <CompanySettingsView
       userName={userName}
-      today={today}
       skipAuth={skipAuth}
       initialNotificationSound={(company?.notificationSound as NotificationSound) ?? "standard"}
       initialTimezone={company?.timezone ?? null}

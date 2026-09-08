@@ -34,7 +34,6 @@ interface Group {
 
 interface Props {
   userName: string;
-  today: string;
   skipAuth: boolean;
 }
 
@@ -44,7 +43,7 @@ interface Props {
 // ManageTasksView.tsx's shape (search + "Scan to Find" + grouped
 // tap-to-open rows) one layer down from the everyday Inventory tab
 // (components/InventoryView.tsx), which stays focused on logging counts.
-export default function ManageInventoryView({ userName, today, skipAuth }: Props) {
+export default function ManageInventoryView({ userName, skipAuth }: Props) {
   const router = useRouter();
   const [itemTypes, setItemTypes] = useState<ItemType[] | null>(null);
   const [groups, setGroups] = useState<Group[] | null>(null);
@@ -138,6 +137,12 @@ export default function ManageInventoryView({ userName, today, skipAuth }: Props
 
   const handleItemSaved = (updated: UpdatedItemType) => {
     setItemTypes((prev) => (prev ? prev.map((it) => (it._id === updated._id ? { ...it, ...updated } : it)) : prev));
+    // This hub's own list is client-fetched, so it doesn't need this for
+    // itself, but the item detail screen at /inventory/[itemTypeId] is a
+    // server component — without invalidating the Router Cache here too,
+    // opening that same item from elsewhere afterward can still show the
+    // pre-edit render. Same fix LocationSwitcher.tsx uses after its PATCH.
+    router.refresh();
   };
 
   const handleItemArchived = () => {
@@ -148,7 +153,7 @@ export default function ManageInventoryView({ userName, today, skipAuth }: Props
   return (
     <div className="min-h-dvh bg-bg">
       <div className="mx-auto max-w-mobile px-4 pb-28">
-        <Header userName={userName} today={today} skipAuth={skipAuth} />
+        <Header userName={userName} skipAuth={skipAuth} />
 
         <div className="mt-4 mb-5 flex items-center gap-2">
           <button

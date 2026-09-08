@@ -11,12 +11,10 @@ export default async function ReportsPage() {
   if (!skipAuth && !session?.user?.id) redirect("/login");
 
   const sessionUser = await resolveSessionUser();
-  const today = new Date().toISOString().split("T")[0];
 
   return (
     <ReportsView
       userName={session?.user?.name ?? "Developer"}
-      today={today}
       role={sessionUser?.role ?? "manager"}
       activeLocationId={sessionUser ? pickActiveLocationId(sessionUser, null) : null}
       locationId={sessionUser?.locationId ?? null}

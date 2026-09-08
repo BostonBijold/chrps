@@ -1100,7 +1100,6 @@ export default function TasksView({
       <div className="mx-auto max-w-mobile px-4 pb-28">
         <Header
           userName={userName}
-          today={today}
           skipAuth={skipAuth}
           location={{ isOwner: userRole === "owner", activeLocationId, locationId }}
         />

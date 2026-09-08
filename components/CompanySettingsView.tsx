@@ -8,7 +8,6 @@ import { playNotificationSound, type NotificationSound } from "@/lib/notificatio
 
 interface Props {
   userName: string;
-  today: string;
   skipAuth: boolean;
   initialNotificationSound: NotificationSound;
   initialTimezone: string | null;
@@ -36,7 +35,6 @@ const TIMEZONE_OPTIONS = [
 
 export default function CompanySettingsView({
   userName,
-  today,
   skipAuth,
   initialNotificationSound,
   initialTimezone,
@@ -152,7 +150,7 @@ export default function CompanySettingsView({
   return (
     <div className="min-h-dvh bg-bg">
       <div className="mx-auto max-w-mobile px-4 pb-28">
-        <Header userName={userName} today={today} skipAuth={skipAuth} />
+        <Header userName={userName} skipAuth={skipAuth} />
 
         <div className="mt-4 mb-5 flex items-center gap-2">
           <Link href="/profile" className="flex items-center gap-1 text-muted font-body text-sm min-h-[44px]" aria-label="Back">

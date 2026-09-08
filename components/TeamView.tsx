@@ -30,7 +30,6 @@ interface Location {
 
 interface Props {
   userName: string;
-  today: string;
   skipAuth: boolean;
   isManager: boolean;
   isOwner: boolean;
@@ -77,7 +76,7 @@ function RoleBadge({ role }: { role: "manager" | "employee" | "owner" }) {
   );
 }
 
-export default function TeamView({ userName, today, skipAuth, isManager, isOwner, currentUserId, activeLocationId, locationId }: Props) {
+export default function TeamView({ userName, skipAuth, isManager, isOwner, currentUserId, activeLocationId, locationId }: Props) {
   const [team, setTeam] = useState<Member[] | null>(null);
   const [invites, setInvites] = useState<Invite[] | null>(null);
   const [locations, setLocations] = useState<Location[]>([]);
@@ -148,7 +147,6 @@ export default function TeamView({ userName, today, skipAuth, isManager, isOwner
       <div className="mx-auto max-w-mobile px-4 pb-28">
         <Header
           userName={userName}
-          today={today}
           skipAuth={skipAuth}
           location={{ isOwner, activeLocationId, locationId, allowAll: true, onLocationChanged: fetchTeam }}
         />

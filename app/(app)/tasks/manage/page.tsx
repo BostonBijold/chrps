@@ -55,13 +55,11 @@ export default async function ManageTasksPage() {
     .lean();
   const standaloneTasks = await resolveTasks(rawStandaloneTasks);
 
-  const today = new Date().toISOString().split("T")[0];
   const userName = session?.user?.name ?? "Developer";
 
   return (
     <ManageTasksView
       userName={userName}
-      today={today}
       skipAuth={skipAuth}
       userRole={role}
       activeLocationId={locationId}

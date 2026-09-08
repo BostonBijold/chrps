@@ -21,8 +21,7 @@ export default async function ManageInventoryPage() {
   if (!companyId) redirect("/inventory");
   if (!isManagerOrAbove(sessionUser.role)) redirect("/inventory");
 
-  const today = new Date().toISOString().split("T")[0];
   const userName = session?.user?.name ?? "Developer";
 
-  return <ManageInventoryView userName={userName} today={today} skipAuth={skipAuth} />;
+  return <ManageInventoryView userName={userName} skipAuth={skipAuth} />;
 }

@@ -11,14 +11,13 @@ const SUPPORT_EMAIL = "contact@usechrps.com";
 interface Props {
   name: string;
   email: string;
-  today: string;
   skipAuth: boolean;
   isManager?: boolean;
   isOwner?: boolean;
   hasPassword?: boolean;
 }
 
-export default function ProfileView({ name, email, today, skipAuth, isManager = false, isOwner = false, hasPassword = false }: Props) {
+export default function ProfileView({ name, email, skipAuth, isManager = false, isOwner = false, hasPassword = false }: Props) {
   const [passwordSet, setPasswordSet] = useState(hasPassword);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -95,7 +94,7 @@ export default function ProfileView({ name, email, today, skipAuth, isManager = 
   return (
     <div className="min-h-dvh bg-bg">
       <div className="mx-auto max-w-mobile px-4 pb-28">
-        <Header userName={name} today={today} skipAuth={skipAuth} />
+        <Header userName={name} skipAuth={skipAuth} />
 
         <div className="mt-4 space-y-4">
           {/* Identity card */}

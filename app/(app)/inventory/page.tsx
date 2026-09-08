@@ -18,7 +18,6 @@ export default async function InventoryPage() {
   const sessionUser = await resolveSessionUser();
   if (!sessionUser) redirect("/login");
 
-  const today = new Date().toISOString().split("T")[0];
   const userName = session?.user?.name ?? "Developer";
 
   if (!sessionUser.companyId) {
@@ -28,7 +27,6 @@ export default async function InventoryPage() {
   return (
     <InventoryView
       userName={userName}
-      today={today}
       skipAuth={skipAuth}
       isManager={isManagerOrAbove(sessionUser.role)}
       isOwner={isOwner(sessionUser.role)}

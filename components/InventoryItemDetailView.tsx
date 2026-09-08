@@ -37,7 +37,6 @@ interface LogEntry {
 
 interface Props {
   userName: string;
-  today: string;
   skipAuth: boolean;
   isManager: boolean;
   notificationSound: NotificationSound;
@@ -56,7 +55,6 @@ interface Props {
 // has to.
 export default function InventoryItemDetailView({
   userName,
-  today,
   skipAuth,
   isManager,
   notificationSound,
@@ -207,7 +205,7 @@ export default function InventoryItemDetailView({
   return (
     <div className="min-h-dvh bg-bg">
       <div className="mx-auto max-w-mobile px-4 pb-28">
-        <Header userName={userName} today={today} skipAuth={skipAuth} />
+        <Header userName={userName} skipAuth={skipAuth} />
 
         <div className="mt-4 mb-5 flex items-center gap-2">
           <Link href="/inventory" className="flex items-center gap-1 text-muted font-body text-sm min-h-[44px]" aria-label="Back">
@@ -375,6 +373,13 @@ export default function InventoryItemDetailView({
           onSaved={(updated) => {
             setItem(updated);
             setShowEditSheet(false);
+            // This page's data comes from the server component in
+            // app/(app)/inventory/[itemTypeId]/page.tsx — without this, the
+            // Router Cache can keep serving that earlier render (entryMode
+            // and every other edited field) if the user navigates away and
+            // back, even though the PATCH above already persisted. Same
+            // fix LocationSwitcher.tsx uses after its own PATCH.
+            router.refresh();
           }}
           onTagChanged={setItem}
           onArchived={() => router.push("/inventory")}
