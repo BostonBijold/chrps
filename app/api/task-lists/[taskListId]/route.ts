@@ -25,6 +25,7 @@ export async function PATCH(
     name?: string;
     startTime?: string | null;
     scheduledDays?: number[];
+    notifyTags?: string[];
   };
 
   await connectDB();
@@ -33,6 +34,7 @@ export async function PATCH(
   if (body.name !== undefined) update.name = body.name.trim();
   if (body.startTime !== undefined) update.startTime = body.startTime || null;
   if (body.scheduledDays !== undefined) update.scheduledDays = body.scheduledDays;
+  if (body.notifyTags !== undefined) update.notifyTags = Array.isArray(body.notifyTags) ? body.notifyTags : [];
 
   const taskList = await TaskList.findOneAndUpdate(
     { _id: params.taskListId, companyId, locationId },
@@ -98,6 +100,7 @@ export async function PATCH(
     name: taskList.name,
     startTime: taskList.startTime ?? null,
     scheduledDays: taskList.scheduledDays ?? [0, 1, 2, 3, 4, 5, 6],
+    notifyTags: taskList.notifyTags ?? [],
   });
 }
 

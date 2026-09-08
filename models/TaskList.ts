@@ -31,6 +31,15 @@ export interface ITaskList extends Document {
   // skip calling QStash at all for a list that never had one (an anytime
   // list, or one with an empty scheduledDays). null = no live schedule.
   qstashScheduleId: string | null;
+  // Job-tag values (from the company's JobTag catalog, matched by name —
+  // same string-not-ref convention as User.jobTags) that narrow this
+  // list's start-time reminder audience — see
+  // docs/features/notification-job-tag-targeting.md. Empty = notify
+  // everyone at this location (today's behavior, unchanged). Inert for an
+  // anytime list (startTime: null), which has no start-time reminder to
+  // target — same "harmless no-op" pattern qstashScheduleId already
+  // follows for those lists.
+  notifyTags: string[];
 }
 
 const TaskListSchema = new Schema<ITaskList>(
@@ -50,6 +59,7 @@ const TaskListSchema = new Schema<ITaskList>(
     isActive: { type: Boolean, default: true },
     scheduledDays: { type: [Number], default: [0, 1, 2, 3, 4, 5, 6] },
     qstashScheduleId: { type: String, default: null },
+    notifyTags: { type: [String], default: [] },
   },
   { timestamps: true }
 );

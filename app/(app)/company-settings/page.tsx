@@ -23,12 +23,13 @@ export default async function CompanySettingsPage() {
   await connectDB();
   const company = await Company.findById(
     companyId,
-    "notificationSound timezone notificationsEnabled missedAlertGraceMinutes"
+    "notificationSound timezone notificationsEnabled missedAlertGraceMinutes missedAlertIncludeOwner"
   ).lean<{
     notificationSound?: string;
     timezone?: string | null;
     notificationsEnabled?: boolean;
     missedAlertGraceMinutes?: number | null;
+    missedAlertIncludeOwner?: boolean;
   }>();
 
   const userName = session?.user?.name ?? "Developer";
@@ -43,6 +44,7 @@ export default async function CompanySettingsPage() {
       initialMissedAlertGraceMinutes={
         company?.missedAlertGraceMinutes === undefined ? 30 : company.missedAlertGraceMinutes
       }
+      initialMissedAlertIncludeOwner={company?.missedAlertIncludeOwner ?? true}
     />
   );
 }

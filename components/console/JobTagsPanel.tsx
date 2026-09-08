@@ -6,6 +6,10 @@ import { Pencil, X, Check } from "lucide-react";
 export interface JobTagOption {
   _id: string;
   name: string;
+  // How many active company teammates currently hold this tag — see
+  // docs/features/notification-job-tag-targeting.md. Optional since older
+  // callers of GET /api/job-tags predate this field.
+  userCount?: number;
 }
 
 interface Props {

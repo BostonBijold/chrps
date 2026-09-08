@@ -132,13 +132,17 @@ to get subtly wrong with a hand-rolled local patch.
   (shift-window and anytime), in the same order `GET /api/task-lists`
   already returns (`startTime` then `order`). Selecting one loads its
   tasks into the right pane. "+ New Task List" expands an inline create
-  row (name, optional start time, scheduled days) — the same fields `POST
-  /api/task-lists` already accepts; blank start time = a never-collapsing
-  anytime list. Each row gets an inline pencil (rename/reschedule, calling
-  `PATCH /api/task-lists/[taskListId]`) and trash (soft-delete, with the
-  same confirm-dialog copy as `TaskListEditView.tsx`'s mobile delete)
-  icon — replacing the need for a separate navigation the way mobile's
-  dedicated page requires, a desktop-layout difference only.
+  row (name, optional start time, scheduled days, notify-tags picker) —
+  the same fields `POST /api/task-lists` already accepts; blank start time
+  = a never-collapsing anytime list. Each row gets an inline pencil
+  (rename/reschedule/re-tag, calling `PATCH /api/task-lists/[taskListId]`)
+  and trash (soft-delete, with the same confirm-dialog copy as
+  `TaskListEditView.tsx`'s mobile delete) icon — replacing the need for a
+  separate navigation the way mobile's dedicated page requires, a
+  desktop-layout difference only. The create/edit forms' `NotifyTagsPicker`
+  (job-tag multi-select, narrowing this list's start-time reminder
+  audience) is a later addition — see
+  docs/features/notification-job-tag-targeting.md.
 
 - **Right pane** — `components/console/TaskListDetailPane.tsx`: the
   selected list's tasks, in order, each editable inline: name, icon

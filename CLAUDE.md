@@ -166,6 +166,11 @@ Company, and every other collection scopes its data either to the Company
                                // untouched. A pre-existing company with this field unset falls back to
                                // 30 (the original hardcoded value), not "off" — only an explicit null
                                // means off. See "Notifications" below.
+  missedAlertIncludeOwner,     // bool, defaults true — whether the missed-list push includes the
+                               // owner alongside managers; manager-set from Profile > Company
+                               // Settings, alongside missedAlertGraceMinutes. Unaffected by job-tag
+                               // targeting below (missed alerts stay role-based, never per-tag) —
+                               // see docs/features/notification-job-tag-targeting.md.
   subscription: {              // stubbed — no Stripe integration wired up yet
     status,                   // 'trialing' | 'active' | 'past_due' | 'canceled' | 'none' — defaults 'trialing'
     tier,                     // 'free' | 'starter' | 'pro' — defaults 'free'
@@ -289,6 +294,12 @@ its own tasks, NFC bindings, and QStash schedule.
   qstashScheduleId, // string | null — the QStash schedule backing this list's start-time reminder push
                     // (see "Notifications" below); deterministic (`tasklist-<_id>`), re-upserted
                     // whenever startTime/scheduledDays/the company's timezone changes, null = none
+  notifyTags,       // string[], default [] — job-tag values (from the company JobTag catalog,
+                    //   matched by name) that narrow this list's start-time reminder audience to
+                    //   only teammates carrying at least one; empty = notify everyone (unchanged
+                    //   default). Inert for an anytime list (startTime: null). Manager-set from
+                    //   the Console's Task Management page. See
+                    //   docs/features/notification-job-tag-targeting.md.
 }
 ```
 
@@ -826,6 +837,16 @@ shift-window list consumes one. Full detail — data model, both
 mechanisms, push payload shape, and failure handling — is in
 `docs/features/notifications.md`.
 
+**Job-tag targeting** narrows start-time reminders further: a manager can
+attach one or more of the company's `JobTag` catalog entries to a
+`TaskList` (`TaskList.notifyTags`), and `sendStartTimeReminder` then
+intersects that list against `User.jobTags` instead of notifying every
+company user at the location — see "Job tags" in the "Locations" section
+below and `docs/features/notification-job-tag-targeting.md`. Missed-list alerts stay
+role-based and untouched by tags, but gained their own toggle
+(`Company.missedAlertIncludeOwner`) for whether the owner is included
+alongside managers.
+
 ---
 
 ## Locations
@@ -1010,6 +1031,19 @@ is in `docs/features/locations.md`.
       documents. The desktop Admin Console's own
       `components/LocationSwitcher.tsx` usage is untouched — see
       docs/features/header-location-switcher.md
+- [x] Notification Targeting by Job Tag — a `TaskList.notifyTags` field
+      (Console Task Management's `NotifyTagsPicker`) narrows a shift-window
+      list's start-time reminder to teammates carrying a matching job tag
+      instead of everyone at the location; empty stays the pre-existing
+      "notify everyone" default. `Company.missedAlertIncludeOwner` adds a
+      separate on/off switch (mobile `CompanySettingsView.tsx`, next to
+      the missed-alert grace period) for whether the owner is included in
+      the — unaffected by tags, still role-based — missed-list escalation.
+      `lib/job-tags.ts`'s rename/archive cascade now also keeps
+      `TaskList.notifyTags` in sync with the `JobTag` catalog. Does not
+      touch task-list *visibility* by job tag, which stays a separate,
+      unbuilt piece — see
+      docs/features/notification-job-tag-targeting.md
 
 Personal-habit-tracker features from before the restaurant pivot — the
 timer-based Countdown/Stopwatch/Checkbox item types and the Sunday "Routine
@@ -1141,7 +1175,8 @@ table is a quick reference, not authoritative.
 - Manage Tasks Task Lists/Task Catalog toggle: BUILT — `/tasks/manage` now opens on a Task Lists tab (Task Lists + Standalone Tasks) with a separate full-width Task Catalog tab, matching the Admin Console's segmented-control pattern; search and "Scan to Find" scope to whichever tab is active, see `docs/features/manage-tasks-tabs.md`
 - Unified Task Edit Surface: BUILT — a Task Lists placement row (`TaskListEditView.tsx`'s `SortableRow`) and the Task Catalog's detail sheet (`ManageTaskDetailSheet.tsx`) now edit the same field set (Name/Icon/Form Fields/Estimated Time, Scan-to-Complete NFC, Instructions, Require Photo, Linked Inventory) regardless of which one a manager opens a task from — only Scheduled Days/Success Threshold stay Task Lists-only. The four definition-level panels are shared components/hooks (`components/task-panels/*.tsx`, `lib/client/use-task-definition-panel.ts`, `lib/client/use-inventory-links.ts`) calling definitionId-scoped routes, including a new `GET/POST /api/task-definitions/[id]/inventory-links` + `PATCH/DELETE .../inventory-links/[itemTypeId]` pair, see `docs/features/unified-task-edit-surface.md`
 - Notifications: BUILT — two independent shift-window alerts: "start-time reminders" fire at a list's exact startTime via its own per-list QStash schedule (managers+employees), "missed" fires 30min past the window's end via a shared QStash sweep every 5min (managers only, tasks still outstanding); device registration via `@capacitor/push-notifications` open to any company user, `Company.timezone`/`notificationsEnabled` drive both, see "Notifications" above and `docs/features/notifications.md`
-- Locations: BUILT — `Location` model, new `owner` role tier, invite/team location assignment, Location CRUD API, locationId-scoping across TaskLog/TaskListSession/InventoryLog/MissedListAlert, and an owner-facing location switcher on Tasks/Team/Reports/Inventory (merged directly into `components/Header.tsx`'s title area as of `docs/features/header-location-switcher.md` — no separate row under the header anymore) and `/console/tasks`/`/console/reports`/`/console/inventory` (still the standalone `components/LocationSwitcher.tsx` there, untouched by that merge); migration script at `scripts/backfill-locations.mjs`. Job tags now have a catalog + assignment UI (Admin Console's Team page — see `docs/features/admin-console.md`'s "Job Tags catalog"), though the tag-based task-list *targeting* they were originally meant for is still not built. The location-scoped task catalog fix (`TaskList`/`Task`/`TaskDefinition`/`NfcTag`/`PendingNfcLink` all became location-owned, see "Locations" and "Task Lists" above) also closed the previously-NOT-built per-location split of the start-time-reminder cron as a side effect — each location's own list now has its own independent QStash schedule by construction; migration script at `scripts/backfill-task-catalog-locations.mjs`. `InventoryItemType`/`InventoryGroup` later got the equivalent split too — each location now manages its own independent Inventory catalog + NFC bindings, with the same cross-location example-data browsing/clone for item types — see `docs/features/inventory.md`'s "Location scoping"; migration script at `scripts/backfill-inventory-locations.mjs`
+- Notification Targeting by Job Tag: BUILT — `TaskList.notifyTags` (Console Task Management's `NotifyTagsPicker`, showing each tag's current `userCount`) narrows a list's start-time reminder to teammates carrying a matching job tag; empty stays the default "notify everyone." `Company.missedAlertIncludeOwner` (mobile Company Settings) toggles whether the owner is included in the missed-list escalation, which stays role-based and untouched by tags. Task-list *visibility* by job tag is a separate, still-unbuilt piece, see `docs/features/notification-job-tag-targeting.md`
+- Locations: BUILT — `Location` model, new `owner` role tier, invite/team location assignment, Location CRUD API, locationId-scoping across TaskLog/TaskListSession/InventoryLog/MissedListAlert, and an owner-facing location switcher on Tasks/Team/Reports/Inventory (merged directly into `components/Header.tsx`'s title area as of `docs/features/header-location-switcher.md` — no separate row under the header anymore) and `/console/tasks`/`/console/reports`/`/console/inventory` (still the standalone `components/LocationSwitcher.tsx` there, untouched by that merge); migration script at `scripts/backfill-locations.mjs`. Job tags now have a catalog + assignment UI (Admin Console's Team page — see `docs/features/admin-console.md`'s "Job Tags catalog") and a first targeting consumer: a `TaskList.notifyTags` field narrows that list's start-time reminder audience by job tag, set from the Console's Task Management page — see `docs/features/notification-job-tag-targeting.md`. The separate, still-deferred piece is task-list *visibility* by job tag (which employees can see/act on a list at all, as opposed to who gets pushed a reminder about it) — that remains not built. The location-scoped task catalog fix (`TaskList`/`Task`/`TaskDefinition`/`NfcTag`/`PendingNfcLink` all became location-owned, see "Locations" and "Task Lists" above) also closed the previously-NOT-built per-location split of the start-time-reminder cron as a side effect — each location's own list now has its own independent QStash schedule by construction; migration script at `scripts/backfill-task-catalog-locations.mjs`. `InventoryItemType`/`InventoryGroup` later got the equivalent split too — each location now manages its own independent Inventory catalog + NFC bindings, with the same cross-location example-data browsing/clone for item types — see `docs/features/inventory.md`'s "Location scoping"; migration script at `scripts/backfill-inventory-locations.mjs`
 - Admin Console: BUILT — desktop-first `/console` section (`app/(console)/console/**`, gated manager-or-above in its `layout.tsx`, blocked from the native iOS shell): a Rollup Dashboard (`GET /api/reports/rollup`) as `/console`'s own homepage, giving an owner a cross-location snapshot (completion rate, tasks logged, missed lists, below-par items, active employees) that has no mobile equivalent (Locations CRUD, the console's original Phase 1a page, was removed entirely; Rollup moved off its own `/console/rollup` route to become the homepage in its place), a company-wide Team & Access table + invite panel + a small owner-only Locations panel (create/rename/archive — Locations CRUD's return, embedded here rather than as its own page/nav item this time) + Job Tags catalog (create/rename/archive tags, per-teammate toggle assignment), Task & Task List Management (`/console/tasks`, manager-or-above) — a two-pane task-list/task editor reusing mobile's exact APIs and field-editing building blocks, NFC status-only (no scan action), plus a Task Catalog pane for editing/creating/deleting a saved task independent of any list placement — a Reports page (`/console/reports`, manager-or-above) — desktop-shaped stat strip/leaderboard table/task-list grid/Logs table/Inventory card grid, all fed by mobile's exact `GET /api/reports`/`/api/reports/leaderboard`/`/api/reports/inventory`/`GET /api/task-logs/history` responses (new presentational layouts, reused pure math/types from `components/reports/shared.ts`) — and an Inventory Management page (`/console/inventory`, manager-or-above) — grouped item-type table with always-visible log-a-count input + expandable history per row, plus a persistent Manage Groups panel below it; no NFC anywhere (an item with `nfcRequiredToLog` set from mobile 409s here with console-specific error copy, not mobile's "use Save via NFC"). Team & Access and the Rollup Dashboard homepage stay owner-only, each self-gating now that the blanket layout check loosened; Task Management, Reports, and Inventory are the three manager-and-up pages. Reached via a manager-or-above card on the Profile page (`components/ProfileView.tsx`) — login itself still always lands on Tasks, same as every other role — see `docs/features/admin-console.md`, `docs/features/console-task-management.md`, `docs/features/console-reports.md`, and `docs/features/console-inventory.md`
 
 - Account Deletion: BUILT — Profile's "Delete Account" row (`employee`/`manager` only) scrubs PII off the caller's own `User` document, detaches them from their company/location, deletes their `PushToken`s and OAuth account link, and invalidates their session (`DELETE /api/account`, `lib/auth.ts`'s jwt callback); `owner` sees a static contact-support message instead of a button, see `docs/features/account-deletion.md`

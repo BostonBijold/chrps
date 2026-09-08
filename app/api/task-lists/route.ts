@@ -56,6 +56,11 @@ export async function GET(req: NextRequest) {
         // but can diverge). Ignored by the offline SQLite cache, which only
         // reads the fields its own schema already mirrors.
         scheduledDays: taskList.scheduledDays ?? [0, 1, 2, 3, 4, 5, 6],
+        // Additive field for the Admin Console's Task Management page's
+        // tag picker — see
+        // docs/features/notification-job-tag-targeting.md. Ignored by the
+        // offline SQLite cache, same as scheduledDays above.
+        notifyTags: taskList.notifyTags ?? [],
         updatedAt: taskList.updatedAt ? new Date(taskList.updatedAt).toISOString() : null,
         tasks: rawTasks.map((task) => ({
           _id: task._id.toString(),
@@ -88,10 +93,11 @@ export async function POST(req: NextRequest) {
   const locationId = pickActiveLocationId(sessionUser, requestedLocationId);
   if (!locationId) return NextResponse.json({ error: "No location assigned" }, { status: 403 });
 
-  const { name, startTime, scheduledDays } = (await req.json()) as {
+  const { name, startTime, scheduledDays, notifyTags } = (await req.json()) as {
     name?: string;
     startTime?: string | null;
     scheduledDays?: number[];
+    notifyTags?: string[];
   };
 
   if (!name?.trim()) {
@@ -117,6 +123,7 @@ export async function POST(req: NextRequest) {
     order: nextOrder,
     isDefault: false,
     scheduledDays: days,
+    notifyTags: Array.isArray(notifyTags) ? notifyTags : [],
   });
 
   // Best-effort — a QStash hiccup shouldn't fail list creation itself, the
@@ -143,5 +150,6 @@ export async function POST(req: NextRequest) {
     startTime: taskList.startTime ?? null,
     order: taskList.order,
     scheduledDays: taskList.scheduledDays,
+    notifyTags: taskList.notifyTags,
   });
 }

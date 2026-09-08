@@ -5,6 +5,7 @@ import LocationSwitcher from "@/components/LocationSwitcher";
 import TaskListsPane, { type ConsoleTaskList } from "@/components/console/TaskListsPane";
 import TaskListDetailPane, { type ConsoleTask } from "@/components/console/TaskListDetailPane";
 import TaskCatalogPane from "@/components/console/TaskCatalogPane";
+import type { JobTagOption } from "@/components/console/JobTagsPanel";
 import type { TaskType, FormFieldDef } from "@/models/TaskDefinition";
 
 interface Props {
@@ -28,6 +29,7 @@ interface RawTaskList {
   startTime: string | null;
   order: number;
   scheduledDays: number[];
+  notifyTags: string[];
   tasks: RawTask[];
 }
 
@@ -84,6 +86,7 @@ function resolveTasksForList(list: RawTaskList, definitions: TaskDefinitionEntry
 export default function TaskManagementView({ isOwner, activeLocationId }: Props) {
   const [taskLists, setTaskLists] = useState<RawTaskList[] | null>(null);
   const [definitions, setDefinitions] = useState<TaskDefinitionEntry[] | null>(null);
+  const [jobTags, setJobTags] = useState<JobTagOption[] | null>(null);
   const [selectedListId, setSelectedListId] = useState<string | null>(null);
   const [view, setView] = useState<"lists" | "catalog">("lists");
 
@@ -101,10 +104,18 @@ export default function TaskManagementView({ isOwner, activeLocationId }: Props)
     return data;
   }, []);
 
+  const fetchJobTags = useCallback(async () => {
+    const res = await fetch("/api/job-tags");
+    const data: JobTagOption[] = res.ok ? await res.json() : [];
+    setJobTags(data);
+    return data;
+  }, []);
+
   useEffect(() => {
     fetchTaskLists();
     fetchDefinitions();
-  }, [fetchTaskLists, fetchDefinitions]);
+    fetchJobTags();
+  }, [fetchTaskLists, fetchDefinitions, fetchJobTags]);
 
   // Auto-select the first list once loaded, and fall back to another list
   // (or none) if the selected one disappears — e.g. its last task was just
@@ -118,11 +129,16 @@ export default function TaskManagementView({ isOwner, activeLocationId }: Props)
 
   const refetchTasksAndDefinitions = () => Promise.all([fetchTaskLists(), fetchDefinitions()]);
 
-  const handleCreateList = async (name: string, startTime: string | null, scheduledDays: number[]) => {
+  const handleCreateList = async (
+    name: string,
+    startTime: string | null,
+    scheduledDays: number[],
+    notifyTags: string[]
+  ) => {
     const res = await fetch("/api/task-lists", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, startTime, scheduledDays }),
+      body: JSON.stringify({ name, startTime, scheduledDays, notifyTags }),
     });
     const created = await res.json();
     await fetchTaskLists();
@@ -131,7 +147,7 @@ export default function TaskManagementView({ isOwner, activeLocationId }: Props)
 
   const handleUpdateList = async (
     id: string,
-    patch: { name?: string; startTime?: string | null; scheduledDays?: number[] }
+    patch: { name?: string; startTime?: string | null; scheduledDays?: number[]; notifyTags?: string[] }
   ) => {
     await fetch(`/api/task-lists/${id}`, {
       method: "PATCH",
@@ -295,6 +311,7 @@ export default function TaskManagementView({ isOwner, activeLocationId }: Props)
       name: l.name,
       startTime: l.startTime,
       scheduledDays: l.scheduledDays,
+      notifyTags: l.notifyTags ?? [],
       taskCount: l.tasks.length,
     })) ?? null;
 
@@ -338,6 +355,7 @@ export default function TaskManagementView({ isOwner, activeLocationId }: Props)
         <div className="flex items-start">
           <TaskListsPane
             taskLists={consoleTaskLists}
+            jobTags={jobTags}
             selectedListId={selectedListId}
             onSelect={setSelectedListId}
             onCreate={handleCreateList}

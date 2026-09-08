@@ -71,15 +71,22 @@ export async function sendMissedListAlert(params: {
   outstandingCount: number;
   windowEndLabel: string; // e.g. "10:30pm" — already formatted, this module doesn't know time-of-day formatting
   date: string; // YYYY-MM-DD
+  // Company.missedAlertIncludeOwner — see
+  // docs/features/notification-job-tag-targeting.md. Default true (today's
+  // behavior): the owner is included alongside managers. false: managers
+  // only. Unaffected by job-tag targeting — missed alerts stay role-based,
+  // never per-tag.
+  includeOwner?: boolean;
 }): Promise<void> {
-  const { companyId, locationId, taskListId, taskListName, outstandingCount, windowEndLabel, date } = params;
+  const { companyId, locationId, taskListId, taskListName, outstandingCount, windowEndLabel, date, includeOwner = true } = params;
 
   await connectDB();
+  const roles = includeOwner ? ["manager", "owner"] : ["manager"];
   const managers = await User.find(
     {
       companyId,
-      role: { $in: ["manager", "owner"] },
-      ...(locationId ? { $or: [{ locationId }, { role: "owner" }] } : {}),
+      role: { $in: roles },
+      ...(locationId ? { $or: includeOwner ? [{ locationId }, { role: "owner" }] : [{ locationId }] } : {}),
     },
     "_id"
   ).lean<{ _id: { toString(): string } }[]>();
@@ -109,14 +116,26 @@ export async function sendStartTimeReminder(params: {
   taskListId: string;
   taskListName: string;
   date: string; // YYYY-MM-DD
+  // TaskList.notifyTags — see
+  // docs/features/notification-job-tag-targeting.md. Empty/omitted =
+  // today's behavior (everyone at the location, owner always included).
+  // Non-empty narrows the audience to users at this location whose
+  // jobTags intersects notifyTags — the owner is NOT auto-included on
+  // this path, only if they themselves carry a matching tag, same as
+  // anyone else.
+  notifyTags?: string[];
 }): Promise<void> {
-  const { companyId, locationId, taskListId, taskListName, date } = params;
+  const { companyId, locationId, taskListId, taskListName, date, notifyTags = [] } = params;
 
   await connectDB();
-  const everyone = await User.find(
-    { companyId, ...(locationId ? { $or: [{ locationId }, { role: "owner" }] } : {}) },
-    "_id"
-  ).lean<{ _id: { toString(): string } }[]>();
+  const query: Record<string, unknown> = { companyId };
+  if (notifyTags.length > 0) {
+    query.jobTags = { $in: notifyTags };
+    if (locationId) query.locationId = locationId;
+  } else if (locationId) {
+    query.$or = [{ locationId }, { role: "owner" }];
+  }
+  const everyone = await User.find(query, "_id").lean<{ _id: { toString(): string } }[]>();
 
   await sendPushToUsers({
     companyId,

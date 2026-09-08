@@ -2,22 +2,76 @@
 
 import { useState } from "react";
 import { Plus, Pencil, Trash2, Check, X } from "lucide-react";
+import type { JobTagOption } from "@/components/console/JobTagsPanel";
 
 export interface ConsoleTaskList {
   _id: string;
   name: string;
   startTime: string | null;
   scheduledDays: number[];
+  notifyTags: string[];
   taskCount: number;
 }
 
 interface Props {
   taskLists: ConsoleTaskList[] | null;
+  jobTags: JobTagOption[] | null;
   selectedListId: string | null;
   onSelect: (id: string) => void;
-  onCreate: (name: string, startTime: string | null, scheduledDays: number[]) => Promise<void>;
-  onUpdate: (id: string, patch: { name?: string; startTime?: string | null; scheduledDays?: number[] }) => Promise<void>;
+  onCreate: (name: string, startTime: string | null, scheduledDays: number[], notifyTags: string[]) => Promise<void>;
+  onUpdate: (
+    id: string,
+    patch: { name?: string; startTime?: string | null; scheduledDays?: number[]; notifyTags?: string[] }
+  ) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
+}
+
+// Multi-select chip picker for TaskList.notifyTags — narrows a shift-window
+// list's start-time reminder to teammates carrying at least one of the
+// selected job tags; empty = notify everyone (today's behavior). See
+// docs/features/notification-job-tag-targeting.md. A tag with userCount 0
+// gets a visible "0" so a manager can see up front a list would notify
+// nobody, without cross-referencing the Team page.
+function NotifyTagsPicker({
+  jobTags,
+  selected,
+  onToggle,
+}: {
+  jobTags: JobTagOption[] | null;
+  selected: string[];
+  onToggle: (name: string) => void;
+}) {
+  if (!jobTags || jobTags.length === 0) return null;
+  const zeroMatchSelected = selected.some((name) => (jobTags.find((t) => t.name === name)?.userCount ?? 0) === 0);
+  return (
+    <div>
+      <label className="font-mono text-[10px] uppercase tracking-widest text-dim block mb-1.5">
+        Notifies {selected.length === 0 ? "· everyone (default)" : ""}
+      </label>
+      <div className="flex flex-wrap gap-1.5">
+        {jobTags.map((tag) => {
+          const isSelected = selected.includes(tag.name);
+          return (
+            <button
+              key={tag._id}
+              type="button"
+              onClick={() => onToggle(tag.name)}
+              className={`font-mono text-[10px] px-2.5 py-1 rounded-pill border transition-colors ${
+                isSelected ? "bg-olive text-text border-olive" : "bg-bg border-border text-dim"
+              }`}
+            >
+              {tag.name} · {tag.userCount ?? 0}
+            </button>
+          );
+        })}
+      </div>
+      {zeroMatchSelected && (
+        <p className="font-mono text-[10px] text-burgundy-light mt-1.5">
+          No teammate currently holds a selected tag — this list would notify nobody.
+        </p>
+      )}
+    </div>
+  );
 }
 
 const DAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"]; // Sun..Sat, matches mobile's own convention
@@ -52,17 +106,19 @@ function fmtStart(startTime: string | null) {
 // rename/reschedule/soft-delete per row, replacing the separate navigation
 // mobile's dedicated TaskListEditView.tsx page requires — a desktop-layout
 // difference only, not a capability change.
-export default function TaskListsPane({ taskLists, selectedListId, onSelect, onCreate, onUpdate, onDelete }: Props) {
+export default function TaskListsPane({ taskLists, jobTags, selectedListId, onSelect, onCreate, onUpdate, onDelete }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editStartTime, setEditStartTime] = useState("");
   const [editDays, setEditDays] = useState<number[]>(ALL_DAYS);
+  const [editTags, setEditTags] = useState<string[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const [newStartTime, setNewStartTime] = useState("");
   const [newDays, setNewDays] = useState<number[]>(ALL_DAYS);
+  const [newTags, setNewTags] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
 
   const startEdit = (list: ConsoleTaskList) => {
@@ -70,6 +126,7 @@ export default function TaskListsPane({ taskLists, selectedListId, onSelect, onC
     setEditName(list.name);
     setEditStartTime(list.startTime ?? "");
     setEditDays(list.scheduledDays);
+    setEditTags(list.notifyTags ?? []);
   };
 
   const toggleEditDay = (day: number) => {
@@ -80,9 +137,22 @@ export default function TaskListsPane({ taskLists, selectedListId, onSelect, onC
     setNewDays((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day].sort()));
   };
 
+  const toggleEditTag = (name: string) => {
+    setEditTags((prev) => (prev.includes(name) ? prev.filter((t) => t !== name) : [...prev, name]));
+  };
+
+  const toggleNewTag = (name: string) => {
+    setNewTags((prev) => (prev.includes(name) ? prev.filter((t) => t !== name) : [...prev, name]));
+  };
+
   const handleSaveEdit = async (id: string) => {
     setBusyId(id);
-    await onUpdate(id, { name: editName.trim() || undefined, startTime: editStartTime || null, scheduledDays: editDays });
+    await onUpdate(id, {
+      name: editName.trim() || undefined,
+      startTime: editStartTime || null,
+      scheduledDays: editDays,
+      notifyTags: editTags,
+    });
     setBusyId(null);
     setEditingId(null);
   };
@@ -90,12 +160,13 @@ export default function TaskListsPane({ taskLists, selectedListId, onSelect, onC
   const handleCreate = async () => {
     if (!newName.trim()) return;
     setSaving(true);
-    await onCreate(newName.trim(), newStartTime || null, newDays);
+    await onCreate(newName.trim(), newStartTime || null, newDays, newTags);
     setSaving(false);
     setCreating(false);
     setNewName("");
     setNewStartTime("");
     setNewDays(ALL_DAYS);
+    setNewTags([]);
   };
 
   return (
@@ -134,6 +205,7 @@ export default function TaskListsPane({ taskLists, selectedListId, onSelect, onC
                       />
                     </div>
                     <DayToggle days={editDays} onToggle={toggleEditDay} />
+                    <NotifyTagsPicker jobTags={jobTags} selected={editTags} onToggle={toggleEditTag} />
                     <div className="flex items-center gap-2 pt-1">
                       <button
                         onClick={() => handleSaveEdit(list._id)}
@@ -156,6 +228,7 @@ export default function TaskListsPane({ taskLists, selectedListId, onSelect, onC
                       <p className="font-body text-sm text-text truncate">{list.name}</p>
                       <p className="font-mono text-[10px] text-dim mt-0.5">
                         {fmtStart(list.startTime)} · {list.taskCount} task{list.taskCount === 1 ? "" : "s"}
+                        {list.notifyTags.length > 0 && ` · notifies ${list.notifyTags.join(", ")}`}
                       </p>
                     </div>
                     <span
@@ -211,6 +284,7 @@ export default function TaskListsPane({ taskLists, selectedListId, onSelect, onC
           />
           <p className="font-mono text-[10px] text-dim">Blank start time = a never-collapsing anytime list.</p>
           <DayToggle days={newDays} onToggle={toggleNewDay} />
+          <NotifyTagsPicker jobTags={jobTags} selected={newTags} onToggle={toggleNewTag} />
           <div className="flex items-center gap-2 pt-1">
             <button
               onClick={handleCreate}

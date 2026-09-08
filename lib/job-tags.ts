@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import JobTag from "@/models/JobTag";
 import User from "@/models/User";
+import TaskList from "@/models/TaskList";
 
 // User.jobTags stores plain tag-name strings (see models/User.ts), not a
 // ref to JobTag._id — same "no join needed to display" tradeoff documented
@@ -9,6 +10,13 @@ import User from "@/models/User";
 // assignment silently drift apart. Both helpers mirror
 // lib/inventory.ts's archiveInventoryGroup: look up the catalog doc scoped
 // to companyId, fan the change out to dependents, then save.
+//
+// TaskList.notifyTags (see
+// docs/features/notification-job-tag-targeting.md) references tag names
+// the same way — a rename/archive here cascades onto every list's
+// notifyTags too, so a renamed tag doesn't silently detach a list from its
+// intended audience, and an archived tag can't leave a list pointed at a
+// name nobody can ever hold again.
 
 // Renames a tag and rewrites every User.jobTags entry that held the old
 // name to the new one in the same request. The positional `$` operator is
@@ -29,6 +37,12 @@ export async function renameJobTag(companyId: string, tagId: string, name: strin
   if (oldName !== name && mongoose.isValidObjectId(companyId)) {
     await User.updateMany({ companyId, jobTags: oldName }, { $set: { "jobTags.$": name } });
   }
+  // TaskList.companyId is a plain String field (unlike User's ObjectId
+  // ref) — no isValidObjectId guard needed here, same convention as every
+  // other TaskList query in this codebase.
+  if (oldName !== name) {
+    await TaskList.updateMany({ companyId, notifyTags: oldName }, { $set: { "notifyTags.$": name } });
+  }
 
   return tag;
 }
@@ -46,6 +60,7 @@ export async function archiveJobTag(companyId: string, tagId: string) {
   if (mongoose.isValidObjectId(companyId)) {
     await User.updateMany({ companyId, jobTags: tag.name }, { $pull: { jobTags: tag.name } });
   }
+  await TaskList.updateMany({ companyId, notifyTags: tag.name }, { $pull: { notifyTags: tag.name } });
 
   tag.isActive = false;
   await tag.save();

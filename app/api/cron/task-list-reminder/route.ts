@@ -53,7 +53,9 @@ export async function POST(req: NextRequest) {
   const taskList = await TaskList.findOne({ _id: taskListId, isActive: true }).lean<{
     _id: { toString(): string };
     companyId: string;
+    locationId: string | null;
     name: string;
+    notifyTags?: string[];
   } | null>();
   if (!taskList) return NextResponse.json({ ok: true, skipped: "list not found or inactive" });
 
@@ -90,19 +92,21 @@ export async function POST(req: NextRequest) {
   });
   if (allTerminal) return NextResponse.json({ ok: true, skipped: "already finished" });
 
-  // A shift-window list has exactly one QStash schedule regardless of how
-  // many locations run it (see docs/features/locations.md's open questions
-  // — no per-location schedule split exists yet), so this fire reaches
-  // every location's staff, same as company-wide behavior before this
-  // feature. The "already finished" check above is similarly company-wide,
-  // not per-location — a known, accepted simplification for this low-stakes
-  // nudge (see the doc's "Deferred beyond v1").
+  // Each shift-window list is now its own location-owned document with its
+  // own independent QStash schedule (see docs/features/locations.md's
+  // "Locations" section — the location-scoped task catalog fix closed the
+  // once-open "one schedule per company" gap as a side effect), so this
+  // fire targets exactly taskList.locationId's staff, not the whole
+  // company. notifyTags (see
+  // docs/features/notification-job-tag-targeting.md) narrows that further
+  // when set.
   await sendStartTimeReminder({
     companyId: taskList.companyId,
-    locationId: null,
+    locationId: taskList.locationId ?? null,
     taskListId,
     taskListName: taskList.name,
     date: today,
+    notifyTags: taskList.notifyTags ?? [],
   });
 
   return NextResponse.json({ ok: true, sent: true });

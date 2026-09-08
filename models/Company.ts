@@ -58,6 +58,14 @@ export interface ICompany extends Document {
   // this is read, not as "off" — see `DEFAULT_MISSED_LIST_GRACE_MINUTES` in
   // `lib/task-list-window.ts`.
   missedAlertGraceMinutes: number | null;
+  // Whether the missed-list sweep's push includes the owner alongside
+  // managers — see docs/features/notification-job-tag-targeting.md.
+  // Defaults `true` so every existing company keeps today's behavior
+  // without a migration. Missed-list alerts stay role-based regardless
+  // (unaffected by job-tag targeting, which only narrows start-time
+  // reminders) — this is a narrower, separate on/off switch for just the
+  // owner's own membership in that role-based audience.
+  missedAlertIncludeOwner: boolean;
   subscription: ICompanySubscription;
 }
 
@@ -87,6 +95,7 @@ const CompanySchema = new Schema<ICompany>(
     notificationSound: { type: String, enum: ["standard", "male"], default: "standard" },
     notificationsEnabled: { type: Boolean, default: true },
     missedAlertGraceMinutes: { type: Number, default: 30 },
+    missedAlertIncludeOwner: { type: Boolean, default: true },
     subscription: { type: CompanySubscriptionSchema, default: () => ({}) },
   },
   { timestamps: true }

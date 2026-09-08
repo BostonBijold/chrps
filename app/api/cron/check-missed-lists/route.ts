@@ -65,13 +65,14 @@ export async function POST(req: NextRequest) {
   // missed alerts off for this company entirely — see models/Company.ts.
   const allCompanies = await Company.find(
     {},
-    "_id timezone notificationsEnabled missedAlertGraceMinutes"
+    "_id timezone notificationsEnabled missedAlertGraceMinutes missedAlertIncludeOwner"
   ).lean<
     {
       _id: { toString(): string };
       timezone?: string | null;
       notificationsEnabled?: boolean;
       missedAlertGraceMinutes?: number | null;
+      missedAlertIncludeOwner?: boolean;
     }[]
   >();
   const companies = allCompanies
@@ -80,6 +81,10 @@ export async function POST(req: NextRequest) {
       _id: c._id,
       timezone: c.timezone as string,
       graceMinutes: c.missedAlertGraceMinutes ?? DEFAULT_MISSED_LIST_GRACE_MINUTES,
+      // `?? true` — see docs/features/notification-job-tag-targeting.md:
+      // an unset field (a company that predates this toggle) keeps today's
+      // behavior, only an explicit `false` excludes the owner.
+      includeOwner: c.missedAlertIncludeOwner ?? true,
     }));
 
   let alertsSent = 0;
@@ -155,6 +160,7 @@ export async function POST(req: NextRequest) {
               outstandingCount: outstanding.length,
               windowEndLabel: collapseAfter ? fmtTime(collapseAfter) : fmtTime(list.startTime),
               date: today,
+              includeOwner: company.includeOwner,
             });
             alertsSent += 1;
           } catch (err) {

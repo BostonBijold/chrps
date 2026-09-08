@@ -13,6 +13,7 @@ interface Props {
   initialTimezone: string | null;
   initialNotificationsEnabled: boolean;
   initialMissedAlertGraceMinutes: number | null;
+  initialMissedAlertIncludeOwner: boolean;
 }
 
 const OPTIONS: { value: NotificationSound; label: string; description: string }[] = [
@@ -40,6 +41,7 @@ export default function CompanySettingsView({
   initialTimezone,
   initialNotificationsEnabled,
   initialMissedAlertGraceMinutes,
+  initialMissedAlertIncludeOwner,
 }: Props) {
   const [notificationSound, setNotificationSound] = useState<NotificationSound>(initialNotificationSound);
   const [timezone, setTimezone] = useState<string | null>(initialTimezone);
@@ -61,6 +63,12 @@ export default function CompanySettingsView({
   const [lastGraceMinutes, setLastGraceMinutes] = useState(initialMissedAlertGraceMinutes ?? 30);
   const [graceMinutesDraft, setGraceMinutesDraft] = useState(String(initialMissedAlertGraceMinutes ?? 30));
   const [graceMinutesError, setGraceMinutesError] = useState("");
+
+  // Whether the missed-list push includes the owner alongside managers —
+  // see docs/features/notification-job-tag-targeting.md. Unaffected by
+  // job-tag targeting (that only narrows start-time reminders); this is a
+  // separate, role-based on/off switch for the missed-alert escalation.
+  const [missedAlertIncludeOwner, setMissedAlertIncludeOwner] = useState(initialMissedAlertIncludeOwner);
 
   const patch = async (body: Record<string, unknown>) => {
     setError("");
@@ -144,6 +152,16 @@ export default function CompanySettingsView({
     setSaving(true);
     setMissedAlertGraceMinutes(parsed);
     if (!(await patch({ missedAlertGraceMinutes: parsed }))) setMissedAlertGraceMinutes(previous);
+    setSaving(false);
+  };
+
+  const handleToggleIncludeOwner = async () => {
+    if (saving) return;
+    const previous = missedAlertIncludeOwner;
+    const next = !previous;
+    setMissedAlertIncludeOwner(next);
+    setSaving(true);
+    if (!(await patch({ missedAlertIncludeOwner: next }))) setMissedAlertIncludeOwner(previous);
     setSaving(false);
   };
 
@@ -324,6 +342,32 @@ export default function CompanySettingsView({
           {graceMinutesError && (
             <p className="font-mono text-[11px] text-burgundy-light">{graceMinutesError}</p>
           )}
+
+          <div className={`flex items-center gap-3 pt-3 border-t border-border ${missedAlertGraceMinutes === null ? "opacity-50" : ""}`}>
+            <div className="min-w-0 flex-1">
+              <p className="font-body text-sm text-text">Include owner</p>
+              <p className="font-mono text-[10px] text-dim mt-0.5">
+                Whether the owner gets this escalation too, alongside managers.
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={missedAlertIncludeOwner}
+              aria-label="Include owner in missed checklist alerts"
+              onClick={handleToggleIncludeOwner}
+              disabled={saving || missedAlertGraceMinutes === null}
+              className={`flex-shrink-0 w-11 h-6 rounded-pill relative transition-colors disabled:opacity-60 ${
+                missedAlertIncludeOwner ? "bg-olive" : "bg-card-hover border border-border-light"
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-bg shadow-sm transition-transform ${
+                  missedAlertIncludeOwner ? "translate-x-5" : "translate-x-0"
+                }`}
+              />
+            </button>
+          </div>
         </div>
 
         {error && <p className="font-mono text-xs text-burgundy-light mt-3">{error}</p>}

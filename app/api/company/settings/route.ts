@@ -19,12 +19,13 @@ export async function GET() {
   await connectDB();
   const company = await Company.findById(
     companyId,
-    "notificationSound timezone notificationsEnabled missedAlertGraceMinutes"
+    "notificationSound timezone notificationsEnabled missedAlertGraceMinutes missedAlertIncludeOwner"
   ).lean<{
     notificationSound?: string;
     timezone?: string | null;
     notificationsEnabled?: boolean;
     missedAlertGraceMinutes?: number | null;
+    missedAlertIncludeOwner?: boolean;
   }>();
   if (!company) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
@@ -35,6 +36,7 @@ export async function GET() {
     // `?? 30` would incorrectly coerce an explicit "off" (null) back to 30
     // — only an actually-unset field should get the default.
     missedAlertGraceMinutes: company.missedAlertGraceMinutes === undefined ? 30 : company.missedAlertGraceMinutes,
+    missedAlertIncludeOwner: company.missedAlertIncludeOwner ?? true,
   });
 }
 
@@ -50,6 +52,7 @@ export async function PATCH(req: NextRequest) {
     timezone?: string;
     notificationsEnabled?: boolean;
     missedAlertGraceMinutes?: number | null;
+    missedAlertIncludeOwner?: boolean;
   };
 
   const update: Record<string, unknown> = {};
@@ -88,6 +91,9 @@ export async function PATCH(req: NextRequest) {
     }
     update.missedAlertGraceMinutes = body.missedAlertGraceMinutes;
   }
+  if (body.missedAlertIncludeOwner !== undefined) {
+    update.missedAlertIncludeOwner = !!body.missedAlertIncludeOwner;
+  }
   if (Object.keys(update).length === 0) {
     return NextResponse.json({ error: "No fields to update" }, { status: 400 });
   }
@@ -98,6 +104,7 @@ export async function PATCH(req: NextRequest) {
     timezone?: string | null;
     notificationsEnabled?: boolean;
     missedAlertGraceMinutes?: number | null;
+    missedAlertIncludeOwner?: boolean;
   }>();
   if (!company) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
@@ -133,5 +140,6 @@ export async function PATCH(req: NextRequest) {
     timezone: company.timezone ?? null,
     notificationsEnabled: company.notificationsEnabled ?? true,
     missedAlertGraceMinutes: company.missedAlertGraceMinutes === undefined ? 30 : company.missedAlertGraceMinutes,
+    missedAlertIncludeOwner: company.missedAlertIncludeOwner ?? true,
   });
 }
