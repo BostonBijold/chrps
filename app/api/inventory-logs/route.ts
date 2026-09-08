@@ -88,7 +88,12 @@ export async function POST(req: NextRequest) {
   await connectDB();
   const locationId = pickActiveLocationId(sessionUser, await validateLocationId(companyId, requestedLocationId));
 
-  const itemType = await InventoryItemType.findOne({ _id: itemTypeId, companyId, isActive: true }).lean();
+  // locationId-scoped — InventoryItemType is location-owned (see
+  // docs/features/inventory.md's "Location scoping"), so a count can only
+  // ever be logged against an item that actually belongs to the acting
+  // location, same as every other item-type lookup in this file's sibling
+  // routes.
+  const itemType = await InventoryItemType.findOne({ _id: itemTypeId, companyId, locationId, isActive: true }).lean();
   if (!itemType) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   try {

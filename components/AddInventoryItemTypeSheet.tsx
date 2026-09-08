@@ -22,15 +22,30 @@ interface Group {
   name: string;
 }
 
+// An item type saved at a DIFFERENT location (or elsewhere in the company)
+// — read via GET /api/inventory-item-types?scope=company, "example data"
+// other stores can draw from, mirrors AddTaskSheet.tsx's OtherLocationTask.
+// Never has nfcTagUid (the server nulls it out for this scope — not
+// portable), and picking one CLONES a brand-new, same-location item type
+// rather than referencing this one directly.
+interface OtherLocationItemType {
+  _id: string;
+  locationId: string | null;
+  locationName: string | null;
+  name: string;
+  unit: string | null;
+}
+
 interface Props {
   onCreated: (itemType: CreatedItemType) => void;
   onClose: () => void;
 }
 
-// Manager-only "add item type" flow — name/unit/par level/group. NFC
-// binding and the nfcRequiredToLog toggle are a separate step from the
-// item's own detail screen once it exists (mirrors the task catalog's
-// create-then-bind flow) — see docs/features/inventory.md.
+// Manager-only "add item type" flow — name/unit/par level/group, or clone
+// one from another location's catalog. NFC binding and the
+// nfcRequiredToLog toggle are a separate step from the item's own detail
+// screen once it exists (mirrors the task catalog's create-then-bind flow)
+// — see docs/features/inventory.md.
 export default function AddInventoryItemTypeSheet({ onCreated, onClose }: Props) {
   const [name, setName] = useState("");
   const [unit, setUnit] = useState("");
@@ -47,12 +62,55 @@ export default function AddInventoryItemTypeSheet({ onCreated, onClose }: Props)
   const [newGroupName, setNewGroupName] = useState("");
   const [groupBusy, setGroupBusy] = useState(false);
 
+  // ── Browse-to-clone from another location's catalog — see
+  // OtherLocationItemType above and docs/features/inventory.md's "Location
+  // scoping". ──
+  const [ownItemTypes, setOwnItemTypes] = useState<{ _id: string }[]>([]);
+  const [otherLocationItemTypes, setOtherLocationItemTypes] = useState<OtherLocationItemType[]>([]);
+  const [addingClone, setAddingClone] = useState<string | null>(null);
+
   useEffect(() => {
     fetch("/api/inventory-groups")
       .then((r) => (r.ok ? r.json() : []))
       .then(setGroups)
       .catch(() => setGroups([]));
+    fetch("/api/inventory-item-types")
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setOwnItemTypes)
+      .catch(() => setOwnItemTypes([]));
+    // Manager-only route (this sheet is itself reached only by a manager or
+    // above) — browse-to-clone "example data" from every other location in
+    // the company. A 403/empty response (single-location company, or
+    // nothing else saved yet) just means the section renders nothing.
+    fetch("/api/inventory-item-types?scope=company")
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setOtherLocationItemTypes)
+      .catch(() => setOtherLocationItemTypes([]));
   }, []);
+
+  // scope=company includes this location's own item types too — exclude
+  // anything already in the caller's own catalog, same convention as
+  // AddTaskSheet.tsx's filteredOtherLocation.
+  const ownIds = new Set(ownItemTypes.map((it) => it._id));
+  const cloneable = otherLocationItemTypes.filter((it) => !ownIds.has(it._id));
+
+  const handleAddClone = async (it: OtherLocationItemType) => {
+    setAddingClone(it._id);
+    setError("");
+    try {
+      const res = await fetch("/api/inventory-item-types", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cloneFromItemTypeId: it._id }),
+      });
+      if (!res.ok) throw new Error("Failed to clone item type");
+      const itemType = await res.json();
+      onCreated(itemType);
+    } catch {
+      setError("Couldn't add that item type. Try again.");
+      setAddingClone(null);
+    }
+  };
 
   const handleCreateGroup = async () => {
     if (!newGroupName.trim()) return;
@@ -104,7 +162,7 @@ export default function AddInventoryItemTypeSheet({ onCreated, onClose }: Props)
     <>
       <div className="fixed inset-0 bg-black/60 z-40" onClick={onClose} />
       <div className="fixed inset-0 z-50 flex items-center justify-center p-5">
-        <div className="w-full max-w-mobile bg-card rounded-2xl overflow-hidden flex flex-col">
+        <div className="w-full max-w-mobile bg-card rounded-2xl overflow-hidden flex flex-col max-h-[85vh]">
           <div className="flex items-center gap-3 px-5 pt-5 pb-4 border-b border-border flex-shrink-0">
             <div className="flex-1 min-w-0">
               <h2 className="font-heading text-base text-text truncate">Add Item Type</h2>
@@ -114,7 +172,37 @@ export default function AddInventoryItemTypeSheet({ onCreated, onClose }: Props)
             </button>
           </div>
 
-          <div className="px-5 py-5 space-y-5">
+          <div className="px-5 py-5 space-y-5 overflow-y-auto">
+            {cloneable.length > 0 && (
+              <div>
+                <p className="font-mono text-[10px] uppercase tracking-widest text-dim mb-2">
+                  From Other Locations
+                </p>
+                <div className="bg-bg rounded-card divide-y divide-border overflow-hidden">
+                  {cloneable.map((it) => (
+                    <div key={it._id} className="flex items-center gap-3 px-3 py-3">
+                      <div className="flex-1 min-w-0">
+                        <span className="block font-body text-sm text-text truncate">{it.name}</span>
+                        {it.locationName && (
+                          <span className="block font-mono text-[10px] text-dim truncate">{it.locationName}</span>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => handleAddClone(it)}
+                        disabled={addingClone === it._id}
+                        className="ml-2 bg-olive/15 hover:bg-olive/30 border border-olive/30 text-olive font-mono text-xs px-3 py-1.5 rounded-pill transition-colors disabled:opacity-50 flex-shrink-0"
+                      >
+                        {addingClone === it._id ? "…" : "Add"}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <p className="font-mono text-[10px] uppercase tracking-widest text-dim mt-5 mb-0.5">
+                  Or Create New
+                </p>
+              </div>
+            )}
+
             <div className="space-y-1.5">
               <label className="font-mono text-[10px] text-dim uppercase tracking-widest">
                 Name

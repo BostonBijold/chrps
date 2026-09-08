@@ -344,13 +344,17 @@ this feature as fully "done":
   cross-location reference. See CLAUDE.md's "Task Lists" section,
   `docs/features/task-lists.md`'s "Company Task Catalog" section, and the
   migration script `scripts/backfill-task-catalog-locations.mjs`.
-  **`InventoryItemType`/`InventoryGroup` did NOT get this same treatment** —
-  they remain company-wide shared catalog with only per-location
-  `InventoryLog` rows, so an Inventory item's own NFC binding (distinct
-  from a task's) can still, in principle, be scanned meaningfully from any
-  location. If Inventory ever needs the same per-location catalog
-  ownership, that's a separate, still-unbuilt redesign, following the same
-  shape as the task-catalog fix above.
+  **`InventoryItemType`/`InventoryGroup` have now gotten the same
+  treatment** (see [`inventory.md`](inventory.md)'s "Location scoping") —
+  an Inventory item's own NFC binding (distinct from a task's) can no
+  longer be scanned meaningfully from a different location; `GET
+  /api/tasks/by-nfc-uid` filters `InventoryItemType` matches by `locationId`
+  exactly like it already did for `TaskDefinition`. Same cross-location
+  example-data browsing pattern for item types
+  (`GET /api/inventory-item-types?scope=company`, clone via
+  `cloneFromItemTypeId`); `InventoryGroup` gets no browse/clone, matching
+  how `TaskList` itself has none either. Migration script:
+  `scripts/backfill-inventory-locations.mjs`.
 
 ## Depends on
 

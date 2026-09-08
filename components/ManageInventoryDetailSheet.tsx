@@ -64,7 +64,7 @@ export default function ManageInventoryDetailSheet({ itemType, groups, onSaved, 
   const [nfcTagUid, setNfcTagUid] = useState<string | null>(itemType.nfcTagUid);
   const [bindBusy, setBindBusy] = useState(false);
   const [bindError, setBindError] = useState<string | null>(null);
-  const [alsoBoundTo, setAlsoBoundTo] = useState<string[]>([]);
+  const [alsoBoundTo, setAlsoBoundTo] = useState<Array<{ name: string; locationName: string | null }>>([]);
 
   const [archiving, setArchiving] = useState(false);
   const [confirmingArchive, setConfirmingArchive] = useState(false);
@@ -282,7 +282,10 @@ export default function ManageInventoryDetailSheet({ itemType, groups, onSaved, 
               )}
               {alsoBoundTo.length > 0 && (
                 <p className="font-mono text-[11px] text-dim mt-1.5">
-                  Also bound to: {alsoBoundTo.join(", ")}
+                  Also bound to:{" "}
+                  {alsoBoundTo
+                    .map((b) => (b.locationName ? `${b.name} (${b.locationName})` : b.name))
+                    .join(", ")}
                 </p>
               )}
 

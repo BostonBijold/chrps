@@ -46,18 +46,21 @@ export async function GET(req: NextRequest) {
   const start = new Date(dates[0] + "T00:00:00");
   const end = new Date(dates[dates.length - 1] + "T23:59:59.999");
 
+  // Same location-scoping convention as GET /api/reports — an owner may
+  // pass ?locationId=<id> to view a specific store's trend; a manager always
+  // sees only their own. See docs/features/locations.md. Resolved before
+  // the catalog query below, since InventoryItemType is location-owned too
+  // now (see "Location scoping") — a foreign-location itemTypeId 404s the
+  // same as any other not-found id.
+  const requestedLocationId = await validateLocationId(companyId, searchParams.get("locationId"));
+  const locationId = pickActiveLocationId(sessionUser, requestedLocationId);
+
   const itemTypes = await InventoryItemType.find(
-    itemTypeId ? { _id: itemTypeId, companyId } : { companyId, isActive: true }
+    itemTypeId ? { _id: itemTypeId, companyId, locationId } : { companyId, locationId, isActive: true }
   ).lean();
   if (itemTypeId && itemTypes.length === 0) {
     return NextResponse.json({ error: "Item not found" }, { status: 404 });
   }
-
-  // Same location-scoping convention as GET /api/reports — an owner may
-  // pass ?locationId=<id> to view a specific store's trend; a manager always
-  // sees only their own. See docs/features/locations.md.
-  const requestedLocationId = await validateLocationId(companyId, searchParams.get("locationId"));
-  const locationId = pickActiveLocationId(sessionUser, requestedLocationId);
 
   const rawLogs = itemTypes.length > 0
     ? await InventoryLog.find({

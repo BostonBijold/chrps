@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { connectDB } from "@/lib/mongoose";
 import Company from "@/models/Company";
 import InventoryItemType from "@/models/InventoryItemType";
-import { resolveSessionUser, isManagerOrAbove } from "@/lib/session";
+import { resolveSessionUser, isManagerOrAbove, pickActiveLocationId } from "@/lib/session";
 import InventoryItemDetailView from "@/components/InventoryItemDetailView";
 
 export const dynamic = "force-dynamic";
@@ -33,9 +33,15 @@ export default async function InventoryItemDetailPage({
 
   await connectDB();
 
+  // Location-scoped — an item type belongs to exactly one location, see
+  // docs/features/locations.md's "Location scoping". A foreign-location
+  // itemTypeId (e.g. a stale bookmark) 404s the same as any other
+  // not-found id.
+  const locationId = pickActiveLocationId(sessionUser, null);
   const itemType = await InventoryItemType.findOne({
     _id: params.itemTypeId,
     companyId,
+    locationId,
     isActive: true,
   }).lean();
   if (!itemType) notFound();

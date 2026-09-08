@@ -25,10 +25,10 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
   await connectDB();
 
-  const task = await Task.findOne({ _id: params.id, companyId }).select("definitionId").lean();
+  const task = await Task.findOne({ _id: params.id, companyId }).select("definitionId locationId").lean();
   if (!task) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const links = await getInventoryLinksForTaskDefinition(companyId, task.definitionId.toString());
+  const links = await getInventoryLinksForTaskDefinition(companyId, task.locationId, task.definitionId.toString());
   return NextResponse.json(links);
 }
 
@@ -50,10 +50,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   await connectDB();
 
-  const task = await Task.findOne({ _id: params.id, companyId }).select("definitionId").lean();
+  const task = await Task.findOne({ _id: params.id, companyId }).select("definitionId locationId").lean();
   if (!task) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  await addOrUpdateInventoryLink(companyId, task.definitionId.toString(), itemTypeId, required);
-  const links = await getInventoryLinksForTaskDefinition(companyId, task.definitionId.toString());
+  const link = await addOrUpdateInventoryLink(companyId, task.locationId, task.definitionId.toString(), itemTypeId, required);
+  if (!link) return NextResponse.json({ error: "Item type not found" }, { status: 404 });
+  const links = await getInventoryLinksForTaskDefinition(companyId, task.locationId, task.definitionId.toString());
   return NextResponse.json(links);
 }

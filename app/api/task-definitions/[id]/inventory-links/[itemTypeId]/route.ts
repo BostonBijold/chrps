@@ -27,11 +27,12 @@ export async function PATCH(
 
   await connectDB();
 
-  const definition = await TaskDefinition.findOne({ _id: params.id, companyId }).select("_id").lean();
+  const definition = await TaskDefinition.findOne({ _id: params.id, companyId }).select("locationId").lean();
   if (!definition) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  await addOrUpdateInventoryLink(companyId, params.id, params.itemTypeId, body.required);
-  const links = await getInventoryLinksForTaskDefinition(companyId, params.id);
+  const link = await addOrUpdateInventoryLink(companyId, definition.locationId, params.id, params.itemTypeId, body.required);
+  if (!link) return NextResponse.json({ error: "Item type not found" }, { status: 404 });
+  const links = await getInventoryLinksForTaskDefinition(companyId, definition.locationId, params.id);
   return NextResponse.json(links);
 }
 

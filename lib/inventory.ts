@@ -5,6 +5,7 @@ import InventoryGroup from "@/models/InventoryGroup";
 import TaskDefinition from "@/models/TaskDefinition";
 import TaskInventoryLink from "@/models/TaskInventoryLink";
 import Task from "@/models/Task";
+import Location from "@/models/Location";
 
 // Thrown by assertInventoryNfcVerified below — every route that can write
 // an InventoryLog for an item with nfcRequiredToLog must catch this and
@@ -32,16 +33,27 @@ export async function assertInventoryNfcVerified(itemTypeId: string, verifiedNfc
 
 // Binds a physical tag's raw UID to an item type's storage location — see
 // docs/features/nfc.md's "Multi-target binding". Mirrors
-// lib/task-definitions.ts's bindNfcTag: no uniqueness enforcement, since the
-// whole point of Part 1's multi-target model is that the same tag can also
-// already be bound to a TaskDefinition (or another InventoryItemType) at
-// the same physical location. `alsoBoundTo` is informational only, checked
-// across BOTH collections since either one could already be claiming this
-// UID — the binding UI surfaces it so a manager isn't surprised later.
-export async function bindInventoryNfcTag(companyId: string, itemTypeId: string, uid: string) {
+// lib/task-definitions.ts's bindNfcTag one layer over, now that
+// InventoryItemType is location-owned too (see docs/features/locations.md's
+// "Location scoping"): the primary bind is scoped to BOTH companyId and
+// locationId — an item type belongs to exactly one store, so this is the
+// actual authorization fix that prevents binding/unbinding an item type
+// that only exists at a different location.
+//
+// `alsoBoundTo`'s own collision-check query stays COMPANY-WIDE, deliberately
+// not locationId-filtered — same reasoning as bindNfcTag's own comment:
+// seeing "this UID is also used at your other store" is genuinely useful
+// signal for a manager who scanned the wrong physical tag, not something to
+// hide. It's purely informational — it never blocks the bind — and is
+// checked across BOTH InventoryItemType and TaskDefinition, since either
+// collection could already be claiming this UID. Each entry now carries its
+// own locationName so the UI can say exactly where the collision is, since
+// a bare name is ambiguous once both are location-owned (two stores can
+// legitimately have an identically-named "Walk-in Freezer").
+export async function bindInventoryNfcTag(companyId: string, locationId: string | null, itemTypeId: string, uid: string) {
   const normalizedUid = uid.toLowerCase();
   const itemType = await InventoryItemType.findOneAndUpdate(
-    { _id: itemTypeId, companyId },
+    { _id: itemTypeId, companyId, locationId },
     { $set: { nfcTagUid: normalizedUid } },
     { returnDocument: "after" }
   );
@@ -50,17 +62,34 @@ export async function bindInventoryNfcTag(companyId: string, itemTypeId: string,
   const [otherItemTypes, boundTasks] = await Promise.all([
     InventoryItemType.find(
       { companyId, nfcTagUid: normalizedUid, isActive: true, _id: { $ne: itemTypeId } },
-      { name: 1 }
+      { name: 1, locationId: 1 }
     ).lean(),
-    TaskDefinition.find({ companyId, nfcTagUid: normalizedUid, isActive: true }, { name: 1 }).lean(),
+    TaskDefinition.find({ companyId, nfcTagUid: normalizedUid, isActive: true }, { name: 1, locationId: 1 }).lean(),
   ]);
 
-  return { itemType, alsoBoundTo: [...otherItemTypes, ...boundTasks].map((d) => d.name) };
+  const otherLocationIds = Array.from(
+    new Set([...otherItemTypes, ...boundTasks].map((d) => d.locationId).filter((id): id is string => !!id))
+  );
+  const locationNameById = new Map(
+    otherLocationIds.length > 0
+      ? (await Location.find({ _id: { $in: otherLocationIds } }, { name: 1 }).lean()).map((l) => [
+          l._id.toString(),
+          l.name,
+        ])
+      : []
+  );
+
+  const alsoBoundTo = [...otherItemTypes, ...boundTasks].map((d) => ({
+    name: d.name,
+    locationName: d.locationId ? locationNameById.get(d.locationId) ?? null : null,
+  }));
+
+  return { itemType, alsoBoundTo };
 }
 
-export async function unbindInventoryNfcTag(companyId: string, itemTypeId: string) {
+export async function unbindInventoryNfcTag(companyId: string, locationId: string | null, itemTypeId: string) {
   return InventoryItemType.findOneAndUpdate(
-    { _id: itemTypeId, companyId },
+    { _id: itemTypeId, companyId, locationId },
     { $set: { nfcTagUid: null } },
     { returnDocument: "after" }
   );
@@ -69,13 +98,18 @@ export async function unbindInventoryNfcTag(companyId: string, itemTypeId: strin
 // Archives an InventoryGroup and, in the same request, sets every member
 // InventoryItemType's groupId back to null ("Ungrouped") — see
 // docs/features/inventory.md's "Grouping". Items and their InventoryLog
-// history are untouched either way; only the group label goes away.
-export async function archiveInventoryGroup(companyId: string, groupId: string) {
-  const group = await InventoryGroup.findOne({ _id: groupId, companyId });
+// history are untouched either way; only the group label goes away. Scoped
+// to locationId too, now that both InventoryGroup and InventoryItemType are
+// location-owned (see docs/features/locations.md's "Location scoping") —
+// though in practice a group's members can never be at a different
+// location than the group itself, so this is defensive/consistent rather
+// than load-bearing.
+export async function archiveInventoryGroup(companyId: string, locationId: string | null, groupId: string) {
+  const group = await InventoryGroup.findOne({ _id: groupId, companyId, locationId });
   if (!group) return null;
 
-  const ungroupedCount = await InventoryItemType.countDocuments({ companyId, groupId, isActive: true });
-  await InventoryItemType.updateMany({ companyId, groupId }, { $set: { groupId: null } });
+  const ungroupedCount = await InventoryItemType.countDocuments({ companyId, locationId, groupId, isActive: true });
+  await InventoryItemType.updateMany({ companyId, locationId, groupId }, { $set: { groupId: null } });
 
   group.isActive = false;
   await group.save();
@@ -141,14 +175,22 @@ export interface InventoryLinkView {
 // both screens once its item no longer exists.
 export async function getInventoryLinksForTaskDefinition(
   companyId: string,
+  locationId: string | null,
   taskDefinitionId: string
 ): Promise<InventoryLinkView[]> {
   const links = await TaskInventoryLink.find({ companyId, taskDefinitionId }).lean();
   if (links.length === 0) return [];
 
+  // locationId-filtered — a link's item type now belongs to exactly the
+  // same location as the task definition itself (enforced at link-creation
+  // time by addOrUpdateInventoryLink below), so this also silently drops
+  // any stale link left over from before InventoryItemType became
+  // location-owned, same "don't show what's gone" convention as an
+  // archived item's link being dropped.
   const itemTypes = await InventoryItemType.find({
     _id: { $in: links.map((l) => l.itemTypeId) },
     companyId,
+    locationId,
     isActive: true,
   }).lean();
   const itemTypeById = new Map(itemTypes.map((it) => [it._id.toString(), it]));
@@ -172,13 +214,25 @@ export async function getInventoryLinksForTaskDefinition(
 // Manager-only create/update — re-linking an already-linked item just
 // updates `required` on the existing row (the schema's unique index on
 // (taskDefinitionId, itemTypeId) is what makes this an upsert rather than
-// risking a duplicate-key error).
+// risking a duplicate-key error). Validates the item type actually belongs
+// to the SAME location as the task definition first — now that both
+// InventoryItemType and TaskDefinition are location-owned (see
+// docs/features/locations.md's "Location scoping"), a link should never be
+// creatable across locations; returns null (caller 404s) rather than
+// silently linking a foreign-location item that would never resolve
+// through getInventoryLinksForTaskDefinition's own locationId filter above.
 export async function addOrUpdateInventoryLink(
   companyId: string,
+  locationId: string | null,
   taskDefinitionId: string,
   itemTypeId: string,
   required: boolean
 ) {
+  const itemType = await InventoryItemType.findOne({ _id: itemTypeId, companyId, locationId, isActive: true })
+    .select("_id")
+    .lean();
+  if (!itemType) return null;
+
   return TaskInventoryLink.findOneAndUpdate(
     { companyId, taskDefinitionId, itemTypeId },
     { $set: { required } },
@@ -222,6 +276,7 @@ export async function writeInventoryLogsForTaskCompletion(
   const itemTypes = await InventoryItemType.find({
     _id: { $in: validEntries.map((e) => e.itemTypeId) },
     companyId,
+    locationId,
     isActive: true,
   }).lean();
   const itemTypeById = new Map(itemTypes.map((it) => [it._id.toString(), it]));

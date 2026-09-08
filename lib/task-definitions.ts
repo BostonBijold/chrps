@@ -108,12 +108,12 @@ export async function resolveTask<T extends LeanTaskLike>(task: T): Promise<T & 
 // physical tag, not something to hide. It's purely informational — it never
 // blocks the bind — and is checked across BOTH TaskDefinition and
 // InventoryItemType (lib/inventory.ts's own bindInventoryNfcTag does the
-// mirror-image check; InventoryItemType stays company-wide, unaffected by
-// this refactor), since either collection could already be claiming this
-// UID. Each entry now carries its own locationName so the UI can say
-// exactly where the collision is, since a bare name is ambiguous once
-// definitions are location-owned (two stores can legitimately have an
-// identically-named "Walk-in Fridge Temp").
+// exact mirror-image check, now that InventoryItemType is location-owned
+// too — see docs/features/locations.md's "Location scoping"), since either
+// collection could already be claiming this UID. Each entry now carries its
+// own locationName so the UI can say exactly where the collision is, since
+// a bare name is ambiguous once definitions are location-owned (two stores
+// can legitimately have an identically-named "Walk-in Fridge Temp").
 export async function bindNfcTag(companyId: string, locationId: string | null, definitionId: string, uid: string) {
   const normalizedUid = uid.toLowerCase();
   const definition = await TaskDefinition.findOneAndUpdate(

@@ -2,13 +2,17 @@ import mongoose from "mongoose";
 import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
 import InventoryItemType from "@/models/InventoryItemType";
-import { resolveSessionUser, isManagerOrAbove } from "@/lib/session";
+import InventoryGroup from "@/models/InventoryGroup";
+import { resolveSessionUser, isManagerOrAbove, pickActiveLocationId } from "@/lib/session";
+import { validateLocationId } from "@/lib/locations";
 
 export const dynamic = "force-dynamic";
 
 // GET /api/inventory-item-types/[id] — single item type, for the detail/log
 // screen's server-rendered page (app/(app)/inventory/[itemTypeId]/page.tsx).
-// Open to any signed-in company user, same as the list route.
+// Open to any signed-in company user, same as the list route. Scoped to the
+// caller's own location — an item type belongs to exactly one location, see
+// docs/features/locations.md's "Location scoping".
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   const sessionUser = await resolveSessionUser();
   if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -17,7 +21,10 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
   await connectDB();
 
-  const itemType = await InventoryItemType.findOne({ _id: params.id, companyId, isActive: true }).lean();
+  const requestedLocationId = await validateLocationId(companyId, req.nextUrl.searchParams.get("locationId"));
+  const locationId = pickActiveLocationId(sessionUser, requestedLocationId);
+
+  const itemType = await InventoryItemType.findOne({ _id: params.id, companyId, locationId, isActive: true }).lean();
   if (!itemType) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   return NextResponse.json({
@@ -44,6 +51,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const { companyId, role } = sessionUser;
   if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
   if (!isManagerOrAbove(role)) return NextResponse.json({ error: "Managers only" }, { status: 403 });
+  const requestedLocationId = await validateLocationId(companyId, req.nextUrl.searchParams.get("locationId"));
+  const locationId = pickActiveLocationId(sessionUser, requestedLocationId);
 
   const body = await req.json();
   const updates: Partial<Record<(typeof EDITABLE_FIELDS)[number], unknown>> = {};
@@ -60,21 +69,28 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if ("parLevel" in updates) {
     updates.parLevel = typeof updates.parLevel === "number" && Number.isFinite(updates.parLevel) ? updates.parLevel : null;
   }
-  if ("groupId" in updates) {
-    const groupId = typeof updates.groupId === "string" && updates.groupId ? updates.groupId : null;
-    if (groupId && !mongoose.isValidObjectId(groupId)) {
-      return NextResponse.json({ error: "Invalid groupId" }, { status: 400 });
-    }
-    updates.groupId = groupId;
-  }
   if ("nfcRequiredToLog" in updates) {
     updates.nfcRequiredToLog = updates.nfcRequiredToLog === true;
   }
 
   await connectDB();
 
+  if ("groupId" in updates) {
+    const groupId = typeof updates.groupId === "string" && updates.groupId ? updates.groupId : null;
+    if (groupId) {
+      if (!mongoose.isValidObjectId(groupId)) {
+        return NextResponse.json({ error: "Invalid groupId" }, { status: 400 });
+      }
+      // A group is location-owned too — see the same check in POST
+      // /api/inventory-item-types.
+      const group = await InventoryGroup.findOne({ _id: groupId, companyId, locationId }).select("_id").lean();
+      if (!group) return NextResponse.json({ error: "Invalid groupId" }, { status: 400 });
+    }
+    updates.groupId = groupId;
+  }
+
   const itemType = await InventoryItemType.findOneAndUpdate(
-    { _id: params.id, companyId },
+    { _id: params.id, companyId, locationId },
     { $set: updates },
     { returnDocument: "after" }
   );
@@ -102,10 +118,12 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   const { companyId, role } = sessionUser;
   if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
   if (!isManagerOrAbove(role)) return NextResponse.json({ error: "Managers only" }, { status: 403 });
+  const requestedLocationId = await validateLocationId(companyId, req.nextUrl.searchParams.get("locationId"));
+  const locationId = pickActiveLocationId(sessionUser, requestedLocationId);
 
   await connectDB();
 
-  const itemType = await InventoryItemType.findOne({ _id: params.id, companyId });
+  const itemType = await InventoryItemType.findOne({ _id: params.id, companyId, locationId });
   if (!itemType) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   itemType.isActive = false;

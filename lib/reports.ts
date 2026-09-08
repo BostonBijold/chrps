@@ -55,14 +55,14 @@ export async function getLocationTaskCounts(
 
 // "How many of this location's catalog items are at or below their
 // parLevel right now" — the same comparison GET /api/inventory-item-types
-// already makes per-row (see that route's own `belowPar` computation),
-// parameterized by locationId since a count is tracked independently per
-// location even though the catalog itself is company-wide (see
-// docs/features/locations.md's open questions). Only items with a set
-// parLevel and at least one logged count at this location can ever qualify.
+// already makes per-row (see that route's own `belowPar` computation).
+// InventoryItemType is location-owned (see docs/features/inventory.md's
+// "Location scoping"), so both the catalog query and the log join below are
+// scoped to the same locationId. Only items with a set parLevel and at
+// least one logged count can ever qualify.
 export async function getBelowParCountForLocation(companyId: string, locationId: string | null): Promise<number> {
   const itemTypes = await InventoryItemType.find(
-    { companyId, isActive: true, parLevel: { $ne: null } },
+    { companyId, locationId, isActive: true, parLevel: { $ne: null } },
     "_id parLevel"
   ).lean();
   if (itemTypes.length === 0) return 0;

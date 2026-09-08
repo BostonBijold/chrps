@@ -77,6 +77,7 @@ export async function GET(req: NextRequest) {
       const itemType = await InventoryItemType.findOne({
         _id: targetId,
         companyId,
+        locationId,
         nfcTagUid: normalizedUid,
         isActive: true,
       })
@@ -101,13 +102,13 @@ export async function GET(req: NextRequest) {
   }
 
   const [definitions, itemTypes] = await Promise.all([
-    // locationId-filtered — the actual fix for the cross-location NFC leak:
-    // a scan can never resolve to a TaskDefinition that only exists at a
-    // different location. InventoryItemType stays company-wide on purpose
-    // (a separate, still-deferred redesign — see docs/features/locations.md's
-    // "Known gaps").
+    // Both locationId-filtered — the actual fix for the cross-location NFC
+    // leak: a scan can never resolve to a TaskDefinition OR an
+    // InventoryItemType that only exists at a different location. See
+    // docs/features/locations.md's "Location scoping" — InventoryItemType
+    // became location-owned alongside TaskDefinition, closing this gap.
     TaskDefinition.find({ companyId, locationId, nfcTagUid: normalizedUid, isActive: true }).select("_id name").lean(),
-    InventoryItemType.find({ companyId, nfcTagUid: normalizedUid, isActive: true }).select("_id name").lean(),
+    InventoryItemType.find({ companyId, locationId, nfcTagUid: normalizedUid, isActive: true }).select("_id name").lean(),
   ]);
 
   const totalMatches = definitions.length + itemTypes.length;

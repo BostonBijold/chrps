@@ -20,28 +20,31 @@ that references Inventory at all.
 
 ## Data model
 
-- **`models/InventoryItemType.ts`** — `{ companyId, name, unit | null,
-  parLevel | null, nfcTagUid | null, createdByUserId, isActive, groupId |
-  null, nfcRequiredToLog: boolean }`. The manager-defined catalog entry
-  ("Toilet Paper," "Cases of Meat"). `unit` is a free-text display label
-  ("rolls," "cases," "lbs") shown next to a count — display only, never used
-  in a calculation. `isActive` is the soft-delete/archive flag, same
-  convention as `TaskDefinition.isActive` — the spec that introduced this
-  model floated a timestamp-based `archivedAt` field instead, but `isActive:
-  bool` was chosen to stay consistent with every other soft-delete in this
-  codebase (`TaskList.isActive`, `Task.isActive`, `TaskDefinition.isActive`),
-  not to introduce a second archival convention for one model. `groupId` and
-  `nfcRequiredToLog` were added in a later pass — see "Grouping" and "NFC
-  enforcement" below; every pre-existing row got `groupId: null` and
-  `nfcRequiredToLog: false` on migration, so nothing became stricter for
-  existing data on deploy.
-- **`models/InventoryGroup.ts`** — `{ companyId, name, createdByUserId,
-  isActive }`. A manager-defined organizational label ("Freezer," "Cold
-  Storage," "Dry Storage," "Bar") — see "Grouping" below. Purely
-  organizational: no NFC tag or par level of its own. Archiving a group
-  (`DELETE /api/inventory-groups/[id]`) does **not** archive its items —
-  every member `InventoryItemType.groupId` is set back to `null`
-  ("Ungrouped") as part of the same request (`lib/inventory.ts`'s
+- **`models/InventoryItemType.ts`** — `{ companyId, locationId | null, name,
+  unit | null, parLevel | null, nfcTagUid | null, createdByUserId, isActive,
+  groupId | null, nfcRequiredToLog: boolean }`. The manager-defined catalog
+  entry ("Toilet Paper," "Cases of Meat") — location-owned, see "Location
+  scoping" below (`locationId` is `null` only for a pre-migration row until
+  `scripts/backfill-inventory-locations.mjs` runs). `unit` is a free-text
+  display label ("rolls," "cases," "lbs") shown next to a count — display
+  only, never used in a calculation. `isActive` is the soft-delete/archive
+  flag, same convention as `TaskDefinition.isActive` — the spec that
+  introduced this model floated a timestamp-based `archivedAt` field
+  instead, but `isActive: bool` was chosen to stay consistent with every
+  other soft-delete in this codebase (`TaskList.isActive`, `Task.isActive`,
+  `TaskDefinition.isActive`), not to introduce a second archival convention
+  for one model. `groupId` and `nfcRequiredToLog` were added in a later
+  pass — see "Grouping" and "NFC enforcement" below; every pre-existing row
+  got `groupId: null` and `nfcRequiredToLog: false` on migration, so nothing
+  became stricter for existing data on deploy.
+- **`models/InventoryGroup.ts`** — `{ companyId, locationId | null, name,
+  createdByUserId, isActive }`. A manager-defined organizational label
+  ("Freezer," "Cold Storage," "Dry Storage," "Bar") — see "Grouping" below.
+  Location-owned, same as `InventoryItemType` — see "Location scoping"
+  below. Purely organizational: no NFC tag or par level of its own.
+  Archiving a group (`DELETE /api/inventory-groups/[id]`) does **not**
+  archive its items — every member `InventoryItemType.groupId` is set back
+  to `null` ("Ungrouped") as part of the same request (`lib/inventory.ts`'s
   `archiveInventoryGroup`); items and their `InventoryLog` history are
   untouched either way.
 - **`models/InventoryLog.ts`** — `{ companyId, itemTypeId, count,
@@ -88,20 +91,54 @@ it happens to have linked items.
 
 ## Location scoping
 
-`InventoryItemType`/`InventoryGroup` stay a shared, company-wide catalog
-(one set of item types for every location, same reasoning as the shared
-`Task`/`TaskDefinition` catalog), but `InventoryLog` — the actual logged
-counts — is per-location. `GET /api/inventory-item-types` and `GET`/`POST
-/api/inventory-logs` resolve `locationId` via `pickActiveLocationId`
-(`lib/session.ts`): always an employee/manager's own location, or an
-owner's location-switcher selection (defaulting to their own location if
-unset — see [`locations.md`](locations.md)'s "Location switcher"). Two
-locations logging the same catalog item independently never collide into
-one location's count. `InventoryView` renders
-`components/LocationSwitcher.tsx` under its `<Header>` so an owner can
-actually change which location's counts they're viewing; switching calls
-the view's existing `fetchAll()` to refetch, since its data comes from a
-client-side fetch that only runs once on mount.
+`InventoryItemType`/`InventoryGroup` are location-owned — each location
+gets its own independent catalog + NFC bindings, mirroring the
+`Task`/`TaskDefinition` location-scoping fix exactly (see CLAUDE.md's "Task
+Lists" section and [`task-lists.md`](task-lists.md)'s "Company Task
+Catalog"). This was tightened from an earlier company-wide-shared-catalog
+design specifically because an item type's NFC binding is a physical tag
+stuck at one store — a company-wide catalog meant `GET /api/tasks/by-
+nfc-uid` (the FAB's blind-scan resolver) could resolve a scan to a
+different location's item, the one part of the original `TaskDefinition`
+fix Inventory hadn't gotten yet (see [`locations.md`](locations.md)).
+
+`GET /api/inventory-item-types`, `GET /api/inventory-groups`, and `GET`/
+`POST /api/inventory-logs` all resolve `locationId` via
+`pickActiveLocationId` (`lib/session.ts`): always an employee/manager's own
+location, or an owner's location-switcher selection (defaulting to their
+own location if unset — see [`locations.md`](locations.md)'s "Location
+switcher"). Two locations never share a catalog entry, even one with the
+same name — each store's "Toilet Paper" is its own document with its own
+NFC binding and independent `InventoryLog` history. `InventoryView`
+renders `components/LocationSwitcher.tsx` under its `<Header>` so an owner
+can actually change which location's catalog/counts they're viewing;
+switching calls the view's existing `fetchAll()` to refetch, since its data
+comes from a client-side fetch that only runs once on mount.
+
+### Cross-location browsing (example data)
+
+A manager can also browse every OTHER location's (or the whole company's)
+item types — `GET /api/inventory-item-types?scope=company`, manager-or-
+above only — as read-only **example data**, surfaced in
+`AddInventoryItemTypeSheet.tsx`'s "From Other Locations" section. The
+response nulls out `nfcTagUid` server-side regardless of what's actually
+stored (not portable) and omits live count/log data
+(`currentCount`/`lastLoggedAt`/`lastLoggedByName`/`belowPar`). Picking one
+doesn't reference it — `POST /api/inventory-item-types` with
+`cloneFromItemTypeId` instead of `name`/`unit`/`parLevel` clones a
+brand-new `InventoryItemType` at the acting manager's own location, copying
+only the physically-portable fields (`name`/`unit`/`parLevel`) and forcing
+`groupId: null`/`nfcTagUid: null` — the new store hasn't set up its own
+groups or put up its own tag yet. `InventoryGroup` gets no equivalent
+browse/clone — a group is an organizational label for one location's own
+physical space, with no cross-location meaning (matches how `TaskList`
+itself has no "From Other Locations" browse, only `TaskDefinition` does).
+
+Migration: `scripts/backfill-inventory-locations.mjs`, a direct copy of
+`scripts/backfill-task-catalog-locations.mjs`'s pattern — every company's
+pre-existing item types/groups are assigned to that company's primary
+location only; any other location starts with an empty catalog (with
+cross-location cloning available as a shortcut).
 
 ## NFC binding — uses Part 1's multi-target model directly
 
@@ -345,6 +382,13 @@ placement-to-definition split as `app/api/tasks/[id]/nfc-tag`), and — as of
 [`unified-task-edit-surface.md`](unified-task-edit-surface.md) — a
 definitionId-keyed `app/api/task-definitions/[id]/inventory-links` pair for
 editing from the Task Catalog, which has no placement in context.
+`addOrUpdateInventoryLink` requires the item type to belong to the SAME
+location as the task definition (both are location-owned as of "Location
+scoping" above) — a link can never be created across locations, and
+`getInventoryLinksForTaskDefinition`'s own locationId filter means a stale
+cross-location link (from before this constraint existed) is silently
+dropped rather than shown, same "don't show what's gone" convention as an
+archived item's link.
 
 **Manager side**: a shared "Linked Inventory" panel,
 `components/task-panels/LinkedInventoryPanel.tsx` (backed by
@@ -439,8 +483,8 @@ independent bindings that may or may not point at the *same* physical tag:
 
 | Route | Method | Gate | Purpose |
 |---|---|---|---|
-| `/api/inventory-item-types` | GET | any company user | list, joined with each item's latest log — each row now also carries `groupId`, `nfcRequiredToLog`, `belowPar` |
-| `/api/inventory-item-types` | POST | manager | create (accepts `groupId`) |
+| `/api/inventory-item-types?scope=own\|company` | GET | any company user (`scope=company`: manager-or-above) | `scope=own` (default): this location's catalog, joined with each item's latest log — each row also carries `groupId`, `nfcRequiredToLog`, `belowPar`. `scope=company`: every location's item types as read-only example data — `nfcTagUid` nulled, `locationName` joined in, no live count/log fields — see "Cross-location browsing" above |
+| `/api/inventory-item-types` | POST | manager | create at the caller's own location (accepts `groupId`), or clone from another location's catalog (`cloneFromItemTypeId` — see "Cross-location browsing" above) |
 | `/api/inventory-item-types/[id]` | GET | any company user | single item (detail page's server fetch) |
 | `/api/inventory-item-types/[id]` | PATCH | manager | edit name/unit/parLevel/groupId/nfcRequiredToLog |
 | `/api/inventory-item-types/[id]` | DELETE | manager | archive (soft delete) |
