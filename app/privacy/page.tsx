@@ -12,7 +12,7 @@ export const metadata: Metadata = {
 // during an unrelated code change.
 export default function PrivacyPolicyPage() {
   return (
-    <main className="min-h-dvh bg-bg">
+    <main className="h-full overflow-y-auto overscroll-none bg-bg">
       <div className="mx-auto max-w-2xl px-6 py-12">
         <Link href="/" className="font-brand font-extrabold text-2xl text-olive">
           Ch&apos;rps
