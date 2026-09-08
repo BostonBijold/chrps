@@ -29,6 +29,10 @@ import { useNetworkStatus } from "@/components/NetworkStatusProvider";
 import { queueTaskLogMutation, pullSync, flushQueue } from "@/lib/offline-sync";
 
 const LOG_POLL_MS = 2000;
+// Ceiling for the adaptive backoff below — an idle foregrounded tab settles
+// here after enough consecutive no-change poll-check ticks, rather than
+// polling every LOG_POLL_MS forever. See the combined poll-check effect.
+const MAX_POLL_MS = 30000;
 
 export interface TaskLogEntry {
   _id: string;
@@ -358,35 +362,9 @@ export default function TasksView({
     return () => { cancelled = true; };
   }, [selectedDate, today, initialLogs]);
 
-  // Poll for logs changed by something outside this tab (App Intent / Siri /
-  // Shortcuts trigger) while today's list is open and visible, so an external
-  // trigger shows up without the user needing to background/foreground the
-  // app. Only runs while viewing today — nothing external changes a past day.
-  useEffect(() => {
-    if (selectedDate !== today) return;
-    const onChanged = () => refetchLogs();
-    const onVisible = () => {
-      if (document.visibilityState === "visible") refetchLogs();
-    };
-    window.addEventListener(TASK_LOG_CHANGED_EVENT, onChanged);
-    document.addEventListener("visibilitychange", onVisible);
-    window.addEventListener("focus", onVisible);
-    const poll = setInterval(() => {
-      if (document.visibilityState === "visible") refetchLogs();
-    }, LOG_POLL_MS);
-    return () => {
-      window.removeEventListener(TASK_LOG_CHANGED_EVENT, onChanged);
-      document.removeEventListener("visibilitychange", onVisible);
-      window.removeEventListener("focus", onVisible);
-      clearInterval(poll);
-    };
-  }, [selectedDate, today, refetchLogs]);
-
   // Which shift-window task lists currently have an open session — fetched
-  // on date change, refreshed on the same signals as logs (any TaskLog
-  // mutation can open/claim/close a session) plus a background poll, so the
-  // "Start Tasks" button's locked state and unlock icon stay live. See
-  // GET /api/task-lists/session-locks and TaskListCard.tsx.
+  // on date change; kept live thereafter by the combined poll-check effect
+  // below. See GET /api/task-lists/session-locks and TaskListCard.tsx.
   const refetchSessionLocks = useCallback(async () => {
     try {
       const res = await fetch(`/api/task-lists/session-locks?date=${selectedDate}`);
@@ -402,24 +380,88 @@ export default function TasksView({
     refetchSessionLocks();
   }, [refetchSessionLocks]);
 
+  // Keeps both today's TaskLogs (external App Intent / Siri / Shortcuts
+  // triggers) and the shift-list session locks above live while the Tasks
+  // page sits open and visible — without paying for two full fetches every
+  // LOG_POLL_MS the way the old dual setInterval polls did. Each tick hits
+  // GET /api/task-logs/poll-check instead: a cheap {count, maxUpdatedAt}
+  // fingerprint per resource (no document bodies), and only calls the real
+  // refetch when a fingerprint actually differs from what was last seen.
+  // On top of that, the interval itself backs off geometrically
+  // (LOG_POLL_MS -> ... -> MAX_POLL_MS) after consecutive unchanged ticks —
+  // a foregrounded idle tab (a kiosk iPad, a tester who left the app open)
+  // is the common case, not someone actively working through a list, so
+  // most of the time there's nothing to see. Any of the "something
+  // happened" signals (same-tab event, tab refocused) resets the backoff
+  // back to LOG_POLL_MS immediately, so active use still feels like a flat
+  // 2s poll. Only runs while viewing today — nothing external changes a
+  // past day, and there's no session lock to poll for one either.
   useEffect(() => {
-    const onChanged = () => refetchSessionLocks();
-    const onVisible = () => {
-      if (document.visibilityState === "visible") refetchSessionLocks();
+    if (selectedDate !== today) return;
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout>;
+    let consecutiveUnchanged = 0;
+    // undefined = "haven't checked yet" — the first tick just seeds these
+    // rather than treating "no prior version" as a change, since the
+    // mount-time effects above already fetched fresh data.
+    let lastLogsVersion: string | undefined;
+    let lastSessionLocksVersion: string | undefined;
+
+    const tick = async () => {
+      if (document.visibilityState === "visible") {
+        try {
+          const res = await fetch(`/api/task-logs/poll-check?date=${selectedDate}`);
+          if (res.ok) {
+            const { logsVersion, sessionLocksVersion }: { logsVersion: string; sessionLocksVersion: string } = await res.json();
+            let changed = false;
+            if (lastLogsVersion !== undefined && lastLogsVersion !== logsVersion) {
+              changed = true;
+              refetchLogs();
+            }
+            if (lastSessionLocksVersion !== undefined && lastSessionLocksVersion !== sessionLocksVersion) {
+              changed = true;
+              refetchSessionLocks();
+            }
+            lastLogsVersion = logsVersion;
+            lastSessionLocksVersion = sessionLocksVersion;
+            consecutiveUnchanged = changed ? 0 : consecutiveUnchanged + 1;
+          }
+        } catch {
+          // next tick retries
+        }
+      }
+      if (cancelled) return;
+      const delay = Math.min(LOG_POLL_MS * 2 ** consecutiveUnchanged, MAX_POLL_MS);
+      timeoutId = setTimeout(tick, delay);
     };
+
+    const resetBackoff = () => {
+      consecutiveUnchanged = 0;
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(tick, LOG_POLL_MS);
+    };
+    const onChanged = () => {
+      refetchLogs();
+      refetchSessionLocks();
+      resetBackoff();
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") resetBackoff();
+    };
+
     window.addEventListener(TASK_LOG_CHANGED_EVENT, onChanged);
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", onVisible);
-    const poll = setInterval(() => {
-      if (document.visibilityState === "visible") refetchSessionLocks();
-    }, LOG_POLL_MS);
+    timeoutId = setTimeout(tick, LOG_POLL_MS);
+
     return () => {
+      cancelled = true;
       window.removeEventListener(TASK_LOG_CHANGED_EVENT, onChanged);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onVisible);
-      clearInterval(poll);
+      clearTimeout(timeoutId);
     };
-  }, [refetchSessionLocks]);
+  }, [selectedDate, today, refetchLogs, refetchSessionLocks]);
 
   // Manager-only — clears the open session's lock so someone else can pick
   // the task list back up. See POST /api/task-lists/[id]/unlock-session.

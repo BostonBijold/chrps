@@ -255,17 +255,46 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
     document.addEventListener("visibilitychange", revalidate);
     window.addEventListener("focus", revalidate);
     window.addEventListener("pageshow", revalidate);
+
     // Also poll on a short interval so an external trigger (App Intent /
     // Siri / Shortcuts) is caught even if this tab stays foregrounded the
-    // whole time — revalidate() already no-ops unless visible and running.
-    const poll = setInterval(revalidate, 2000);
+    // whole time. Only actually runs while a task is genuinely running —
+    // revalidate() already no-oped otherwise, but that left an idle
+    // full-fetch interval ticking even in the "form"/"summary" phases.
+    // Each tick hits the same cheap GET /api/task-logs/poll-check
+    // fingerprint TasksView.tsx's own combined poll uses, and only calls
+    // the real fetchDayLogs when today's logsVersion actually differs —
+    // most ticks during a normal walkthrough are the user's own action
+    // (which already re-fetches directly, see advance() below), not an
+    // external trigger, so this is almost always a no-op check.
+    if (phase !== "running") return () => {
+      document.removeEventListener("visibilitychange", revalidate);
+      window.removeEventListener("focus", revalidate);
+      window.removeEventListener("pageshow", revalidate);
+    };
+
+    let lastLogsVersion: string | undefined;
+    const poll = setInterval(async () => {
+      if (document.visibilityState !== "visible") return;
+      try {
+        const res = await fetch(`/api/task-logs/poll-check?date=${today}`);
+        if (!res.ok) return;
+        const { logsVersion }: { logsVersion: string } = await res.json();
+        if (lastLogsVersion !== undefined && lastLogsVersion !== logsVersion) {
+          revalidate();
+        }
+        lastLogsVersion = logsVersion;
+      } catch {
+        // next tick retries
+      }
+    }, 2000);
     return () => {
       document.removeEventListener("visibilitychange", revalidate);
       window.removeEventListener("focus", revalidate);
       window.removeEventListener("pageshow", revalidate);
       clearInterval(poll);
     };
-  }, [phase, currentTask, currentIndex, tasks, fetchDayLogs]);
+  }, [phase, currentTask, currentIndex, tasks, fetchDayLogs, today]);
 
   // Move to a new task — advancing sequentially, or jumping. Only one timer
   // is ever actively running: switching to a new current task pauses
