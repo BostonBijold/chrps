@@ -74,6 +74,15 @@ interface Props {
   skipAuth: boolean;
   taskLists: ManageTaskList[];
   standaloneTasks: StandaloneTask[];
+  // Location-switcher merge (see docs/features/header-location-switcher.md)
+  // — Manage Tasks' data is now location-scoped (see the "manage tasks
+  // location filter" fix), so its header needs to show WHICH location is
+  // being managed, same as Tasks/Team/Reports/Inventory, instead of the
+  // plain "Ch'rps" wordmark every other non-bottom-nav Header call site
+  // still uses.
+  userRole: "manager" | "employee" | "owner";
+  activeLocationId: string | null;
+  locationId: string | null;
 }
 
 function fmtTime(t: string) {
@@ -251,7 +260,7 @@ function CatalogRow({
   );
 }
 
-export default function ManageTasksView({ userName, today, skipAuth, taskLists, standaloneTasks }: Props) {
+export default function ManageTasksView({ userName, today, skipAuth, taskLists, standaloneTasks, userRole, activeLocationId, locationId }: Props) {
   const router = useRouter();
   const [definitions, setDefinitions] = useState<Definition[] | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -440,7 +449,12 @@ export default function ManageTasksView({ userName, today, skipAuth, taskLists, 
   return (
     <div className="min-h-dvh bg-bg">
       <div className="mx-auto max-w-mobile px-4 pb-28">
-        <Header userName={userName} today={today} skipAuth={skipAuth} />
+        <Header
+          userName={userName}
+          today={today}
+          skipAuth={skipAuth}
+          location={{ isOwner: userRole === "owner", activeLocationId, locationId }}
+        />
 
         <div className="mt-4 mb-5 flex items-center gap-2">
           {/* Manage Tasks has two entry points (the Tasks page header icon

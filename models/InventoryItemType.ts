@@ -44,6 +44,13 @@ export interface IInventoryItemType extends Document {
   // assertInventoryNfcVerified. Unlike nfcTagUid this isn't a binding
   // lifecycle, just a boolean — no separate bind/unbind endpoint.
   nfcRequiredToLog: boolean;
+  // How the log-a-count screen captures a new number for this item —
+  // 'text' (default, a plain number field, same as every pre-existing row's
+  // actual behavior) or 'stepper' (a +/- button UI, no typing) — a manager's
+  // per-item preference, set from the item's own editor
+  // (components/ManageInventoryDetailSheet.tsx). Purely a data-entry
+  // convenience; neither mode changes what gets written to InventoryLog.
+  entryMode: "text" | "stepper";
 }
 
 const InventoryItemTypeSchema = new Schema<IInventoryItemType>(
@@ -60,6 +67,7 @@ const InventoryItemTypeSchema = new Schema<IInventoryItemType>(
     isActive: { type: Boolean, default: true },
     groupId: { type: Schema.Types.ObjectId, ref: "InventoryGroup", default: null },
     nfcRequiredToLog: { type: Boolean, default: false },
+    entryMode: { type: String, enum: ["text", "stepper"], default: "text" },
   },
   { timestamps: true }
 );

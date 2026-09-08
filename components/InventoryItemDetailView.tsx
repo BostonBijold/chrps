@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Capacitor } from "@capacitor/core";
-import { ChevronLeft, Nfc, Pencil, TriangleAlert } from "lucide-react";
+import { ChevronLeft, Minus, Nfc, Pencil, Plus, TriangleAlert } from "lucide-react";
 import Header from "@/components/Header";
 import ManageInventoryDetailSheet from "@/components/ManageInventoryDetailSheet";
 import { scanNfcTag } from "@/lib/native/nfc-scan";
@@ -18,6 +18,7 @@ interface ItemType {
   parLevel: number | null;
   nfcTagUid: string | null;
   nfcRequiredToLog: boolean;
+  entryMode: "text" | "stepper";
   groupId: string | null;
 }
 
@@ -95,6 +96,26 @@ export default function InventoryItemDetailView({
   const [saving, setSaving] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  // The +/- stepper starts from the last logged count (0 if never logged)
+  // rather than an empty field — there's nothing to type, so it needs a
+  // sensible starting point the first time logs actually load. Only runs
+  // once per item, same one-shot-init pattern as ManageInventoryView.tsx's
+  // expandedDefaultSet — a later re-log shouldn't snap the field back.
+  const stepperInitialized = useRef(false);
+  useEffect(() => {
+    if (item.entryMode !== "stepper" || stepperInitialized.current || logs === null) return;
+    stepperInitialized.current = true;
+    setCountInput(String(currentCount ?? 0));
+  }, [item.entryMode, logs, currentCount]);
+
+  const adjustStepper = (delta: number) => {
+    if (saveError) setSaveError(null);
+    setCountInput((prev) => {
+      const base = prev.trim() === "" || !Number.isFinite(Number(prev)) ? 0 : Number(prev);
+      return String(Math.max(0, base + delta));
+    });
+  };
 
   const alreadyVerified = !!preVerifiedNfcUid && !!item.nfcTagUid && preVerifiedNfcUid === item.nfcTagUid;
 
@@ -243,14 +264,39 @@ export default function InventoryItemDetailView({
           <label className="font-mono text-[10px] text-dim uppercase tracking-widest block">
             Log new count
           </label>
-          <input
-            type="number"
-            inputMode="decimal"
-            value={countInput}
-            onChange={(e) => { setCountInput(e.target.value); if (saveError) setSaveError(null); }}
-            placeholder={item.unit ? `Count, in ${item.unit}` : "Current count"}
-            className="w-full bg-bg border border-border rounded-card px-3 py-3 font-mono text-lg text-text placeholder:text-dim outline-none focus:border-border-light"
-          />
+          {item.entryMode === "stepper" ? (
+            <div className="flex items-center justify-between gap-3 bg-bg border border-border rounded-card px-3 py-2">
+              <button
+                type="button"
+                onClick={() => adjustStepper(-1)}
+                aria-label="Decrease count"
+                className="w-11 h-11 flex-shrink-0 flex items-center justify-center rounded-card bg-card border border-border text-text active:bg-card-hover transition-colors"
+              >
+                <Minus size={18} strokeWidth={2} />
+              </button>
+              <span className="font-mono text-2xl text-text tabular-nums">
+                {countInput.trim() === "" ? "0" : countInput}
+                {item.unit && <span className="text-sm text-dim ml-1.5">{item.unit}</span>}
+              </span>
+              <button
+                type="button"
+                onClick={() => adjustStepper(1)}
+                aria-label="Increase count"
+                className="w-11 h-11 flex-shrink-0 flex items-center justify-center rounded-card bg-card border border-border text-text active:bg-card-hover transition-colors"
+              >
+                <Plus size={18} strokeWidth={2} />
+              </button>
+            </div>
+          ) : (
+            <input
+              type="number"
+              inputMode="decimal"
+              value={countInput}
+              onChange={(e) => { setCountInput(e.target.value); if (saveError) setSaveError(null); }}
+              placeholder={item.unit ? `Count, in ${item.unit}` : "Current count"}
+              className="w-full bg-bg border border-border rounded-card px-3 py-3 font-mono text-lg text-text placeholder:text-dim outline-none focus:border-border-light"
+            />
+          )}
 
           {alreadyVerified && (
             <p className="font-mono text-[11px] text-olive">Tag verified — Save to log this count</p>

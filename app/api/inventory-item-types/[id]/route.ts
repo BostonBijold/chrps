@@ -34,16 +34,18 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     parLevel: itemType.parLevel ?? null,
     nfcTagUid: itemType.nfcTagUid ?? null,
     nfcRequiredToLog: itemType.nfcRequiredToLog ?? false,
+    entryMode: itemType.entryMode ?? "text",
     groupId: itemType.groupId ? itemType.groupId.toString() : null,
   });
 }
 
 // PATCH /api/inventory-item-types/[id] — edit name/unit/parLevel/groupId/
-// nfcRequiredToLog. Manager-only. NFC binding (the tag itself) has its own
-// route (./nfc-tag), same split as TaskDefinition — groupId and
-// nfcRequiredToLog are plain fields here, not a binding lifecycle, see
-// docs/features/inventory.md's "Grouping" and "NFC enforcement".
-const EDITABLE_FIELDS = ["name", "unit", "parLevel", "groupId", "nfcRequiredToLog"] as const;
+// nfcRequiredToLog/entryMode. Manager-only. NFC binding (the tag itself) has
+// its own route (./nfc-tag), same split as TaskDefinition — groupId,
+// nfcRequiredToLog, and entryMode are plain fields here, not a binding
+// lifecycle, see docs/features/inventory.md's "Grouping" and "NFC
+// enforcement".
+const EDITABLE_FIELDS = ["name", "unit", "parLevel", "groupId", "nfcRequiredToLog", "entryMode"] as const;
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const sessionUser = await resolveSessionUser();
@@ -71,6 +73,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   }
   if ("nfcRequiredToLog" in updates) {
     updates.nfcRequiredToLog = updates.nfcRequiredToLog === true;
+  }
+  if ("entryMode" in updates) {
+    updates.entryMode = updates.entryMode === "stepper" ? "stepper" : "text";
   }
 
   await connectDB();
@@ -103,6 +108,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     parLevel: itemType.parLevel,
     nfcTagUid: itemType.nfcTagUid,
     nfcRequiredToLog: itemType.nfcRequiredToLog,
+    entryMode: itemType.entryMode,
     groupId: itemType.groupId ? itemType.groupId.toString() : null,
   });
 }

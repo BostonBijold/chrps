@@ -23,9 +23,9 @@ export default async function ManageTasksPage() {
 
   const sessionUser = await resolveSessionUser();
   if (!sessionUser) redirect("/login");
-  const { companyId } = sessionUser;
+  const { companyId, role } = sessionUser;
   if (!companyId) redirect("/tasks");
-  if (!isManagerOrAbove(sessionUser.role)) redirect("/tasks");
+  if (!isManagerOrAbove(role)) redirect("/tasks");
 
   // Same as app/(app)/tasks/page.tsx — an owner's switcher selection (or
   // their own default if unset), a manager/employee's own fixed location.
@@ -63,6 +63,9 @@ export default async function ManageTasksPage() {
       userName={userName}
       today={today}
       skipAuth={skipAuth}
+      userRole={role}
+      activeLocationId={locationId}
+      locationId={sessionUser.locationId}
       taskLists={scheduledTaskLists.map((tl) => ({
         _id: tl._id.toString(),
         name: tl.name,

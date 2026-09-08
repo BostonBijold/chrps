@@ -12,6 +12,7 @@ interface ItemType {
   parLevel: number | null;
   nfcTagUid: string | null;
   nfcRequiredToLog: boolean;
+  entryMode: "text" | "stepper";
   groupId: string | null;
   currentCount: number | null;
 }
@@ -28,6 +29,7 @@ export interface UpdatedItemType {
   parLevel: number | null;
   nfcTagUid: string | null;
   nfcRequiredToLog: boolean;
+  entryMode: "text" | "stepper";
   groupId: string | null;
 }
 
@@ -58,6 +60,7 @@ export default function ManageInventoryDetailSheet({ itemType, groups, onSaved, 
   const [parLevel, setParLevel] = useState(itemType.parLevel !== null ? String(itemType.parLevel) : "");
   const [groupId, setGroupId] = useState<string | null>(itemType.groupId);
   const [nfcRequiredToLog, setNfcRequiredToLog] = useState(itemType.nfcRequiredToLog);
+  const [entryMode, setEntryMode] = useState<"text" | "stepper">(itemType.entryMode);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -74,7 +77,8 @@ export default function ManageInventoryDetailSheet({ itemType, groups, onSaved, 
     (unit.trim() || null) !== itemType.unit ||
     (parLevel.trim() ? Number(parLevel) : null) !== itemType.parLevel ||
     groupId !== itemType.groupId ||
-    nfcRequiredToLog !== itemType.nfcRequiredToLog;
+    nfcRequiredToLog !== itemType.nfcRequiredToLog ||
+    entryMode !== itemType.entryMode;
 
   const handleSave = async () => {
     if (!name.trim()) return;
@@ -90,6 +94,7 @@ export default function ManageInventoryDetailSheet({ itemType, groups, onSaved, 
           parLevel: parLevel.trim() ? Number(parLevel) : null,
           groupId,
           nfcRequiredToLog,
+          entryMode,
         }),
       });
       if (!res.ok) throw new Error("Failed to save");
@@ -125,7 +130,7 @@ export default function ManageInventoryDetailSheet({ itemType, groups, onSaved, 
       const body = await res.json();
       setNfcTagUid(result.uid);
       setAlsoBoundTo(body.alsoBoundTo ?? []);
-      onTagChanged({ ...itemType, name, unit: unit.trim() || null, parLevel: parLevel.trim() ? Number(parLevel) : null, groupId, nfcRequiredToLog, nfcTagUid: result.uid });
+      onTagChanged({ ...itemType, name, unit: unit.trim() || null, parLevel: parLevel.trim() ? Number(parLevel) : null, groupId, nfcRequiredToLog, entryMode, nfcTagUid: result.uid });
     } catch (err) {
       setBindError(err instanceof Error ? err.message : "Failed to bind tag");
     } finally {
@@ -141,7 +146,7 @@ export default function ManageInventoryDetailSheet({ itemType, groups, onSaved, 
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Failed to unbind tag");
       setNfcTagUid(null);
       setAlsoBoundTo([]);
-      onTagChanged({ ...itemType, name, unit: unit.trim() || null, parLevel: parLevel.trim() ? Number(parLevel) : null, groupId, nfcRequiredToLog, nfcTagUid: null });
+      onTagChanged({ ...itemType, name, unit: unit.trim() || null, parLevel: parLevel.trim() ? Number(parLevel) : null, groupId, nfcRequiredToLog, entryMode, nfcTagUid: null });
     } catch (err) {
       setBindError(err instanceof Error ? err.message : "Failed to unbind tag");
     } finally {
@@ -233,6 +238,33 @@ export default function ManageInventoryDetailSheet({ itemType, groups, onSaved, 
                   <option key={g._id} value={g._id}>{g.name}</option>
                 ))}
               </select>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="font-mono text-[10px] text-dim uppercase tracking-widest">Log Entry UI</label>
+              <div className="flex bg-bg border border-border rounded-card p-1 gap-1">
+                <button
+                  type="button"
+                  onClick={() => setEntryMode("text")}
+                  className={`flex-1 py-2 rounded-[8px] font-body text-sm transition-colors min-h-[36px] ${
+                    entryMode === "text" ? "bg-olive text-text" : "text-dim"
+                  }`}
+                >
+                  Text / Number
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEntryMode("stepper")}
+                  className={`flex-1 py-2 rounded-[8px] font-body text-sm transition-colors min-h-[36px] ${
+                    entryMode === "stepper" ? "bg-olive text-text" : "text-dim"
+                  }`}
+                >
+                  +/- Buttons
+                </button>
+              </div>
+              <p className="font-mono text-[10px] text-dim">
+                How employees enter a new count on this item&apos;s log screen.
+              </p>
             </div>
 
             {saveError && <p className="font-mono text-xs text-burgundy-light">{saveError}</p>}

@@ -21,6 +21,7 @@ interface ItemType {
   parLevel: number | null;
   nfcTagUid: string | null;
   nfcRequiredToLog: boolean;
+  entryMode: "text" | "stepper";
   groupId: string | null;
   currentCount: number | null;
   belowPar: boolean;
