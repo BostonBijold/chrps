@@ -4,7 +4,7 @@ import { connectDB } from "@/lib/mongoose";
 import TaskList from "@/models/TaskList";
 import Task from "@/models/Task";
 import { resolveTasks } from "@/lib/task-definitions";
-import { resolveSessionUser, isManagerOrAbove } from "@/lib/session";
+import { resolveSessionUser, isManagerOrAbove, pickActiveLocationId } from "@/lib/session";
 import ManageTasksView from "@/components/ManageTasksView";
 
 export const dynamic = "force-dynamic";
@@ -27,13 +27,19 @@ export default async function ManageTasksPage() {
   if (!companyId) redirect("/tasks");
   if (!isManagerOrAbove(sessionUser.role)) redirect("/tasks");
 
+  // Same as app/(app)/tasks/page.tsx — an owner's switcher selection (or
+  // their own default if unset), a manager/employee's own fixed location.
+  // Without this, a manager managing lists would see (and be able to edit/
+  // delete) every location's task lists, not just the one they're on.
+  const locationId = pickActiveLocationId(sessionUser, null);
+
   await connectDB();
 
   // Sorted by startTime, not insertion order — see the matching note in
   // app/(app)/tasks/page.tsx. `order` is only a same-time tie-breaker, which
   // is what makes a freshly duplicated list (same startTime as its source,
   // strictly later `order`) land right next to the list it was copied from.
-  const taskLists = await TaskList.find({ companyId, isActive: true }).sort({ startTime: 1, order: 1 }).lean();
+  const taskLists = await TaskList.find({ companyId, locationId, isActive: true }).sort({ startTime: 1, order: 1 }).lean();
   const scheduledTaskLists = taskLists.filter((tl) => tl.timeOfDay !== "anytime");
   const anytimeTaskLists = taskLists.filter((tl) => tl.timeOfDay === "anytime");
   const anytimeTaskListIds = anytimeTaskLists.map((tl) => tl._id);
@@ -42,6 +48,7 @@ export default async function ManageTasksPage() {
   const rawStandaloneTasks = await Task.find({
     taskListId: { $in: anytimeTaskListIds },
     companyId,
+    locationId,
     isActive: true,
   })
     .sort({ order: 1 })

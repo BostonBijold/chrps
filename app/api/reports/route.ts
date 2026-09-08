@@ -30,22 +30,27 @@ export async function GET(req: NextRequest) {
 
   await connectDB();
 
+  // Same location-scoping convention as GET /api/task-logs — an owner may
+  // pass ?locationId=<id> to view a specific store's reports; an
+  // employee/manager always sees only their own. Resolved before the
+  // TaskList/Task catalog queries below, since both are location-owned too
+  // (see "Locations" in CLAUDE.md) — without this, analytics rows for every
+  // other location's lists/tasks would show up alongside logs scoped to
+  // just the active one. See docs/features/locations.md.
+  const requestedLocationId = await validateLocationId(companyId, searchParams.get("locationId"));
+  const locationId = pickActiveLocationId(sessionUser, requestedLocationId);
+
   // Same startTime-first ordering as the Tasks/Manage pages (see
   // app/(app)/tasks/page.tsx) — analytics rows follow the same list order
   // the manager actually sees on the Tasks page, not raw insertion order.
-  const taskLists = await TaskList.find({ companyId }).sort({ startTime: 1, order: 1 }).lean();
-  const rawTasks = await Task.find({ companyId, isActive: true }).lean();
+  const taskLists = await TaskList.find({ companyId, locationId }).sort({ startTime: 1, order: 1 }).lean();
+  const rawTasks = await Task.find({ companyId, locationId, isActive: true }).lean();
   const allTasks = await resolveTasks(rawTasks);
   // Employees see only their own logs — every downstream aggregate
   // (taskListStats, taskStats, weeklyProgress) folds over `logs` without
   // ever touching performedByUserId itself, so this one filter personalizes
-  // the whole response. Managers keep the unfiltered, company-wide query.
-  // Same location-scoping convention as GET /api/task-logs — an owner may
-  // pass ?locationId=<id> to view a specific store's reports; an
-  // employee/manager always sees only their own. See
-  // docs/features/locations.md.
-  const requestedLocationId = await validateLocationId(companyId, searchParams.get("locationId"));
-  const locationId = pickActiveLocationId(sessionUser, requestedLocationId);
+  // the whole response. Managers keep the unfiltered, company-wide (within
+  // this location) query.
   const logQuery: Record<string, unknown> = { companyId, locationId, date: { $in: dates } };
   if (role === "employee") logQuery.performedByUserId = userId;
   const logs = await TaskLog.find(logQuery).lean();

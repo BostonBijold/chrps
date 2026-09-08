@@ -53,7 +53,7 @@ export async function GET(req: NextRequest) {
     ? await User.find({ companyId, ...(locationId ? { locationId } : {}) }, "name").lean()
     : [];
 
-  const rawTasks = await Task.find({ companyId, isActive: true }).lean();
+  const rawTasks = await Task.find({ companyId, locationId, isActive: true }).lean();
   const allTasks = await resolveTasks(rawTasks);
   const taskById = new Map(allTasks.map((t) => [t._id.toString(), t]));
 
