@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import PrivacyPolicyBackButton from "@/components/PrivacyPolicyBackButton";
 
 export const metadata: Metadata = {
   title: "Privacy Policy — Ch'rps",
@@ -14,7 +15,9 @@ export default function PrivacyPolicyPage() {
   return (
     <main className="h-full overflow-y-auto overscroll-none bg-bg">
       <div className="mx-auto max-w-2xl px-6 py-12">
-        <Link href="/" className="font-brand font-extrabold text-2xl text-olive">
+        <PrivacyPolicyBackButton />
+
+        <Link href="/" className="block mt-4 font-brand font-extrabold text-2xl text-olive">
           Ch&apos;rps
         </Link>
 
