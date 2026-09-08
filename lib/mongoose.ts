@@ -14,7 +14,14 @@ g.__mongoose = cached;
 export async function connectDB() {
   if (cached.conn) return cached.conn;
   if (!cached.promise) {
-    cached.promise = mongoose.connect(MONGODB_URI, { bufferCommands: false });
+    cached.promise = mongoose.connect(MONGODB_URI, { bufferCommands: false }).catch((err) => {
+      // A rejected connect must not stay cached on `global` — otherwise every
+      // later request on this same warm container re-throws this same stale
+      // error forever, with no new attempt ever made, until a cold start
+      // rebuilds `global` from scratch.
+      cached.promise = null;
+      throw err;
+    });
   }
   cached.conn = await cached.promise;
   return cached.conn;
