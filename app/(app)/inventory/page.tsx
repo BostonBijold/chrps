@@ -33,6 +33,7 @@ export default async function InventoryPage() {
       isManager={isManagerOrAbove(sessionUser.role)}
       isOwner={isOwner(sessionUser.role)}
       activeLocationId={pickActiveLocationId(sessionUser, null)}
+      locationId={sessionUser.locationId}
     />
   );
 }

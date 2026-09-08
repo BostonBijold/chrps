@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import Header from "@/components/Header";
-import LocationSwitcher from "@/components/LocationSwitcher";
 import ReportsContent from "@/components/ReportsContent";
 
 interface Props {
@@ -12,10 +11,13 @@ interface Props {
   // Already resolved server-side via pickActiveLocationId — see
   // docs/features/locations.md's "Location switcher".
   activeLocationId: string | null;
+  // This signed-in user's own primary location (User.locationId) — see
+  // Header.tsx's LocationContext.locationId.
+  locationId: string | null;
   skipAuth?: boolean;
 }
 
-export default function ReportsView({ userName, today, role, activeLocationId, skipAuth }: Props) {
+export default function ReportsView({ userName, today, role, activeLocationId, locationId, skipAuth }: Props) {
   // ReportsContent's own sub-tabs (ManagerOverview/EmployeeOverview/
   // LogsTab/InventoryTab) each fetch their own data once on mount — a
   // plain router.refresh() re-runs this page's server component but
@@ -28,11 +30,16 @@ export default function ReportsView({ userName, today, role, activeLocationId, s
   return (
     <div className="min-h-dvh bg-bg">
       <div className="mx-auto max-w-mobile px-4 pb-12">
-        <Header userName={userName} today={today} skipAuth={skipAuth} />
-        <LocationSwitcher
-          isOwner={role === "owner"}
-          activeLocationId={activeLocationId}
-          onChanged={() => setRefreshTick((t) => t + 1)}
+        <Header
+          userName={userName}
+          today={today}
+          skipAuth={skipAuth}
+          location={{
+            isOwner: role === "owner",
+            activeLocationId,
+            locationId,
+            onLocationChanged: () => setRefreshTick((t) => t + 1),
+          }}
         />
         <ReportsContent key={`${activeLocationId}-${refreshTick}`} role={role} />
       </div>

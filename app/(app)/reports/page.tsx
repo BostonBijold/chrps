@@ -19,6 +19,7 @@ export default async function ReportsPage() {
       today={today}
       role={sessionUser?.role ?? "manager"}
       activeLocationId={sessionUser ? pickActiveLocationId(sessionUser, null) : null}
+      locationId={sessionUser?.locationId ?? null}
       skipAuth={skipAuth}
     />
   );

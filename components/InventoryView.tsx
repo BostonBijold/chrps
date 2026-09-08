@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ChevronDown, ChevronRight, Package, Search, Settings, TriangleAlert } from "lucide-react";
 import Header from "@/components/Header";
-import LocationSwitcher from "@/components/LocationSwitcher";
 import AddInventoryItemTypeSheet from "@/components/AddInventoryItemTypeSheet";
 import { formatRelativeTime } from "@/lib/format-relative-time";
 
@@ -37,6 +36,9 @@ interface Props {
   // Already resolved server-side via pickActiveLocationId — see
   // docs/features/locations.md's "Location switcher".
   activeLocationId: string | null;
+  // This signed-in user's own primary location (User.locationId) — see
+  // Header.tsx's LocationContext.locationId.
+  locationId: string | null;
 }
 
 function ItemRow({ it, onClick, subtitle }: { it: ItemType; onClick: () => void; subtitle?: string }) {
@@ -83,7 +85,7 @@ function ItemRow({ it, onClick, subtitle }: { it: ItemType; onClick: () => void;
 // cascade from item → group. A top-up count tracker, not a decrement
 // ledger — see docs/features/inventory.md. Tapping a row opens the item's
 // detail/log screen (app/(app)/inventory/[itemTypeId]/page.tsx).
-export default function InventoryView({ userName, today, skipAuth, isManager, isOwner, activeLocationId }: Props) {
+export default function InventoryView({ userName, today, skipAuth, isManager, isOwner, activeLocationId, locationId }: Props) {
   const router = useRouter();
   const [itemTypes, setItemTypes] = useState<ItemType[] | null>(null);
   const [groups, setGroups] = useState<Group[] | null>(null);
@@ -140,8 +142,12 @@ export default function InventoryView({ userName, today, skipAuth, isManager, is
   return (
     <div className="min-h-dvh bg-bg">
       <div className="mx-auto max-w-mobile px-4 pb-28">
-        <Header userName={userName} today={today} skipAuth={skipAuth} />
-        <LocationSwitcher isOwner={isOwner} activeLocationId={activeLocationId} onChanged={fetchAll} />
+        <Header
+          userName={userName}
+          today={today}
+          skipAuth={skipAuth}
+          location={{ isOwner, activeLocationId, locationId, onLocationChanged: fetchAll }}
+        />
 
         <div className="mt-4 mb-5">
           <h1 className="font-heading text-xl text-text">Inventory</h1>

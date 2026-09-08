@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Header from "@/components/Header";
-import LocationSwitcher from "@/components/LocationSwitcher";
 import InviteSheet from "@/components/InviteSheet";
 import TeamMemberActionSheet from "@/components/TeamMemberActionSheet";
 
@@ -41,6 +40,12 @@ interface Props {
   // this owner's own locationId when null. See
   // docs/features/locations.md's "Location switcher".
   activeLocationId: string | null;
+  // This signed-in user's own primary location (User.locationId) — see
+  // Header.tsx's LocationContext.locationId. Always null for an owner
+  // filtering by activeLocationId=null ("All Locations"); the header falls
+  // back to this for a non-owner, since activeLocationId is always null
+  // for them on this page.
+  locationId: string | null;
 }
 
 function fmtDate(iso: string | null) {
@@ -72,7 +77,7 @@ function RoleBadge({ role }: { role: "manager" | "employee" | "owner" }) {
   );
 }
 
-export default function TeamView({ userName, today, skipAuth, isManager, isOwner, currentUserId, activeLocationId }: Props) {
+export default function TeamView({ userName, today, skipAuth, isManager, isOwner, currentUserId, activeLocationId, locationId }: Props) {
   const [team, setTeam] = useState<Member[] | null>(null);
   const [invites, setInvites] = useState<Invite[] | null>(null);
   const [locations, setLocations] = useState<Location[]>([]);
@@ -141,8 +146,12 @@ export default function TeamView({ userName, today, skipAuth, isManager, isOwner
   return (
     <div className="min-h-dvh bg-bg">
       <div className="mx-auto max-w-mobile px-4 pb-28">
-        <Header userName={userName} today={today} skipAuth={skipAuth} />
-        <LocationSwitcher isOwner={isOwner} activeLocationId={activeLocationId} allowAll onChanged={fetchTeam} />
+        <Header
+          userName={userName}
+          today={today}
+          skipAuth={skipAuth}
+          location={{ isOwner, activeLocationId, locationId, allowAll: true, onLocationChanged: fetchTeam }}
+        />
 
         <div className="mt-4 mb-5">
           <h1 className="font-heading text-xl text-text">Team</h1>

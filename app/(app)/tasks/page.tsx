@@ -205,6 +205,7 @@ export default async function TasksPage({
       userRole={role}
       companyId={companyId}
       activeLocationId={locationId}
+      locationId={sessionUser.locationId}
       skipAuth={skipAuth}
       autoStartNext={!!searchParams?.startNext}
       autoAddTask={!!searchParams?.addTask}

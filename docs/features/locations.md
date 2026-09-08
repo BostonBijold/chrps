@@ -196,11 +196,24 @@ here once the underlying `TaskList` model itself became location-owned
 
 ## Location switcher
 
-A `<select>` control (`components/LocationSwitcher.tsx`), rendered on all 4
-bottom-nav pages (Tasks, Team, Reports, Inventory) directly under each
-page's `<Header>`. Renders nothing unless `isOwner` and the company has 2+
-active locations — a manager/employee, or an owner at a single-location
-company, sees no UI change at all.
+A `<select>` control backed by the same data/session/API layer described
+below, in two different UI homes depending on surface:
+
+- **Mobile — the 4 bottom-nav pages** (Tasks, Team, Reports, Inventory):
+  merged directly into `components/Header.tsx`'s title area as of
+  [`header-location-switcher.md`](header-location-switcher.md) — there is
+  no longer a separate switcher row under the header. See that doc for the
+  header's exact behavior (interactive `<select>` vs. static location-name
+  text vs. the plain "Ch'rps" wordmark, depending on role/location count).
+- **Desktop Admin Console** (`/console/tasks`, `/console/reports`,
+  `/console/inventory`): still `components/LocationSwitcher.tsx`, rendered
+  directly by `TaskManagementView.tsx`/`ConsoleReportsView.tsx`/
+  `ConsoleInventoryManagementView.tsx` exactly as before — untouched by the
+  mobile header merge.
+
+Both surfaces render nothing unless `isOwner` and the company has 2+ active
+locations — a manager/employee, or an owner at a single-location company,
+sees no interactive picker on either surface.
 
 - **Persisted server-side, not in a URL param or `localStorage`** (see
   CLAUDE.md's "Notes for Claude Code" — all state lives in MongoDB):
@@ -242,11 +255,12 @@ company, sees no UI change at all.
 - **Reports/Inventory refresh via remount, not `router.refresh()` alone.**
   Their data comes from a client-side `fetch()` in a `useEffect` that only
   runs once on mount, so a plain server-component refresh doesn't
-  re-trigger it. `LocationSwitcher` takes an optional `onChanged` callback,
-  fired after a successful `PATCH` alongside `router.refresh()`:
-  `InventoryView`/`TeamView` pass their own existing `fetchAll`/`fetchTeam`
-  functions; `ReportsView` has no single equivalent (4 separate sub-tab
-  components each own their fetch), so it instead bumps a counter used in
+  re-trigger it. Both `LocationSwitcher` (Console) and `Header`'s
+  `location` prop (mobile) take an optional changed-callback, fired after a
+  successful `PATCH` alongside `router.refresh()`: `InventoryView`/
+  `TeamView` pass their own existing `fetchAll`/`fetchTeam` functions;
+  `ReportsView` has no single equivalent (4 separate sub-tab components
+  each own their fetch), so it instead bumps a counter used in
   `<ReportsContent key={...}>` to force the whole subtree to remount and
   refetch.
 - **Out of scope**: no cross-location aggregate/"all stores" rollup for
