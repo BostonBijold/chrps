@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
-import { resolveSessionUser, isManagerOrAbove } from "@/lib/session";
+import { resolveSessionUser, isManagerOrAbove, pickActiveLocationId } from "@/lib/session";
+import { validateLocationId } from "@/lib/locations";
 import PendingNfcLink from "@/models/PendingNfcLink";
 import Task from "@/models/Task";
 
@@ -19,6 +20,8 @@ export async function POST(req: NextRequest) {
   const { userId, companyId, role } = sessionUser;
   if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
   if (!isManagerOrAbove(role)) return NextResponse.json({ error: "Managers only" }, { status: 403 });
+  const requestedLocationId = await validateLocationId(companyId, req.nextUrl.searchParams.get("locationId"));
+  const locationId = pickActiveLocationId(sessionUser, requestedLocationId);
 
   const { taskId } = await req.json();
   if (!taskId) {
@@ -27,12 +30,12 @@ export async function POST(req: NextRequest) {
 
   await connectDB();
 
-  const task = await Task.findOne({ _id: taskId, companyId, isActive: true }).lean();
+  const task = await Task.findOne({ _id: taskId, companyId, locationId, isActive: true }).lean();
   if (!task) return NextResponse.json({ error: "Task not found" }, { status: 404 });
 
   await PendingNfcLink.findOneAndUpdate(
     { userId },
-    { $set: { companyId, taskId, armedAt: new Date() } },
+    { $set: { companyId, locationId, taskId, armedAt: new Date() } },
     { upsert: true }
   );
 

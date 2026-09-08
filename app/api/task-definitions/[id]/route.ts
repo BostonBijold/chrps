@@ -4,7 +4,8 @@ import TaskDefinition, { type InstructionStep } from "@/models/TaskDefinition";
 import Task from "@/models/Task";
 import { sanitizeFormFields } from "@/lib/form-fields";
 import { sanitizeInstructionSteps } from "@/lib/instruction-steps";
-import { resolveSessionUser, isManagerOrAbove } from "@/lib/session";
+import { resolveSessionUser, isManagerOrAbove, pickActiveLocationId } from "@/lib/session";
+import { validateLocationId } from "@/lib/locations";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +27,8 @@ export async function PATCH(
   const { companyId, role } = sessionUser;
   if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
   if (!isManagerOrAbove(role)) return NextResponse.json({ error: "Managers only" }, { status: 403 });
+  const requestedLocationId = await validateLocationId(companyId, req.nextUrl.searchParams.get("locationId"));
+  const locationId = pickActiveLocationId(sessionUser, requestedLocationId);
 
   const updates = await req.json();
   const patch: Record<string, unknown> = {};
@@ -39,7 +42,7 @@ export async function PATCH(
   await connectDB();
 
   const definition = await TaskDefinition.findOneAndUpdate(
-    { _id: params.id, companyId, isActive: true },
+    { _id: params.id, companyId, locationId, isActive: true },
     { $set: patch },
     { new: true }
   ).lean();
@@ -79,13 +82,15 @@ export async function DELETE(
   const { companyId, role } = sessionUser;
   if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
   if (!isManagerOrAbove(role)) return NextResponse.json({ error: "Managers only" }, { status: 403 });
+  const requestedLocationId = await validateLocationId(companyId, req.nextUrl.searchParams.get("locationId"));
+  const locationId = pickActiveLocationId(sessionUser, requestedLocationId);
 
   await connectDB();
 
-  const definition = await TaskDefinition.findOne({ _id: params.id, companyId });
+  const definition = await TaskDefinition.findOne({ _id: params.id, companyId, locationId });
   if (!definition) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const activePlacementCount = await Task.countDocuments({ companyId, definitionId: definition._id, isActive: true });
+  const activePlacementCount = await Task.countDocuments({ companyId, locationId, definitionId: definition._id, isActive: true });
   if (activePlacementCount > 0) {
     return NextResponse.json(
       { error: `Still used in ${activePlacementCount} task list${activePlacementCount === 1 ? "" : "s"} — remove it from those first.` },

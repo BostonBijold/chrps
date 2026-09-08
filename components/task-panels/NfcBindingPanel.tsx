@@ -12,7 +12,7 @@ export interface TagBinding {
   nfcTagUid: string | null;
   busy: boolean;
   error: string | null;
-  alsoBoundTo: string[];
+  alsoBoundTo: Array<{ name: string; locationName: string | null }>;
   onScanToLink: () => void;
   onUnbind: () => void;
 }
@@ -58,7 +58,10 @@ export default function NfcBindingPanel({ tagBinding }: { tagBinding: TagBinding
       )}
       {tagBinding.alsoBoundTo.length > 0 && (
         <p className="font-mono text-[11px] text-dim mt-1.5">
-          Also bound to: {tagBinding.alsoBoundTo.join(", ")}
+          Also bound to:{" "}
+          {tagBinding.alsoBoundTo
+            .map((b) => (b.locationName ? `${b.name} (${b.locationName})` : b.name))
+            .join(", ")}
         </p>
       )}
     </div>

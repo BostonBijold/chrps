@@ -8,9 +8,11 @@ Lets a manager attach up to **3 instruction steps** to a `TaskDefinition` — ea
 
 Storage is [Vercel Blob](https://vercel.com/docs/storage/vercel-blob): the manager's browser uploads image bytes directly to Blob via a client-upload token, never through a Next.js server route. The step's **text lives in MongoDB**, not Blob — Blob only ever holds the file itself. This keeps editing a step's wording independent of its image and matches how every other piece of task content (`formFields`, `name`, `icon`) already lives on `TaskDefinition`.
 
+**Location-owned, not company-wide.** `TaskDefinition` (and therefore `instructionSteps`) now belongs to exactly one `Location` — see CLAUDE.md's "Locations" section and [task-lists.md](task-lists.md)'s "Company Task Catalog" section. A photo of one store's fridge/bathroom is never meaningful at a different store's, so browsing another location's saved tasks as example data (`GET /api/task-definitions?scope=company`) always comes back with `instructionSteps: []` regardless of what's actually stored, and cloning one (`POST /api/tasks`'s `cloneFromDefinitionId`) never copies steps over — a new location has to author its own.
+
 ## Data model
 
-`models/TaskDefinition.ts`'s `instructionSteps` field, same layer as `formFields` (content of the check itself, cascades to every list placement):
+`models/TaskDefinition.ts`'s `instructionSteps` field, same layer as `formFields` (content of the check itself, cascades to every list placement AT THE SAME LOCATION):
 
 ```ts
 instructionSteps: [{

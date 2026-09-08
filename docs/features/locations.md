@@ -179,17 +179,20 @@ A few queries are **deliberately not** location-scoped, on purpose:
 `app/api/cron/check-missed-lists/route.ts` now iterates every active
 `Location` under each company (falling back to a single `null`-location
 pass for a company with none yet), running the missed-check independently
-per location since the shared catalog means the same list can be missed at
-one store and not another on the same day. `lib/notifications.ts`'s
-`sendMissedListAlert`/`sendStartTimeReminder` both grew a `locationId`
-param: managers/employees are filtered to that location, owners always
-included regardless (they administer every location). `POST
-/api/cron/task-list-reminder` — **not** location-split**: a shift-window
-list has exactly one QStash schedule regardless of how many locations run
-it (no per-location schedule exists), so this fire still reaches everyone
-company-wide, and its own "already finished" skip-check is still evaluated
-company-wide too. Accepted simplification for this low-stakes nudge — see
-[Known gaps](#known-gaps).
+per location — its own `TaskList.find`/`Task.find` queries are now
+`locationId`-filtered too (moved inside the per-location loop), since
+`TaskList`/`Task` are location-owned rather than shared, so the same list
+name can genuinely differ, or simply not exist, from one store to the
+next. `lib/notifications.ts`'s `sendMissedListAlert`/`sendStartTimeReminder`
+both grew a `locationId` param: managers/employees are filtered to that
+location, owners always included regardless (they administer every
+location). `POST /api/cron/task-list-reminder` is now naturally
+location-split too, as a side effect rather than a deliberate change: each
+location's own shift-window `TaskList` is a separate document with its own
+`qstashScheduleId`, so a fire for one store's "Opening Shift" was always
+going to be independent of another store's — no code change was needed
+here once the underlying `TaskList` model itself became location-owned
+(see [Known gaps](#known-gaps)).
 
 ## Location switcher
 
@@ -302,18 +305,38 @@ this feature as fully "done":
 - **`TeamMemberActionSheet.tsx` has no location-reassignment control** —
   `PATCH /api/team/[userId]`'s `locationId` field is implemented and
   owner-gated, but no UI button calls it yet.
-- **Start-time reminders (`task-list-reminder` cron) are not split per
-  location** — see [Notifications fan-out](#notifications-fan-out) above.
+- ~~Start-time reminders (`task-list-reminder` cron) are not split per
+  location~~ — **closed as a side effect of the location-scoped task
+  catalog fix below**: since `TaskList` itself became location-owned (each
+  store's "Opening Shift" is now its own document with its own
+  `qstashScheduleId`), a shift-window list's start-time reminder is
+  correctly per-location by construction, with no notifications-code
+  change needed. See [Notifications fan-out](#notifications-fan-out) above.
 - Everything already listed as deferred in the original design pass, still
   true: restricting an owner to a subset of locations; the broader
   "one person, many companies" model; a combined multi-location rollup
-  view in Reports; per-location business hours/timezone actually being
-  read anywhere; and the NFC/InventoryItemType "shared catalog vs.
-  per-location catalog" question — this implementation assumed **shared
-  catalog, per-location logs**, so a physical NFC tag still binds to one
-  company-wide `TaskDefinition`/`InventoryItemType`, not a per-location
-  variant. If a location ever needs its own distinct catalog, that's a
-  separate redesign, not covered here.
+  view in Reports; and per-location business hours/timezone actually being
+  read anywhere.
+- **The NFC/`TaskDefinition` "shared catalog vs. per-location catalog"
+  question — RESOLVED, `TaskList`/`Task`/`TaskDefinition`/`NfcTag`/
+  `PendingNfcLink` are now location-owned**, not company-wide. A physical
+  NFC tag (either `TaskDefinition.nfcTagUid`'s in-app scan-to-complete
+  binding, or the separate tap-to-trigger `NfcTag` collection) now binds to
+  exactly one location's `TaskDefinition`/task, never leaking across
+  stores; `instructionSteps`/`requiresPhoto` are the same. Browsing another
+  location's (or the company's) saved tasks is still possible, but only as
+  read-only example data (`GET /api/task-definitions?scope=company`) that
+  gets CLONED into a new, same-location definition on add — never a live
+  cross-location reference. See CLAUDE.md's "Task Lists" section,
+  `docs/features/task-lists.md`'s "Company Task Catalog" section, and the
+  migration script `scripts/backfill-task-catalog-locations.mjs`.
+  **`InventoryItemType`/`InventoryGroup` did NOT get this same treatment** —
+  they remain company-wide shared catalog with only per-location
+  `InventoryLog` rows, so an Inventory item's own NFC binding (distinct
+  from a task's) can still, in principle, be scanned meaningfully from any
+  location. If Inventory ever needs the same per-location catalog
+  ownership, that's a separate, still-unbuilt redesign, following the same
+  shape as the task-catalog fix above.
 
 ## Depends on
 

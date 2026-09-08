@@ -97,10 +97,14 @@ export default async function NfcTagPage({
     const isFresh = pending && Date.now() - pending.armedAt.getTime() < PENDING_LINK_MAX_AGE_MS;
 
     if (pending && isFresh) {
-      const rawTask = await Task.findOne({ _id: pending.taskId, companyId, isActive: true }).lean();
+      const rawTask = await Task.findOne({ _id: pending.taskId, companyId, locationId, isActive: true }).lean();
       if (rawTask) {
         const task = await resolveTask(rawTask);
         tag.companyId = companyId;
+        // Stamped from the resolved Task's own locationId, matching
+        // POST /api/nfc-tags/[tagCode]'s claim path — a physical tag is an
+        // address at one store.
+        tag.locationId = task.locationId;
         tag.taskId = task._id;
         tag.taskListId = task.taskListId;
         tag.claimedByUserId = userId;
@@ -116,7 +120,10 @@ export default async function NfcTagPage({
       }
     }
 
-    const rawTasks = await Task.find({ companyId, isActive: true }).sort({ order: 1 }).lean();
+    // locationId-filtered — a manager tapping an unclaimed tag cold should
+    // only ever be offered THEIR OWN location's tasks to claim it against,
+    // never every location's in the company.
+    const rawTasks = await Task.find({ companyId, locationId, isActive: true }).sort({ order: 1 }).lean();
     const tasks = await resolveTasks(rawTasks);
     return (
       <Shell>
@@ -130,7 +137,7 @@ export default async function NfcTagPage({
 
   // Claimed by this company — the everyday trigger case, open to any
   // signed-in company user (any employee on shift can trigger a task).
-  const rawTask = await Task.findOne({ _id: tag.taskId, companyId, isActive: true }).lean();
+  const rawTask = await Task.findOne({ _id: tag.taskId, companyId, locationId, isActive: true }).lean();
   if (!rawTask) {
     return (
       <Shell>

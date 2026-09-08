@@ -90,29 +90,29 @@ export async function POST(req: NextRequest) {
       const today = todayInZone(company.timezone);
       const nowMinutes = minutesNowInZone(company.timezone);
 
-      // Only shift-window lists (startTime non-null) — an anytime list
-      // never closes, so "missed by the window" has no meaning for it.
-      const lists = await TaskList.find(
-        { companyId, isActive: true, startTime: { $ne: null } },
-        "_id name startTime"
-      ).lean<{ _id: { toString(): string }; name: string; startTime: string }[]>();
-      if (lists.length === 0) continue;
-
-      // The task catalog stays company-wide/shared (see
-      // docs/features/locations.md's open questions), so the same list can
-      // independently be missed at more than one location on the same day —
-      // this sweep runs the check once per active location, not once per
-      // company. A company with no locations yet (pre-migration, or one
-      // whose backfill hasn't run) falls back to a single null-location
-      // pass, matching this route's pre-Locations behavior exactly.
+      // TaskList/Task are now location-owned (each store's "Opening Shift"
+      // is its own document, not a shared row every location reads
+      // through) — so both queries below moved INSIDE the per-location loop
+      // and gained a locationId filter. A company with no locations yet
+      // (pre-migration, or one whose backfill hasn't run) falls back to a
+      // single null-location pass, matching this route's pre-Locations
+      // behavior exactly.
       const locations = await Location.find({ companyId, isActive: true }, "_id").lean<{ _id: { toString(): string } }[]>();
       const locationIds: (string | null)[] = locations.length > 0 ? locations.map((l) => l._id.toString()) : [null];
 
       for (const locationId of locationIds) {
+        // Only shift-window lists (startTime non-null) — an anytime list
+        // never closes, so "missed by the window" has no meaning for it.
+        const lists = await TaskList.find(
+          { companyId, locationId, isActive: true, startTime: { $ne: null } },
+          "_id name startTime"
+        ).lean<{ _id: { toString(): string }; name: string; startTime: string }[]>();
+        if (lists.length === 0) continue;
+
         for (const list of lists) {
           const taskListId = list._id.toString();
           try {
-            const rawTasks = await Task.find({ taskListId, companyId, isActive: true }).lean();
+            const rawTasks = await Task.find({ taskListId, companyId, locationId, isActive: true }).lean();
             const resolved = await resolveTasks(rawTasks);
             const visible = resolved.filter((t) => isTaskVisibleOn(t, today));
             // Nothing was expected on this list today — nothing can be missed.

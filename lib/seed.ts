@@ -9,12 +9,13 @@ import {
   DEFAULT_CLOSING_NAMES,
 } from "@/lib/seed-templates";
 
-export async function seedDefaultTaskLists(companyId: string) {
+export async function seedDefaultTaskLists(companyId: string, locationId: string | null) {
   // Ensure the catalog exists before referencing it
   await ensureSystemTemplates();
 
   const opening = await TaskList.create({
     companyId,
+    locationId,
     name: "Opening Shift",
     timeOfDay: "morning",
     startTime: "08:00",
@@ -24,6 +25,7 @@ export async function seedDefaultTaskLists(companyId: string) {
 
   const midShift = await TaskList.create({
     companyId,
+    locationId,
     name: "Mid-Shift",
     timeOfDay: "custom",
     startTime: "13:00",
@@ -33,6 +35,7 @@ export async function seedDefaultTaskLists(companyId: string) {
 
   const closing = await TaskList.create({
     companyId,
+    locationId,
     name: "Closing Shift",
     timeOfDay: "evening",
     startTime: "21:00",
@@ -65,6 +68,7 @@ export async function seedDefaultTaskLists(companyId: string) {
     const definitions = await TaskDefinition.insertMany(
       sorted.map((t) => ({
         companyId,
+        locationId,
         templateId: t._id,
         name: t.name,
         icon: t.icon,
@@ -78,6 +82,7 @@ export async function seedDefaultTaskLists(companyId: string) {
     await Task.insertMany(
       definitions.map((d, i) => ({
         companyId,
+        locationId,
         taskListId,
         definitionId: d._id,
         projectedMinutes: null,
@@ -99,15 +104,16 @@ export async function seedDefaultTaskLists(companyId: string) {
 // list, just seeded with example form tasks) if none exists. These are
 // anytime/recurring tasks (fridge/freezer temps, restroom checklists) that
 // don't belong to a single shift window.
-export async function ensureAnytimeTaskList(companyId: string) {
-  const existing = await TaskList.findOne({ companyId, timeOfDay: "anytime" });
+export async function ensureAnytimeTaskList(companyId: string, locationId: string | null) {
+  const existing = await TaskList.findOne({ companyId, locationId, timeOfDay: "anytime" });
   if (existing) return;
 
-  const topList = await TaskList.findOne({ companyId }).sort({ order: -1 }).lean();
+  const topList = await TaskList.findOne({ companyId, locationId }).sort({ order: -1 }).lean();
   const nextOrder = topList ? topList.order + 1 : 10;
 
   const list = await TaskList.create({
     companyId,
+    locationId,
     name: "Anytime Tasks",
     timeOfDay: "anytime",
     startTime: null,
@@ -118,6 +124,7 @@ export async function ensureAnytimeTaskList(companyId: string) {
   const definitions = await TaskDefinition.insertMany([
     {
       companyId,
+      locationId,
       templateId: null,
       name: "Fridge",
       icon: "refrigerator",
@@ -130,6 +137,7 @@ export async function ensureAnytimeTaskList(companyId: string) {
     },
     {
       companyId,
+      locationId,
       templateId: null,
       name: "Freezer",
       icon: "snowflake",
@@ -142,6 +150,7 @@ export async function ensureAnytimeTaskList(companyId: string) {
     },
     {
       companyId,
+      locationId,
       templateId: null,
       name: "Men's Room",
       icon: "toilet",
@@ -155,6 +164,7 @@ export async function ensureAnytimeTaskList(companyId: string) {
     },
     {
       companyId,
+      locationId,
       templateId: null,
       name: "Women's Room",
       icon: "toilet",
@@ -171,6 +181,7 @@ export async function ensureAnytimeTaskList(companyId: string) {
   await Task.insertMany(
     definitions.map((d, i) => ({
       companyId,
+      locationId,
       taskListId: list._id,
       definitionId: d._id,
       projectedMinutes: null,

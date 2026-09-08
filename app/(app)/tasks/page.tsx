@@ -48,12 +48,15 @@ export default async function TasksPage({
 
   await connectDB();
 
-  // First-time seeds — per company, not per user: the first employee or
-  // manager of a newly-attached company to load this page seeds its default
-  // task lists.
-  const taskListCount = await TaskList.countDocuments({ companyId });
-  if (taskListCount === 0) await seedDefaultTaskLists(companyId);
-  await ensureAnytimeTaskList(companyId);
+  // First-time seeds — per LOCATION, not per company/user: the first
+  // employee or manager to load this page at a location with no lists yet
+  // (a newly-attached company's very first location, or any location added
+  // later under an existing company) seeds its own default task lists,
+  // independent of whatever lists any other location under the same
+  // company already has.
+  const taskListCount = await TaskList.countDocuments({ companyId, locationId });
+  if (taskListCount === 0) await seedDefaultTaskLists(companyId, locationId);
+  await ensureAnytimeTaskList(companyId, locationId);
 
   // Always trust the client-supplied date (local timezone).
   // Never fall back to server UTC — the server doesn't know the user's timezone.
@@ -72,7 +75,7 @@ export default async function TasksPage({
   // one under this key, but that's harmless — TasksView splits them into
   // their own section immediately below and never treats this array's raw
   // order as final for them.
-  const taskLists = await TaskList.find({ companyId, isActive: true }).sort({ startTime: 1, order: 1 }).lean();
+  const taskLists = await TaskList.find({ companyId, locationId, isActive: true }).sort({ startTime: 1, order: 1 }).lean();
 
   // Single query for every list's tasks instead of one query per list — the
   // result is already sorted by order, so grouping it in memory below
@@ -80,6 +83,7 @@ export default async function TasksPage({
   const rawTasks = await Task.find({
     taskListId: { $in: taskLists.map((tl) => tl._id) },
     companyId,
+    locationId,
     isActive: true,
   })
     .sort({ order: 1 })

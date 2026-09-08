@@ -6,6 +6,8 @@
 
 **The photo attaches first; the employee still taps the normal Done/Save control separately afterward** — capturing isn't itself completion, it's a precondition for the button becoming tappable at all.
 
+**`requiresPhoto` is location-owned, not company-wide** — it lives on `TaskDefinition`, which now belongs to exactly one `Location` (see CLAUDE.md's "Locations" section). Browsing another location's saved tasks as example data (`GET /api/task-definitions?scope=company`) always comes back with `requiresPhoto: false`, and cloning one (`POST /api/tasks`'s `cloneFromDefinitionId`) never carries the toggle over — each location decides this policy independently. The *captured photo itself* (`TaskLog.photoUrl`, below) was already per-location by virtue of `TaskLog`'s own `{companyId, locationId, taskId, date}` key, well before this change.
+
 ## Data model
 
 `TaskDefinition` (`models/TaskDefinition.ts`) gains one field, same layer as `instructionSteps`/`formFields` — applies to every `taskType`, not just `form` (it can't live inside `formFields`, since a plain checkbox-style task has none):

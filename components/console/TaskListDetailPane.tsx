@@ -63,6 +63,7 @@ interface Props {
     formFields: FormFieldDef[]
   ) => Promise<void>;
   onAddExisting: (definitionId: string) => Promise<void>;
+  onAddClone: (definitionId: string) => Promise<void>;
 }
 
 const DAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"];
@@ -252,7 +253,7 @@ function SortableTaskRow({
 // UI lets that change after creation either), and NFC binding is
 // status-only (see the row component above) — see
 // docs/features/console-task-management.md's "Layout — two panes".
-export default function TaskListDetailPane({ taskList, tasks, onReorder, onSaveTask, onRemoveTask, onAddTask, onAddExisting }: Props) {
+export default function TaskListDetailPane({ taskList, tasks, onReorder, onSaveTask, onRemoveTask, onAddTask, onAddExisting, onAddClone }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showAddSheet, setShowAddSheet] = useState(false);
 
@@ -337,6 +338,10 @@ export default function TaskListDetailPane({ taskList, tasks, onReorder, onSaveT
           }}
           onAddExisting={async (definitionId) => {
             await onAddExisting(definitionId);
+            setShowAddSheet(false);
+          }}
+          onAddClone={async (definitionId) => {
+            await onAddClone(definitionId);
             setShowAddSheet(false);
           }}
           onClose={() => setShowAddSheet(false)}

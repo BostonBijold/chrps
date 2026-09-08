@@ -18,12 +18,12 @@ export async function GET(req: NextRequest) {
 
   await connectDB();
 
-  const taskLists = await TaskList.find({ companyId, isActive: true, timeOfDay: { $ne: "anytime" } })
+  const taskLists = await TaskList.find({ companyId, locationId, isActive: true, timeOfDay: { $ne: "anytime" } })
     .sort({ order: 1 }).lean();
 
   const taskListIds = taskLists.map((g) => g._id);
   const [tasks, logs] = await Promise.all([
-    Task.find({ taskListId: { $in: taskListIds }, companyId, isActive: true }).lean(),
+    Task.find({ taskListId: { $in: taskListIds }, companyId, locationId, isActive: true }).lean(),
     TaskLog.find({ companyId, locationId, date }).lean(),
   ]);
 

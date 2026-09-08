@@ -26,7 +26,7 @@ export async function POST(
 
   await connectDB();
 
-  const taskList = await TaskList.findOne({ _id: params.taskListId, companyId }).select("_id").lean();
+  const taskList = await TaskList.findOne({ _id: params.taskListId, companyId, locationId }).select("_id").lean();
   if (!taskList) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   await unlockSession(companyId, locationId, params.taskListId, date);

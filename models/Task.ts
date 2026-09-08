@@ -20,6 +20,13 @@ import mongoose, { Schema, Document, model, models } from "mongoose";
 export interface ITask extends Document {
   taskListId: mongoose.Types.ObjectId;
   companyId: string;
+  // Denormalized from taskListId's own TaskList.locationId (and always
+  // matching definitionId's TaskDefinition.locationId) — same house style
+  // as TaskLog/TaskListSession/InventoryLog/MissedListAlert, which all
+  // denormalize locationId directly rather than relying on a join, so
+  // every read/write path here can filter by it in one query. See
+  // CLAUDE.md's "Locations" section. null only for a pre-migration row.
+  locationId: string | null;
   definitionId: mongoose.Types.ObjectId;
   // Overrides TaskDefinition.projectedMinutes for this placement only; null
   // means "inherit the definition's default." Resolved server-side by
@@ -44,6 +51,7 @@ const TaskSchema = new Schema<ITask>(
     // Company's shared task configuration — see TaskList.companyId for why
     // this stays a plain String rather than an ObjectId ref.
     companyId: { type: String, required: true, index: true },
+    locationId: { type: String, default: null },
     definitionId: { type: Schema.Types.ObjectId, ref: "TaskDefinition", required: true, index: true },
     projectedMinutes: { type: Number, default: null },
     order: { type: Number, default: 0 },
@@ -53,5 +61,8 @@ const TaskSchema = new Schema<ITask>(
   },
   { timestamps: true }
 );
+
+TaskSchema.index({ taskListId: 1, locationId: 1, isActive: 1 });
+TaskSchema.index({ companyId: 1, locationId: 1, definitionId: 1, isActive: 1 });
 
 export default models.Task || model<ITask>("Task", TaskSchema);

@@ -950,6 +950,20 @@ export default function TasksView({
     [addTaskSheetFor, router]
   );
 
+  const handleAddCloneTask = useCallback(
+    async (definitionId: string) => {
+      if (!addTaskSheetFor) return;
+      await fetch("/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ taskListId: addTaskSheetFor.id, cloneFromDefinitionId: definitionId }),
+      });
+      setAddTaskSheetFor(null);
+      router.refresh();
+    },
+    [addTaskSheetFor, router]
+  );
+
   const totalDone = Object.values(logs).filter((l) => l.state === "done").length;
   const totalTasks = taskLists.reduce(
     (acc, tl) => acc + tl.tasks.filter((t) => isTaskVisibleOn(t, selectedDate)).length,
@@ -1016,6 +1030,7 @@ export default function TasksView({
           taskListName={addTaskSheetFor.name}
           onAdd={handleAddTask}
           onAddExisting={handleAddExistingTask}
+          onAddClone={handleAddCloneTask}
           onClose={() => setAddTaskSheetFor(null)}
         />
       )}

@@ -587,8 +587,15 @@ is deny-without-session, not opt-in.
   all-or-nothing `Company.notificationsEnabled`. Deferred.
 - **A "resolved" follow-up push** once a late list finally gets finished —
   not built; felt like it'd add noise more than value.
-- **Multi-location digest** — out of scope until Ch'rps has a real
-  multi-location data model at all.
+- **Multi-location digest** (a single cross-location summary push for an
+  owner) — still deferred, but the underlying multi-location data model
+  this bullet used to wait on now exists (see CLAUDE.md's "Locations"
+  section, and `docs/features/locations.md`'s "Notifications fan-out" for
+  how both alert types already fan out per-location today, including the
+  start-time-reminder per-list QStash schedule becoming naturally
+  per-location once `TaskList` itself became location-owned). This bullet
+  is now about a genuinely new feature (a rollup digest), not a
+  data-model blocker.
 - **Self-serve company creation / signup-time timezone capture** — not
   built because the underlying company-creation flow itself doesn't exist
   yet in this codebase.

@@ -1,9 +1,10 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
 import TaskList from "@/models/TaskList";
 import Task from "@/models/Task";
 import Company from "@/models/Company";
-import { resolveSessionUser, isManagerOrAbove } from "@/lib/session";
+import { resolveSessionUser, isManagerOrAbove, pickActiveLocationId } from "@/lib/session";
+import { validateLocationId } from "@/lib/locations";
 import { upsertStartTimeSchedule } from "@/lib/qstash-schedules";
 
 export const dynamic = "force-dynamic";
@@ -17,23 +18,26 @@ export const dynamic = "force-dynamic";
 // tables, same split as Mongo, so a definition edit only needs to update
 // one row instead of every placement that shares it. name/icon/taskType/
 // formFields live in GET /api/task-definitions instead.
-export async function GET() {
+export async function GET(req: NextRequest) {
   const sessionUser = await resolveSessionUser();
   if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { companyId } = sessionUser;
   if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
+  const requestedLocationId = await validateLocationId(companyId, req.nextUrl.searchParams.get("locationId"));
+  const locationId = pickActiveLocationId(sessionUser, requestedLocationId);
 
   await connectDB();
 
   // Same startTime-first ordering as the Tasks/Manage pages — see the note
   // in app/(app)/tasks/page.tsx.
-  const taskLists = await TaskList.find({ companyId, isActive: true }).sort({ startTime: 1, order: 1 }).lean();
+  const taskLists = await TaskList.find({ companyId, locationId, isActive: true }).sort({ startTime: 1, order: 1 }).lean();
 
   const taskListsWithTasks = await Promise.all(
     taskLists.map(async (taskList) => {
       const rawTasks = await Task.find({
         taskListId: taskList._id,
         companyId,
+        locationId,
         isActive: true,
       })
         .sort({ order: 1 })
@@ -74,12 +78,15 @@ export async function GET() {
 // time). Its tasks are added afterward through POST /api/tasks, same flow
 // used for any other task list (browse the template catalog or build a
 // custom task) — see components/AddTaskSheet.tsx.
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   const sessionUser = await resolveSessionUser();
   if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { companyId, role } = sessionUser;
   if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
   if (!isManagerOrAbove(role)) return NextResponse.json({ error: "Managers only" }, { status: 403 });
+  const requestedLocationId = await validateLocationId(companyId, req.nextUrl.searchParams.get("locationId"));
+  const locationId = pickActiveLocationId(sessionUser, requestedLocationId);
+  if (!locationId) return NextResponse.json({ error: "No location assigned" }, { status: 403 });
 
   const { name, startTime, scheduledDays } = (await req.json()) as {
     name?: string;
@@ -93,12 +100,13 @@ export async function POST(req: Request) {
 
   await connectDB();
 
-  const topList = await TaskList.findOne({ companyId }).sort({ order: -1 }).lean();
+  const topList = await TaskList.findOne({ companyId, locationId }).sort({ order: -1 }).lean();
   const nextOrder = topList ? topList.order + 1 : 0;
   const days = Array.isArray(scheduledDays) && scheduledDays.length > 0 ? scheduledDays : [0, 1, 2, 3, 4, 5, 6];
 
   const taskList = await TaskList.create({
     companyId,
+    locationId,
     name: name.trim(),
     // A manager-created list is a free-form "custom" window, same as any
     // other non-seeded shift — it participates in the same time-aware

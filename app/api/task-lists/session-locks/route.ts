@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
 
   await connectDB();
 
-  const taskLists = await TaskList.find({ companyId, isActive: true, startTime: { $ne: null } })
+  const taskLists = await TaskList.find({ companyId, locationId, isActive: true, startTime: { $ne: null } })
     .select("_id")
     .lean();
 

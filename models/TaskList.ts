@@ -2,6 +2,11 @@ import { Schema, Document, model, models } from "mongoose";
 
 export interface ITaskList extends Document {
   companyId: string;
+  // Which physical store this list belongs to — see CLAUDE.md's "Locations"
+  // section. String, not ObjectId ref, same convention as companyId. null
+  // only for a pre-migration row (scripts/backfill-task-catalog-locations.mjs
+  // backfills every existing row onto its company's primary location).
+  locationId: string | null;
   name: string;
   timeOfDay: "morning" | "evening" | "custom" | "anytime";
   startTime: string | null;    // 'HH:MM' — when the task list's window opens (end is derived from projected mins)
@@ -36,6 +41,7 @@ const TaskListSchema = new Schema<ITaskList>(
     // key resolves to, and SKIP_AUTH's dev company id isn't a valid ObjectId
     // at all, so it must stay a plain string here too.
     companyId: { type: String, required: true, index: true },
+    locationId: { type: String, default: null },
     name: { type: String, required: true },
     timeOfDay: { type: String, enum: ["morning", "evening", "custom", "anytime"], required: true },
     startTime: { type: String, default: null },
@@ -47,5 +53,7 @@ const TaskListSchema = new Schema<ITaskList>(
   },
   { timestamps: true }
 );
+
+TaskListSchema.index({ companyId: 1, locationId: 1, isActive: 1 });
 
 export default models.TaskList || model<ITaskList>("TaskList", TaskListSchema);

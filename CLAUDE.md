@@ -264,13 +264,18 @@ Ownership-level, company-scoped join token — see "Team & Invites" below and
 ```
 
 ### TaskList
-Ownership-level — the company's shared task-list configuration, not any
-individual's personal data. A manager can create, rename, schedule, and
-soft-delete these directly from the app — see "Task Lists" below.
+Location-level — one store's task-list configuration (see "Locations"
+below), not any individual's personal data. A manager can create, rename,
+schedule, and soft-delete these directly from the app — see "Task Lists"
+below. Two locations under the same company never share a list, even one
+with the same name — each store's "Opening Shift" is its own document with
+its own tasks, NFC bindings, and QStash schedule.
 ```js
 {
   _id,
   companyId,
+  locationId,       // ref Location, string — see "Locations" below. null only for a
+                    //   pre-migration row (scripts/backfill-task-catalog-locations.mjs)
   name,             // 'Opening Shift', 'Mid-Shift', 'Closing Shift', 'Anytime Tasks', or any manager-created name
   timeOfDay: 'morning' | 'evening' | 'custom' | 'anytime',
   startTime,        // 'HH:MM' — drives the time-aware collapse window (null for 'anytime' lists, which never collapse)
@@ -288,23 +293,33 @@ soft-delete these directly from the app — see "Task Lists" below.
 ```
 
 ### Task / TaskDefinition
-Ownership-level — same reasoning as TaskList. `Task` is a lightweight list
+Location-level — same reasoning as TaskList. `Task` is a lightweight list
 **placement**, not a self-contained document; the check's actual content
-lives one layer up on `TaskDefinition`, the company's reusable saved-task
-catalog ("Company Task Catalog" — see `docs/features/task-lists.md`). The
-same `TaskDefinition` can be placed in more than one list (e.g. the same
+lives one layer up on `TaskDefinition`, the location's own reusable
+saved-task catalog ("Company Task Catalog" — see `docs/features/task-lists.md`,
+which despite the name is now a per-location catalog, not a company-wide
+one — a manager can still browse another location's, or the whole
+company's, catalog as read-only *example* data, but adding one to their own
+list always clones a brand-new, same-location `TaskDefinition`, never
+references the source directly). Within one location, the same
+`TaskDefinition` can still be placed in more than one list (e.g. the same
 fridge-temp check in both the opening and closing lists), each placement
-getting its own independent `TaskLog` history and streak strip. Every API
-response is still the same flat, resolved shape client code has always
-consumed — `lib/task-definitions.ts`'s `resolveTasks`/`resolveTask` join
-these two collections server-side on every read.
+getting its own independent `TaskLog` history and streak strip — and
+sharing the same NFC binding/instructions/`requiresPhoto`, since those all
+live on the shared `TaskDefinition` too. Every API response is still the
+same flat, resolved shape client code has always consumed —
+`lib/task-definitions.ts`'s `resolveTasks`/`resolveTask` join these two
+collections server-side on every read.
 ```js
 // Task — the placement
 {
   _id,
   taskListId,
   companyId,
-  definitionId,      // ref TaskDefinition, required
+  locationId,        // ref Location, string — denormalized from taskListId's own TaskList.locationId
+                     //   (and always matching definitionId's TaskDefinition.locationId), same
+                     //   house style as TaskLog/InventoryLog. null only for a pre-migration row
+  definitionId,      // ref TaskDefinition, required — always at the SAME locationId as this Task
   projectedMinutes,  // this placement's *override* of the definition's default; null = inherit
   order,
   isActive: bool,
@@ -313,10 +328,16 @@ these two collections server-side on every read.
   successThreshold,  // how many of this week's scheduled days = 100%
 }
 
-// TaskDefinition — the catalog entry (name/icon/type/fields/NFC binding)
+// TaskDefinition — the catalog entry (name/icon/type/fields/NFC binding),
+// owned by exactly one Location — see "Locations" below. nfcTagUid/
+// instructionSteps/requiresPhoto are all physically local to one store (a
+// tag sticker, a photo of that store's own fridge), so this document
+// belongs to one location, never shared live across locations the way it
+// was before the location-scoped task catalog fix.
 {
   _id,
   companyId,
+  locationId,        // ref Location, string. null only for a pre-migration row
   templateId,        // ref TaskTemplate this was cloned from, informational only, null for custom tasks
   name,              // 'Walk-in Fridge Temp'
   icon,              // lucide icon key, e.g. 'refrigerator' — see components/AppIcon.tsx
@@ -528,15 +549,26 @@ Every restaurant, gym, or hotel using Ch'rps is a `Company` — the tenant
 anchor. Nothing in the Company model or its surrounding code is
 restaurant-specific; gyms and hotels are expected customers too.
 
-- **Ownership-level** collections (`TaskList`, `Task`, `TaskTemplate`,
-  `InventoryItemType`, `InventoryGroup`) scope by `companyId` — they're the
-  company's shared configuration, not any individual's data.
+- **Ownership-level, company-wide** collections (`TaskTemplate`,
+  `InventoryItemType`, `InventoryGroup`) scope by `companyId` only — they're
+  the company's shared configuration, not any individual's or any one
+  location's.
+- **Ownership-level, location-owned** collections (`TaskList`, `Task`,
+  `TaskDefinition`, `NfcTag`, `PendingNfcLink`) scope by `companyId` *and*
+  `locationId` — see "Locations" below. This was tightened from a
+  company-wide scope to a per-location one specifically because
+  `TaskDefinition.nfcTagUid`/`instructionSteps`/`requiresPhoto` are
+  physically local to one store (a tag sticker, a photo of that store's own
+  fridge); a manager can still browse another location's (or the whole
+  company's) `TaskDefinition`s as read-only *example* data, but adding one
+  to their own list always clones a brand-new, same-location definition —
+  see "Task Lists" below.
 - **Activity-level** collections (`TaskLog`, `TaskListSession`,
-  `InventoryLog`) scope by `companyId` *and* stamp a `performedByUserId`/
-  `loggedByUserId` as an attribute, not part of the uniqueness key — any
-  employee on shift might complete a given task or log a count, so the
-  record is shared per task/day (or, for `InventoryLog`, just appended),
-  not per person.
+  `InventoryLog`) scope by `companyId` *and* `locationId`, and stamp a
+  `performedByUserId`/`loggedByUserId` as an attribute, not part of the
+  uniqueness key — any employee on shift might complete a given task or log
+  a count, so the record is shared per task/day/location (or, for
+  `InventoryLog`, just appended), not per person.
 - `Todo` is scoped by both `companyId` and `userId` — still personal, but
   tenant-isolated.
 - `AppIntentLink` stays scoped only to the specific user — it tracks which
@@ -598,8 +630,11 @@ and deferred items (email-locked invites) — is in
 
 ## Task Lists
 
-Beyond the three seeded shift lists (Opening/Mid-Shift/Closing) and the
-auto-provisioned "Anytime Tasks" list, a manager (`User.role === "manager"`)
+Every `TaskList`/`Task`/`TaskDefinition` belongs to exactly one `Location`
+(see "Locations" below) — the three seeded shift lists (Opening/Mid-Shift/
+Closing) and the auto-provisioned "Anytime Tasks" list are seeded once per
+location, not once per company, the first time anyone visits that
+location's Tasks page (`lib/seed.ts`). A manager (`User.role === "manager"`)
 can:
 
 - **Create** a new task list from the Tasks page's "+ Add Task List" button
@@ -623,6 +658,19 @@ can:
 
 Create/rename/schedule/delete are all manager-only server-side (`403` for
 an employee) — see `docs/api/task-lists-api.md`.
+
+**Company Task Catalog, now per-location**: adding a task to a list by
+reusing an existing `TaskDefinition` (`POST /api/tasks` with `definitionId`)
+only ever reuses one at the manager's OWN location — the same shared
+NFC binding/instructions/`requiresPhoto` this always implied still applies,
+just scoped to one store now. Browsing another location's (or the whole
+company's) saved tasks (`GET /api/task-definitions?scope=company`) is
+read-only *example* data — picking one (`POST /api/tasks` with
+`cloneFromDefinitionId`) clones a brand-new `TaskDefinition` at the
+manager's own location instead, copying only the physically-portable
+fields (name/icon/formFields/projectedMinutes) and never the NFC
+binding/instructions/photo requirement, since a new store hasn't put up its
+own tag or taken its own instruction photos yet.
 
 **Day-of-week visibility**: a `Task`'s own `scheduledDays` now gates whether
 it actually renders on the Tasks page for a given date (`lib/task-visibility.
@@ -790,8 +838,15 @@ stamped at invite redemption from the invite's own `locationId` (itself
 stamped from the inviting manager's `locationId`, or picked explicitly by
 an owner). `TaskLog`/`TaskListSession`/`InventoryLog`/`MissedListAlert` all
 gained a `locationId` field and their lookup/uniqueness indexes were
-updated to include it, so two locations running the same shared task-list
-catalog never collide into one location's data.
+updated to include it, so two locations never collide into one location's
+data. `TaskList`/`Task`/`TaskDefinition`/`NfcTag`/`PendingNfcLink` went
+further and became location-OWNED outright, not just location-scoped
+activity — each store manages its own independent task lists, saved-task
+catalog, and NFC bindings, with cross-location catalog browsing as
+read-only example data only (see "Task Lists" above). `InventoryItemType`/
+`InventoryGroup` are the one remaining company-wide-shared-catalog/
+per-location-log exception — still an open question, not yet given the same
+treatment.
 
 Also adds a second, independent axis on `User` — `jobTags: string[]`
 (server/cook/busser/host/…), assignable via a company-level `JobTag`
@@ -825,7 +880,9 @@ is in `docs/features/locations.md`.
       off to doesn't share a cookie jar with the app's own WKWebView. See
       `docs/features/native-apple-signin.md`.)
 - [x] Multi-tenant Company/User model, session-resolved companyId/role
-- [x] Seed default shift task lists + tasks on first company load
+- [x] Seed default shift task lists + tasks on first LOCATION load (originally
+      per-company; re-keyed to per-location once TaskList/Task/TaskDefinition
+      became location-owned — see "Locations" above)
 - [x] Today view: shift task lists (Opening/Mid-Shift/Closing), time-aware collapse/expand
 - [x] Task card: tap to expand actions (Start task / Missed it) — a "Rest+Life" skip option existed here too until it was retired, see "Skip Types" below
 - [x] Form task screen: one control per field (number reading or yes/no), actual time logged on save
@@ -1060,7 +1117,7 @@ table is a quick reference, not authoritative.
 - Manage Tasks Task Lists/Task Catalog toggle: BUILT — `/tasks/manage` now opens on a Task Lists tab (Task Lists + Standalone Tasks) with a separate full-width Task Catalog tab, matching the Admin Console's segmented-control pattern; search and "Scan to Find" scope to whichever tab is active, see `docs/features/manage-tasks-tabs.md`
 - Unified Task Edit Surface: BUILT — a Task Lists placement row (`TaskListEditView.tsx`'s `SortableRow`) and the Task Catalog's detail sheet (`ManageTaskDetailSheet.tsx`) now edit the same field set (Name/Icon/Form Fields/Estimated Time, Scan-to-Complete NFC, Instructions, Require Photo, Linked Inventory) regardless of which one a manager opens a task from — only Scheduled Days/Success Threshold stay Task Lists-only. The four definition-level panels are shared components/hooks (`components/task-panels/*.tsx`, `lib/client/use-task-definition-panel.ts`, `lib/client/use-inventory-links.ts`) calling definitionId-scoped routes, including a new `GET/POST /api/task-definitions/[id]/inventory-links` + `PATCH/DELETE .../inventory-links/[itemTypeId]` pair, see `docs/features/unified-task-edit-surface.md`
 - Notifications: BUILT — two independent shift-window alerts: "start-time reminders" fire at a list's exact startTime via its own per-list QStash schedule (managers+employees), "missed" fires 30min past the window's end via a shared QStash sweep every 5min (managers only, tasks still outstanding); device registration via `@capacitor/push-notifications` open to any company user, `Company.timezone`/`notificationsEnabled` drive both, see "Notifications" above and `docs/features/notifications.md`
-- Locations: BUILT — `Location` model, new `owner` role tier, invite/team location assignment, Location CRUD API, locationId-scoping across TaskLog/TaskListSession/InventoryLog/MissedListAlert, and an owner-facing location switcher (`components/LocationSwitcher.tsx`) on Tasks/Team/Reports/Inventory; migration script at `scripts/backfill-locations.mjs`. Job tags now have a catalog + assignment UI (Admin Console's Team page — see `docs/features/admin-console.md`'s "Job Tags catalog"), though the tag-based task-list *targeting* they were originally meant for is still not built. NOT built: per-location split of the start-time-reminder cron — see "Locations" above and `docs/features/locations.md`'s "Known gaps"
+- Locations: BUILT — `Location` model, new `owner` role tier, invite/team location assignment, Location CRUD API, locationId-scoping across TaskLog/TaskListSession/InventoryLog/MissedListAlert, and an owner-facing location switcher (`components/LocationSwitcher.tsx`) on Tasks/Team/Reports/Inventory/`/console/tasks`; migration script at `scripts/backfill-locations.mjs`. Job tags now have a catalog + assignment UI (Admin Console's Team page — see `docs/features/admin-console.md`'s "Job Tags catalog"), though the tag-based task-list *targeting* they were originally meant for is still not built. The location-scoped task catalog fix (`TaskList`/`Task`/`TaskDefinition`/`NfcTag`/`PendingNfcLink` all became location-owned, see "Locations" and "Task Lists" above) also closed the previously-NOT-built per-location split of the start-time-reminder cron as a side effect — each location's own list now has its own independent QStash schedule by construction; migration script at `scripts/backfill-task-catalog-locations.mjs`. Still NOT built: the equivalent split for `InventoryItemType`/`InventoryGroup`, which remain company-wide shared catalog with only per-location logs — see `docs/features/locations.md`'s "Known gaps"
 - Admin Console: BUILT — desktop-first `/console` section (`app/(console)/console/**`, gated manager-or-above in its `layout.tsx`, blocked from the native iOS shell): a Rollup Dashboard (`GET /api/reports/rollup`) as `/console`'s own homepage, giving an owner a cross-location snapshot (completion rate, tasks logged, missed lists, below-par items, active employees) that has no mobile equivalent (Locations CRUD, the console's original Phase 1a page, was removed entirely; Rollup moved off its own `/console/rollup` route to become the homepage in its place), a company-wide Team & Access table + invite panel + a small owner-only Locations panel (create/rename/archive — Locations CRUD's return, embedded here rather than as its own page/nav item this time) + Job Tags catalog (create/rename/archive tags, per-teammate toggle assignment), Task & Task List Management (`/console/tasks`, manager-or-above) — a two-pane task-list/task editor reusing mobile's exact APIs and field-editing building blocks, NFC status-only (no scan action), plus a Task Catalog pane for editing/creating/deleting a saved task independent of any list placement — a Reports page (`/console/reports`, manager-or-above) — desktop-shaped stat strip/leaderboard table/task-list grid/Logs table/Inventory card grid, all fed by mobile's exact `GET /api/reports`/`/api/reports/leaderboard`/`/api/reports/inventory`/`GET /api/task-logs/history` responses (new presentational layouts, reused pure math/types from `components/reports/shared.ts`) — and an Inventory Management page (`/console/inventory`, manager-or-above) — grouped item-type table with always-visible log-a-count input + expandable history per row, plus a persistent Manage Groups panel below it; no NFC anywhere (an item with `nfcRequiredToLog` set from mobile 409s here with console-specific error copy, not mobile's "use Save via NFC"). Team & Access and the Rollup Dashboard homepage stay owner-only, each self-gating now that the blanket layout check loosened; Task Management, Reports, and Inventory are the three manager-and-up pages. Reached via a manager-or-above card on the Profile page (`components/ProfileView.tsx`) — login itself still always lands on Tasks, same as every other role — see `docs/features/admin-console.md`, `docs/features/console-task-management.md`, `docs/features/console-reports.md`, and `docs/features/console-inventory.md`
 
 - Account Deletion: BUILT — Profile's "Delete Account" row (`employee`/`manager` only) scrubs PII off the caller's own `User` document, detaches them from their company/location, deletes their `PushToken`s and OAuth account link, and invalidates their session (`DELETE /api/account`, `lib/auth.ts`'s jwt callback); `owner` sees a static contact-support message instead of a button, see `docs/features/account-deletion.md`

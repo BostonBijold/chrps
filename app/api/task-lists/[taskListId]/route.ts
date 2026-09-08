@@ -3,7 +3,8 @@ import { connectDB } from "@/lib/mongoose";
 import TaskList from "@/models/TaskList";
 import Task from "@/models/Task";
 import Company from "@/models/Company";
-import { resolveSessionUser, isManagerOrAbove } from "@/lib/session";
+import { resolveSessionUser, isManagerOrAbove, pickActiveLocationId } from "@/lib/session";
+import { validateLocationId } from "@/lib/locations";
 import { upsertStartTimeSchedule, deleteStartTimeSchedule } from "@/lib/qstash-schedules";
 
 export const dynamic = "force-dynamic";
@@ -17,6 +18,8 @@ export async function PATCH(
   const { companyId, role } = sessionUser;
   if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
   if (!isManagerOrAbove(role)) return NextResponse.json({ error: "Managers only" }, { status: 403 });
+  const requestedLocationId = await validateLocationId(companyId, req.nextUrl.searchParams.get("locationId"));
+  const locationId = pickActiveLocationId(sessionUser, requestedLocationId);
 
   const body = await req.json() as {
     name?: string;
@@ -32,7 +35,7 @@ export async function PATCH(
   if (body.scheduledDays !== undefined) update.scheduledDays = body.scheduledDays;
 
   const taskList = await TaskList.findOneAndUpdate(
-    { _id: params.taskListId, companyId },
+    { _id: params.taskListId, companyId, locationId },
     { $set: update },
     { returnDocument: "after" }
   ).lean();
@@ -54,7 +57,7 @@ export async function PATCH(
     const days = body.scheduledDays;
     const clampedThreshold = Math.max(1, days.length);
     await Task.updateMany(
-      { taskListId: params.taskListId, companyId },
+      { taskListId: params.taskListId, companyId, locationId },
       [
         {
           $set: {
@@ -102,7 +105,7 @@ export async function PATCH(
 // individual task: drops out of the active set but keeps its TaskLog/
 // TaskListSession history intact.
 export async function DELETE(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: { taskListId: string } }
 ) {
   const sessionUser = await resolveSessionUser();
@@ -110,10 +113,12 @@ export async function DELETE(
   const { companyId, role } = sessionUser;
   if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
   if (!isManagerOrAbove(role)) return NextResponse.json({ error: "Managers only" }, { status: 403 });
+  const requestedLocationId = await validateLocationId(companyId, req.nextUrl.searchParams.get("locationId"));
+  const locationId = pickActiveLocationId(sessionUser, requestedLocationId);
 
   await connectDB();
 
-  const taskList = await TaskList.findOne({ _id: params.taskListId, companyId });
+  const taskList = await TaskList.findOne({ _id: params.taskListId, companyId, locationId });
   if (!taskList) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   taskList.isActive = false;

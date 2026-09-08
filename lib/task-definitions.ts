@@ -4,6 +4,7 @@ import Task from "@/models/Task";
 import TaskList from "@/models/TaskList";
 import TaskLog from "@/models/TaskLog";
 import InventoryItemType from "@/models/InventoryItemType";
+import Location from "@/models/Location";
 import type { TaskType, FormFieldDef, InstructionStep } from "@/models/TaskDefinition";
 import { pickMostRelevantPlacement } from "./placement-resolution";
 export { pickMostRelevantPlacement } from "./placement-resolution";
@@ -87,23 +88,36 @@ export async function resolveTask<T extends LeanTaskLike>(task: T): Promise<T & 
 // Shared by both NFC-binding routes — app/api/tasks/[id]/nfc-tag (resolves
 // a specific list placement to its definitionId first) and
 // app/api/task-definitions/[id]/nfc-tag (binds a definition directly, so it
-// works even for one not yet placed in any list). A physical tag can now
-// back MORE THAN ONE target (see docs/features/nfc.md's "Multi-target
-// binding" — e.g. the same freezer tag backing both a temperature-log task
-// and, once Part 2 exists, an Inventory item), so binding here no longer
-// clears the UID off any other definition — it just sets it on this one,
-// leaving any existing binding(s) elsewhere intact. GET /api/tasks/by-nfc-uid
-// is what fans a scan back out to every matching target and disambiguates
-// when there's more than one. `alsoBoundTo` on the return value is purely
-// informational, for the binding UI to warn a manager this tag now does
-// double duty — it never blocks the bind. Checked across BOTH
-// TaskDefinition and InventoryItemType (lib/inventory.ts's own
-// bindInventoryNfcTag does the mirror-image check), since either collection
-// could already be claiming this UID.
-export async function bindNfcTag(companyId: string, definitionId: string, uid: string) {
+// works even for one not yet placed in any list). The primary bind/unbind
+// is scoped to BOTH companyId and locationId — a definition belongs to
+// exactly one store, so this is the actual authorization fix that prevents
+// binding/unbinding a definition that only exists at a different location.
+//
+// A physical tag can now back MORE THAN ONE target (see
+// docs/features/nfc.md's "Multi-target binding" — e.g. the same freezer tag
+// backing both a temperature-log task and an Inventory item), so binding
+// here no longer clears the UID off any other definition — it just sets it
+// on this one, leaving any existing binding(s) elsewhere intact. GET
+// /api/tasks/by-nfc-uid is what fans a scan back out to every matching
+// target (itself now locationId-filtered for TaskDefinition matches) and
+// disambiguates when there's more than one.
+//
+// `alsoBoundTo`'s own collision-check query stays COMPANY-WIDE, deliberately
+// not locationId-filtered: seeing "this UID is also used at your other
+// store" is genuinely useful signal for a manager who scanned the wrong
+// physical tag, not something to hide. It's purely informational — it never
+// blocks the bind — and is checked across BOTH TaskDefinition and
+// InventoryItemType (lib/inventory.ts's own bindInventoryNfcTag does the
+// mirror-image check; InventoryItemType stays company-wide, unaffected by
+// this refactor), since either collection could already be claiming this
+// UID. Each entry now carries its own locationName so the UI can say
+// exactly where the collision is, since a bare name is ambiguous once
+// definitions are location-owned (two stores can legitimately have an
+// identically-named "Walk-in Fridge Temp").
+export async function bindNfcTag(companyId: string, locationId: string | null, definitionId: string, uid: string) {
   const normalizedUid = uid.toLowerCase();
   const definition = await TaskDefinition.findOneAndUpdate(
-    { _id: definitionId, companyId },
+    { _id: definitionId, companyId, locationId },
     { $set: { nfcTagUid: normalizedUid } },
     { returnDocument: "after" }
   );
@@ -112,17 +126,37 @@ export async function bindNfcTag(companyId: string, definitionId: string, uid: s
   const [otherDefinitions, boundItemTypes] = await Promise.all([
     TaskDefinition.find(
       { companyId, nfcTagUid: normalizedUid, isActive: true, _id: { $ne: definitionId } },
-      { name: 1 }
+      { name: 1, locationId: 1 }
     ).lean(),
     InventoryItemType.find({ companyId, nfcTagUid: normalizedUid, isActive: true }, { name: 1 }).lean(),
   ]);
 
-  return { definition, alsoBoundTo: [...otherDefinitions, ...boundItemTypes].map((d) => d.name) };
+  const otherLocationIds = Array.from(
+    new Set(otherDefinitions.map((d) => d.locationId).filter((id): id is string => !!id))
+  );
+  const locationNameById = new Map(
+    otherLocationIds.length > 0
+      ? (await Location.find({ _id: { $in: otherLocationIds } }, { name: 1 }).lean()).map((l) => [
+          l._id.toString(),
+          l.name,
+        ])
+      : []
+  );
+
+  const alsoBoundTo = [
+    ...otherDefinitions.map((d) => ({
+      name: d.name,
+      locationName: d.locationId ? locationNameById.get(d.locationId) ?? null : null,
+    })),
+    ...boundItemTypes.map((it) => ({ name: it.name, locationName: null })),
+  ];
+
+  return { definition, alsoBoundTo };
 }
 
-export async function unbindNfcTag(companyId: string, definitionId: string) {
+export async function unbindNfcTag(companyId: string, locationId: string | null, definitionId: string) {
   return TaskDefinition.findOneAndUpdate(
-    { _id: definitionId, companyId },
+    { _id: definitionId, companyId, locationId },
     { $set: { nfcTagUid: null } },
     { returnDocument: "after" }
   );
@@ -142,12 +176,13 @@ export async function resolveMostRelevantPlacement(
   localDate: string,
   nowMinutesLocal: number | null
 ): Promise<mongoose.Types.ObjectId | null> {
-  const placements = await Task.find({ companyId, definitionId, isActive: true }).lean();
+  const placements = await Task.find({ companyId, locationId, definitionId, isActive: true }).lean();
   if (placements.length === 0) return null;
 
   const taskLists = await TaskList.find({
     _id: { $in: placements.map((p) => p.taskListId) },
     companyId,
+    locationId,
   }).lean();
 
   const logs = await TaskLog.find({

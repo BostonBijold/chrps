@@ -65,6 +65,18 @@ own section further down) — sharing the same fetched
 `taskLists`/`definitions` state and the same `refetchTasksAndDefinitions`
 refresh after any mutation.
 
+**Location switcher**: since `TaskList`/`Task`/`TaskDefinition` became
+location-owned (see CLAUDE.md's "Locations" section), this page now
+resolves `sessionUser` server-side in `app/(console)/console/tasks/page.tsx`
+(previously it had no server-side session resolution at all) and renders
+`<LocationSwitcher isOwner activeLocationId onChanged={refetchTasksAndDefinitions} />`
+above the segmented control, same component/wiring as `/console/reports`.
+Because this page fetches client-side on mount rather than via server
+props, it uses the `onChanged` callback to refetch directly, not the
+key-remount trick `ConsoleReportsView` uses. A manager or a single-location
+owner sees no UI change — the switcher renders nothing below 2 active
+locations, matching every other page that uses it.
+
 Reuses every existing route below as-is, plus two small additive routes on
 `/api/task-definitions` the Task Catalog pane needed (see that section):
 
@@ -72,7 +84,9 @@ Reuses every existing route below as-is, plus two small additive routes on
 - `POST /api/task-lists`
 - `PATCH /api/task-lists/[taskListId]`
 - `DELETE /api/task-lists/[taskListId]`
-- `GET /api/task-definitions`
+- `GET /api/task-definitions` (`scope=own`, the default this page uses — its
+  new `scope=company` cross-location browse mode is consumed by
+  `AddTaskSheet.tsx`, not this page's own panes directly)
 - `POST /api/task-definitions` (new — catalog-only creation, no placement)
 - `PATCH /api/task-definitions/[id]` (new — edit a definition directly by
   its own id)
@@ -137,11 +151,16 @@ to get subtly wrong with a hand-rolled local patch.
   resolves so a drag release feels instant. **Task type is not editable
   here** — nothing in the mobile UI lets a manager change a task's type
   after creation either. "+ Add Task" reuses `components/AddTaskSheet.tsx`
-  directly, unmodified — its two-path flow (browse the template catalog,
-  browse "Your Saved Tasks," or build a custom one) needed no console-side
-  reimplementation since it's already just Tailwind markup with no mobile
-  viewport assumptions baked in, and it fetches its own data via
-  `useEffect` the same way it does on mobile.
+  directly, unmodified — its three-path flow (browse the template catalog,
+  browse "Your Saved Tasks," browse "From Other Locations" to clone one, or
+  build a custom one — the third path added alongside the location-scoped
+  task catalog fix, see CLAUDE.md's "Locations" section) needed no
+  console-side reimplementation since it's already just Tailwind markup
+  with no mobile viewport assumptions baked in, and it fetches its own data
+  via `useEffect` the same way it does on mobile. `TaskManagementView.tsx`
+  wires a `handleAddClone` alongside its existing `handleAddExisting`,
+  calling the same `POST /api/tasks` with `cloneFromDefinitionId` instead
+  of `definitionId`.
 
 - **NFC status, not NFC action**: a task with a bound tag (`nfcTagUid`,
   already inlined via the join) shows a plain "Linked" badge inline in the

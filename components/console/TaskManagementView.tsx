@@ -1,10 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import LocationSwitcher from "@/components/LocationSwitcher";
 import TaskListsPane, { type ConsoleTaskList } from "@/components/console/TaskListsPane";
 import TaskListDetailPane, { type ConsoleTask } from "@/components/console/TaskListDetailPane";
 import TaskCatalogPane from "@/components/console/TaskCatalogPane";
 import type { TaskType, FormFieldDef } from "@/models/TaskDefinition";
+
+interface Props {
+  isOwner: boolean;
+  activeLocationId: string | null;
+}
 
 interface RawTask {
   _id: string;
@@ -75,7 +81,7 @@ function resolveTasksForList(list: RawTaskList, definitions: TaskDefinitionEntry
 // mobile equivalent) — simpler and safer here, since a task's name/icon/
 // formFields edit cascades onto every OTHER list placement sharing the
 // same TaskDefinition, not just the one being edited.
-export default function TaskManagementView() {
+export default function TaskManagementView({ isOwner, activeLocationId }: Props) {
   const [taskLists, setTaskLists] = useState<RawTaskList[] | null>(null);
   const [definitions, setDefinitions] = useState<TaskDefinitionEntry[] | null>(null);
   const [selectedListId, setSelectedListId] = useState<string | null>(null);
@@ -228,6 +234,16 @@ export default function TaskManagementView() {
     await refetchTasksAndDefinitions();
   };
 
+  const handleAddClone = async (definitionId: string) => {
+    if (!selectedListId) return;
+    await fetch("/api/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ taskListId: selectedListId, cloneFromDefinitionId: definitionId }),
+    });
+    await refetchTasksAndDefinitions();
+  };
+
   // Task Catalog pane handlers — these key off definitionId directly
   // (PATCH/POST/DELETE /api/task-definitions), unlike the list-scoped
   // handlers above which key off a Task placement id. A definition with no
@@ -308,11 +324,16 @@ export default function TaskManagementView() {
           </button>
         </div>
       </div>
-      <p className="font-body text-sm text-muted mb-6">
+      <p className="font-body text-sm text-muted mb-4">
         {view === "lists"
           ? "The same task lists and tasks the mobile app uses — create, rename, schedule, and edit them here."
-          : "Every saved task the company has, independent of which task lists (if any) place it."}
+          : "Every saved task this location has, independent of which task lists (if any) place it."}
       </p>
+      <LocationSwitcher
+        isOwner={isOwner}
+        activeLocationId={activeLocationId}
+        onChanged={refetchTasksAndDefinitions}
+      />
       {view === "lists" ? (
         <div className="flex items-start">
           <TaskListsPane
@@ -331,6 +352,7 @@ export default function TaskManagementView() {
             onRemoveTask={handleRemoveTask}
             onAddTask={handleAddTask}
             onAddExisting={handleAddExisting}
+            onAddClone={handleAddClone}
           />
         </div>
       ) : (

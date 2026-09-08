@@ -17,6 +17,11 @@ import mongoose, { Schema, Document, model, models } from "mongoose";
 export interface INfcTag extends Document {
   tagCode: string;
   companyId: string | null;
+  // Stamped from the claimed Task's own resolved locationId at claim time
+  // (never straight from the claiming user's session) — a physical tag is
+  // an address at one store, same reasoning as TaskDefinition.locationId.
+  // null while unclaimed, same lifecycle as companyId.
+  locationId: string | null;
   taskId: mongoose.Types.ObjectId | null;
   taskListId: mongoose.Types.ObjectId | null;
   claimedByUserId: string | null;
@@ -27,6 +32,7 @@ const NfcTagSchema = new Schema<INfcTag>(
   {
     tagCode: { type: String, required: true, unique: true, index: true },
     companyId: { type: String, default: null, index: true },
+    locationId: { type: String, default: null },
     taskId: { type: Schema.Types.ObjectId, ref: "Task", default: null },
     taskListId: { type: Schema.Types.ObjectId, ref: "TaskList", default: null },
     claimedByUserId: { type: String, default: null },
@@ -34,5 +40,7 @@ const NfcTagSchema = new Schema<INfcTag>(
   },
   { timestamps: true }
 );
+
+NfcTagSchema.index({ companyId: 1, locationId: 1 });
 
 export default models.NfcTag || model<INfcTag>("NfcTag", NfcTagSchema);

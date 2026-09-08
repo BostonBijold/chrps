@@ -11,6 +11,11 @@ import mongoose, { Schema, Document, model, models } from "mongoose";
 export interface IPendingNfcLink extends Document {
   userId: string;
   companyId: string;
+  // Stamped from the armed Task's own resolved locationId at arm time —
+  // lets the eventual claim step assert the claiming manager's own
+  // resolved location still matches what was armed, defensive against an
+  // owner switching locations between arming and physically tapping.
+  locationId: string | null;
   taskId: mongoose.Types.ObjectId;
   armedAt: Date;
 }
@@ -18,6 +23,7 @@ export interface IPendingNfcLink extends Document {
 const PendingNfcLinkSchema = new Schema<IPendingNfcLink>({
   userId: { type: String, required: true, unique: true, index: true },
   companyId: { type: String, required: true },
+  locationId: { type: String, default: null },
   taskId: { type: Schema.Types.ObjectId, ref: "Task", required: true },
   armedAt: { type: Date, required: true, default: () => new Date() },
 });

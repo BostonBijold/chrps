@@ -17,7 +17,7 @@ interface Template {
   formFields: FormFieldDef[];
 }
 
-// A task the company already has saved (TaskDefinition) — placing one of
+// A task this location already has saved (TaskDefinition) — placing one of
 // these into this list reuses it (shared name/icon/fields/NFC binding)
 // rather than creating a new saved task, unlike picking a Template below.
 interface ExistingTask {
@@ -26,6 +26,22 @@ interface ExistingTask {
   icon: string;
   formFields: unknown[];
   placements: Array<{ taskListId: string }>;
+}
+
+// A task saved at a DIFFERENT location (or elsewhere in the company) — read
+// via GET /api/task-definitions?scope=company, "example data" other stores
+// can draw from (see CLAUDE.md's "Task Lists" section and
+// docs/features/task-lists.md's "Company Task Catalog"). Never has
+// nfcTagUid/instructionSteps (the server nulls both out for this scope —
+// neither is portable), and picking one CLONES a brand-new, same-location
+// definition rather than referencing this one directly.
+interface OtherLocationTask {
+  _id: string;
+  locationId: string | null;
+  locationName: string | null;
+  name: string;
+  icon: string;
+  formFields: unknown[];
 }
 
 interface Props {
@@ -41,9 +57,13 @@ interface Props {
     successThreshold: number,
     formFields: FormFieldDef[]
   ) => Promise<void>;
-  // Places an existing company saved task (TaskDefinition) into this list
-  // instead of creating a new one — see ExistingTask above.
+  // Places an existing saved task (TaskDefinition) at THIS location into
+  // this list instead of creating a new one — see ExistingTask above.
   onAddExisting: (definitionId: string) => Promise<void>;
+  // Clones a definition saved at a DIFFERENT location into a brand-new,
+  // same-location definition, then places that into this list — see
+  // OtherLocationTask above.
+  onAddClone: (definitionId: string) => Promise<void>;
   onClose: () => void;
 }
 
@@ -59,14 +79,16 @@ const CATEGORY_LABELS: Record<string, string> = {
   custom: "Custom",
 };
 
-export default function AddTaskSheet({ taskListId, taskListName, onAdd, onAddExisting, onClose }: Props) {
+export default function AddTaskSheet({ taskListId, taskListName, onAdd, onAddExisting, onAddClone, onClose }: Props) {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [existingTasks, setExistingTasks] = useState<ExistingTask[]>([]);
+  const [otherLocationTasks, setOtherLocationTasks] = useState<OtherLocationTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [view, setView] = useState<"browse" | "create">("browse");
   const [adding, setAdding] = useState<string | null>(null);
   const [addingExisting, setAddingExisting] = useState<string | null>(null);
+  const [addingClone, setAddingClone] = useState<string | null>(null);
 
   // Custom form state
   const [customIcon, setCustomIcon] = useState("star");
@@ -97,6 +119,16 @@ export default function AddTaskSheet({ taskListId, taskListName, onAdd, onAddExi
       .then((r) => r.json())
       .then(setExistingTasks)
       .catch(() => setExistingTasks([]));
+    // Manager-only route (this screen is itself reached only by a manager
+    // or above — see docs/features/task-lists.md) — browse-to-clone
+    // "example data" from every other location in the company, see
+    // OtherLocationTask above. A 403/empty response (single-location
+    // company, or nothing else saved yet) just means the section renders
+    // nothing.
+    fetch("/api/task-definitions?scope=company")
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setOtherLocationTasks)
+      .catch(() => setOtherLocationTasks([]));
   }, [taskListId]);
 
   useEffect(() => {
@@ -110,6 +142,15 @@ export default function AddTaskSheet({ taskListId, taskListName, onAdd, onAddExi
   const filteredExisting = availableExisting.filter((d) =>
     search.trim() === "" || d.name.toLowerCase().includes(search.toLowerCase())
   );
+
+  // scope=company includes this location's own definitions too — exclude
+  // anything already shown under "Your Saved Tasks" above, so each entry
+  // appears in exactly one section. Naturally renders nothing at a
+  // single-location company, no separate visibility check needed.
+  const ownIds = new Set(existingTasks.map((d) => d._id));
+  const filteredOtherLocation = otherLocationTasks
+    .filter((d) => !ownIds.has(d._id))
+    .filter((d) => search.trim() === "" || d.name.toLowerCase().includes(search.toLowerCase()));
 
   const filtered = templates.filter((t) =>
     search.trim() === "" || t.name.toLowerCase().includes(search.toLowerCase())
@@ -136,6 +177,12 @@ export default function AddTaskSheet({ taskListId, taskListName, onAdd, onAddExi
     setAddingExisting(d._id);
     await onAddExisting(d._id);
     setAddingExisting(null);
+  };
+
+  const handleAddClone = async (d: OtherLocationTask) => {
+    setAddingClone(d._id);
+    await onAddClone(d._id);
+    setAddingClone(null);
   };
 
   const handleSaveCustom = async () => {
@@ -235,15 +282,15 @@ export default function AddTaskSheet({ taskListId, taskListName, onAdd, onAddExi
                   <p className="text-dim font-mono text-xs text-center py-8">Loading catalog…</p>
                 )}
 
-                {!loading && filtered.length === 0 && filteredExisting.length === 0 && (
+                {!loading && filtered.length === 0 && filteredExisting.length === 0 && filteredOtherLocation.length === 0 && (
                   <p className="text-dim font-mono text-xs text-center py-8">
                     No tasks match &ldquo;{search}&rdquo;
                   </p>
                 )}
 
-                {/* Tasks the company already has saved — placing one reuses
-                    it (shared name/icon/fields/NFC binding) instead of
-                    creating a new saved task. */}
+                {/* Tasks this location already has saved — placing one
+                    reuses it (shared name/icon/fields/NFC binding) instead
+                    of creating a new saved task. */}
                 {filteredExisting.length > 0 && (
                   <div className="mb-5">
                     <p className="font-mono text-[10px] uppercase tracking-widest text-dim mb-2">
@@ -265,6 +312,41 @@ export default function AddTaskSheet({ taskListId, taskListName, onAdd, onAddExi
                             className="ml-2 bg-olive/15 hover:bg-olive/30 border border-olive/30 text-olive font-mono text-xs px-3 py-1.5 rounded-pill transition-colors disabled:opacity-50 flex-shrink-0"
                           >
                             {addingExisting === d._id ? "…" : "Add"}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Example data from other stores/the company as a whole —
+                    picking one clones a brand-new definition at THIS
+                    location (no shared NFC binding/instructions/photos —
+                    see OtherLocationTask above), unlike "Your Saved Tasks"
+                    which references the same one directly. */}
+                {filteredOtherLocation.length > 0 && (
+                  <div className="mb-5">
+                    <p className="font-mono text-[10px] uppercase tracking-widest text-dim mb-2">
+                      From Other Locations
+                    </p>
+                    <div className="bg-bg rounded-card divide-y divide-border overflow-hidden">
+                      {filteredOtherLocation.map((d) => (
+                        <div key={d._id} className="flex items-center gap-3 px-3 py-3">
+                          <div className="w-7 flex items-center justify-center flex-shrink-0">
+                            <AppIcon name={d.icon} size={17} className="text-muted" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <span className="block font-body text-sm text-text truncate">{d.name}</span>
+                            {d.locationName && (
+                              <span className="block font-mono text-[10px] text-dim truncate">{d.locationName}</span>
+                            )}
+                          </div>
+                          <button
+                            onClick={() => handleAddClone(d)}
+                            disabled={addingClone === d._id}
+                            className="ml-2 bg-olive/15 hover:bg-olive/30 border border-olive/30 text-olive font-mono text-xs px-3 py-1.5 rounded-pill transition-colors disabled:opacity-50 flex-shrink-0"
+                          >
+                            {addingClone === d._id ? "…" : "Add"}
                           </button>
                         </div>
                       ))}

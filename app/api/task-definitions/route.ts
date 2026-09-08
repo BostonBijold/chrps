@@ -3,30 +3,79 @@ import { connectDB } from "@/lib/mongoose";
 import TaskDefinition, { type InstructionStep } from "@/models/TaskDefinition";
 import Task from "@/models/Task";
 import TaskList from "@/models/TaskList";
+import Location from "@/models/Location";
 import { sanitizeFormFields } from "@/lib/form-fields";
-import { resolveSessionUser, isManagerOrAbove } from "@/lib/session";
+import { resolveSessionUser, isManagerOrAbove, pickActiveLocationId } from "@/lib/session";
+import { validateLocationId } from "@/lib/locations";
 
 export const dynamic = "force-dynamic";
 
-// GET /api/task-definitions — the company's full saved-task catalog
-// ("Company Task Catalog"), regardless of which lists currently use them —
-// see docs/features/task-lists.md's "Company Task Catalog" section.
-// Includes, per definition, which lists it's currently placed in (name +
-// placement id), so the manager UI can show "used in Opening, Closing" and
-// block/allow deletion accordingly. Also the pull-sync source for the
-// offline SQLite cache's `task_definitions` table (companyId/updatedAt
-// added for that purpose — see docs/features/offline.md).
-export async function GET() {
+// GET /api/task-definitions?scope=own|company — a saved-task catalog. Two
+// modes (see docs/features/task-lists.md's "Company Task Catalog" section):
+//
+// - `scope=own` (default, unchanged access — any signed-in company user):
+//   this location's own catalog, regardless of which of this location's
+//   lists currently use each entry. Includes, per definition, which lists
+//   it's currently placed in (name + placement id) — always at THIS same
+//   location — so the manager UI can show "used in Opening, Closing" and
+//   block/allow deletion accordingly. Also the pull-sync source for the
+//   offline SQLite cache's `task_definitions` table (companyId/updatedAt
+//   added for that purpose — see docs/features/offline.md).
+// - `scope=company` (new, manager-or-above only): a read-only browse of
+//   EVERY location's definitions in the company — "example data" a manager
+//   can clone from for their own store (see POST /api/tasks's
+//   cloneFromDefinitionId). nfcTagUid/instructionSteps are always nulled
+//   out here regardless of the stored value — neither is portable, and the
+//   UI must never render another store's tag UID or instruction photos —
+//   and no `placements` array is included (not this manager's own
+//   configuration to act on).
+export async function GET(req: NextRequest) {
   const sessionUser = await resolveSessionUser();
   if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const { companyId } = sessionUser;
+  const { companyId, role } = sessionUser;
   if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
 
   await connectDB();
 
-  const definitions = await TaskDefinition.find({ companyId, isActive: true }).sort({ name: 1 }).lean();
+  const scope = req.nextUrl.searchParams.get("scope") === "company" ? "company" : "own";
+
+  if (scope === "company") {
+    if (!isManagerOrAbove(role)) return NextResponse.json({ error: "Managers only" }, { status: 403 });
+
+    const definitions = await TaskDefinition.find({ companyId, isActive: true }).sort({ name: 1 }).lean();
+    const locationIds = Array.from(new Set(definitions.map((d) => d.locationId).filter((id): id is string => !!id)));
+    const locationNameById = new Map(
+      locationIds.length > 0
+        ? (await Location.find({ _id: { $in: locationIds } }, { name: 1 }).lean()).map((l) => [l._id.toString(), l.name])
+        : []
+    );
+
+    return NextResponse.json(
+      definitions.map((d) => ({
+        _id: d._id.toString(),
+        companyId,
+        locationId: d.locationId ?? null,
+        locationName: d.locationId ? locationNameById.get(d.locationId) ?? null : null,
+        name: d.name,
+        icon: d.icon,
+        taskType: d.taskType,
+        formFields: d.formFields ?? [],
+        projectedMinutes: d.projectedMinutes,
+        nfcTagUid: null,
+        instructionSteps: [],
+        requiresPhoto: false,
+        updatedAt: d.updatedAt ? new Date(d.updatedAt).toISOString() : null,
+      }))
+    );
+  }
+
+  const requestedLocationId = await validateLocationId(companyId, req.nextUrl.searchParams.get("locationId"));
+  const locationId = pickActiveLocationId(sessionUser, requestedLocationId);
+
+  const definitions = await TaskDefinition.find({ companyId, locationId, isActive: true }).sort({ name: 1 }).lean();
   const placements = await Task.find({
     companyId,
+    locationId,
     isActive: true,
     definitionId: { $in: definitions.map((d) => d._id) },
   }).lean();
@@ -84,6 +133,9 @@ export async function POST(req: NextRequest) {
   const { companyId, role } = sessionUser;
   if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
   if (!isManagerOrAbove(role)) return NextResponse.json({ error: "Managers only" }, { status: 403 });
+  const requestedLocationId = await validateLocationId(companyId, req.nextUrl.searchParams.get("locationId"));
+  const locationId = pickActiveLocationId(sessionUser, requestedLocationId);
+  if (!locationId) return NextResponse.json({ error: "No location assigned" }, { status: 403 });
 
   const { name, icon, projectedMinutes, formFields } = await req.json();
   if (typeof name !== "string" || !name.trim() || typeof icon !== "string" || !icon) {
@@ -94,6 +146,7 @@ export async function POST(req: NextRequest) {
 
   const definition = await TaskDefinition.create({
     companyId,
+    locationId,
     templateId: null,
     name: name.trim(),
     icon,

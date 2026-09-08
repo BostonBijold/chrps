@@ -87,17 +87,30 @@ export const InstructionStepSchema = new Schema<InstructionStep>(
   }
 );
 
-// The company's reusable, physical-location-bound "saved task" — the check
+// One store's reusable, physical-location-bound "saved task" — the check
 // itself (fridge temp, restroom clean, opening cash count), independent of
 // any one TaskList placement. A `Task` (models/Task.ts) is a lightweight
-// join connecting one of these into a specific list; the same
-// TaskDefinition can be placed in more than one list (e.g. fridge temp
-// checked in both the opening and closing lists), and its NFC binding,
-// name, icon, and form fields are shared across every placement — the same
-// physical check, done more than once. See the "Company Task Catalog"
-// design in docs/features/task-lists.md.
+// join connecting one of these into a specific list at the SAME location;
+// the same TaskDefinition can be placed in more than one list at its own
+// location (e.g. fridge temp checked in both the opening and closing
+// lists), and its NFC binding, name, icon, and form fields are shared
+// across every one of those placements — the same physical check, done
+// more than once. See the "Company Task Catalog" design in
+// docs/features/task-lists.md.
 export interface ITaskDefinition extends Document {
   companyId: string;
+  // Which physical store owns this saved check — nfcTagUid/instructionSteps/
+  // requiresPhoto all live on this document, and all three are physically
+  // local to one store (a tag sticker, a photo of that store's own fridge),
+  // so a definition belongs to exactly one Location, never shared live
+  // across locations. See CLAUDE.md's "Locations" section and the "Company
+  // Task Catalog" design in docs/features/task-lists.md — a manager can
+  // still browse another location's (or the company's) definitions as
+  // read-only "example" data, but adding one to their own list always
+  // clones a brand-new, same-location definition rather than referencing
+  // this one directly (app/api/tasks/route.ts's cloneFromDefinitionId
+  // branch). null only for a pre-migration row.
+  locationId: string | null;
   // Which TaskTemplate this was cloned from, if any — informational only,
   // used to exclude an already-in-use template from the catalog browser
   // (see app/api/task-templates/route.ts). Null for a fully custom task.
@@ -144,6 +157,7 @@ const TaskDefinitionSchema = new Schema<ITaskDefinition>(
     // Company's shared task configuration — see TaskList.companyId for why
     // this stays a plain String rather than an ObjectId ref.
     companyId: { type: String, required: true, index: true },
+    locationId: { type: String, default: null },
     templateId: { type: Schema.Types.ObjectId, ref: "TaskTemplate", default: null },
     name: { type: String, required: true },
     icon: { type: String, default: "list-checks" },
@@ -157,5 +171,13 @@ const TaskDefinitionSchema = new Schema<ITaskDefinition>(
   },
   { timestamps: true }
 );
+
+TaskDefinitionSchema.index({ companyId: 1, locationId: 1, isActive: 1 });
+// Backs both the location-scoped NFC scan/bind path (the actual fix — a
+// scan/bind can never match a definition at a different location) and the
+// cross-location "alsoBoundTo" collision-warning query below, which stays
+// company-wide on purpose. nfcTagUid had no index at all before this.
+TaskDefinitionSchema.index({ companyId: 1, locationId: 1, nfcTagUid: 1 });
+TaskDefinitionSchema.index({ companyId: 1, nfcTagUid: 1 });
 
 export default models.TaskDefinition || model<ITaskDefinition>("TaskDefinition", TaskDefinitionSchema);

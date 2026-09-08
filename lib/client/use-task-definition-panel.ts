@@ -38,7 +38,11 @@ export function useTaskDefinitionPanel(definitionId: string, initial: UseTaskDef
   const [nfcTagUid, setNfcTagUid] = useState<string | null>(initial.nfcTagUid);
   const [bindBusy, setBindBusy] = useState(false);
   const [bindError, setBindError] = useState<string | null>(null);
-  const [alsoBoundTo, setAlsoBoundTo] = useState<string[]>([]);
+  // Each entry names another active target sharing this UID and, when it's
+  // a TaskDefinition, which location it belongs to (null for an
+  // InventoryItemType match, or a pre-Locations row) — see
+  // lib/task-definitions.ts's bindNfcTag.
+  const [alsoBoundTo, setAlsoBoundTo] = useState<Array<{ name: string; locationName: string | null }>>([]);
 
   async function handleScanToLink() {
     setBindError(null);

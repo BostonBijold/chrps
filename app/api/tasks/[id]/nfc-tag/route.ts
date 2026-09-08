@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
 import Task from "@/models/Task";
 import { bindNfcTag, unbindNfcTag } from "@/lib/task-definitions";
-import { resolveSessionUser, isManagerOrAbove } from "@/lib/session";
+import { resolveSessionUser, isManagerOrAbove, pickActiveLocationId } from "@/lib/session";
+import { validateLocationId } from "@/lib/locations";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +28,8 @@ export async function POST(
   const { companyId, role } = sessionUser;
   if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
   if (!isManagerOrAbove(role)) return NextResponse.json({ error: "Managers only" }, { status: 403 });
+  const requestedLocationId = await validateLocationId(companyId, req.nextUrl.searchParams.get("locationId"));
+  const locationId = pickActiveLocationId(sessionUser, requestedLocationId);
 
   const { uid } = await req.json();
   if (!uid || typeof uid !== "string") {
@@ -35,10 +38,10 @@ export async function POST(
 
   await connectDB();
 
-  const task = await Task.findOne({ _id: params.id, companyId }).select("definitionId").lean();
+  const task = await Task.findOne({ _id: params.id, companyId, locationId }).select("definitionId").lean();
   if (!task) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const bound = await bindNfcTag(companyId, task.definitionId.toString(), uid);
+  const bound = await bindNfcTag(companyId, locationId, task.definitionId.toString(), uid);
   if (!bound) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   return NextResponse.json({ nfcTagUid: bound.definition.nfcTagUid, alsoBoundTo: bound.alsoBoundTo });
@@ -54,13 +57,15 @@ export async function DELETE(
   const { companyId, role } = sessionUser;
   if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
   if (!isManagerOrAbove(role)) return NextResponse.json({ error: "Managers only" }, { status: 403 });
+  const requestedLocationId = await validateLocationId(companyId, req.nextUrl.searchParams.get("locationId"));
+  const locationId = pickActiveLocationId(sessionUser, requestedLocationId);
 
   await connectDB();
 
-  const task = await Task.findOne({ _id: params.id, companyId }).select("definitionId").lean();
+  const task = await Task.findOne({ _id: params.id, companyId, locationId }).select("definitionId").lean();
   if (!task) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const definition = await unbindNfcTag(companyId, task.definitionId.toString());
+  const definition = await unbindNfcTag(companyId, locationId, task.definitionId.toString());
   if (!definition) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   return NextResponse.json({ ok: true });

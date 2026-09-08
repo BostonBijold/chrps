@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
 import Task from "@/models/Task";
-import { resolveSessionUser } from "@/lib/session";
+import { resolveSessionUser, pickActiveLocationId } from "@/lib/session";
+import { validateLocationId } from "@/lib/locations";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,8 @@ export async function PATCH(req: NextRequest) {
   if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { companyId } = sessionUser;
   if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
+  const requestedLocationId = await validateLocationId(companyId, req.nextUrl.searchParams.get("locationId"));
+  const locationId = pickActiveLocationId(sessionUser, requestedLocationId);
 
   const { tasks } = (await req.json()) as { tasks: Array<{ _id: string; order: number }> };
 
@@ -23,7 +26,7 @@ export async function PATCH(req: NextRequest) {
 
   await Promise.all(
     tasks.map(({ _id, order }) =>
-      Task.updateOne({ _id, companyId }, { $set: { order } })
+      Task.updateOne({ _id, companyId, locationId }, { $set: { order } })
     )
   );
 

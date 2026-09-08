@@ -3,7 +3,8 @@ import { connectDB } from "@/lib/mongoose";
 import TaskList from "@/models/TaskList";
 import Task from "@/models/Task";
 import Company from "@/models/Company";
-import { resolveSessionUser, isManagerOrAbove } from "@/lib/session";
+import { resolveSessionUser, isManagerOrAbove, pickActiveLocationId } from "@/lib/session";
+import { validateLocationId } from "@/lib/locations";
 import { upsertStartTimeSchedule } from "@/lib/qstash-schedules";
 
 export const dynamic = "force-dynamic";
@@ -30,21 +31,24 @@ export async function POST(
   const { companyId, role } = sessionUser;
   if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
   if (!isManagerOrAbove(role)) return NextResponse.json({ error: "Managers only" }, { status: 403 });
+  const requestedLocationId = await validateLocationId(companyId, req.nextUrl.searchParams.get("locationId"));
+  const locationId = pickActiveLocationId(sessionUser, requestedLocationId);
 
   await connectDB();
 
-  const source = await TaskList.findOne({ _id: params.taskListId, companyId, isActive: true }).lean();
+  const source = await TaskList.findOne({ _id: params.taskListId, companyId, locationId, isActive: true }).lean();
   if (!source) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const sourceTasks = await Task.find({ taskListId: source._id, companyId, isActive: true })
+  const sourceTasks = await Task.find({ taskListId: source._id, companyId, locationId, isActive: true })
     .sort({ order: 1 })
     .lean();
 
-  const topList = await TaskList.findOne({ companyId }).sort({ order: -1 }).lean();
+  const topList = await TaskList.findOne({ companyId, locationId }).sort({ order: -1 }).lean();
   const nextOrder = topList ? topList.order + 1 : 0;
 
   const newList = await TaskList.create({
     companyId,
+    locationId,
     name: `${source.name} (Copy)`,
     timeOfDay: source.timeOfDay,
     startTime: source.startTime ?? null,
@@ -58,6 +62,7 @@ export async function POST(
       sourceTasks.map((t) => ({
         taskListId: newList._id,
         companyId,
+        locationId,
         definitionId: t.definitionId,
         projectedMinutes: t.projectedMinutes ?? null,
         order: t.order,

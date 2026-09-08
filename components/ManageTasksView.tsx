@@ -410,14 +410,28 @@ export default function ManageTasksView({ userName, today, skipAuth, taskLists, 
     router.refresh();
   };
 
-  // Places an existing company saved task (TaskDefinition) into the list
-  // just created — mirrors TaskListEditView.tsx's own handleAddExisting.
+  // Places an existing saved task (TaskDefinition) at THIS location into
+  // the list just created — mirrors TaskListEditView.tsx's own
+  // handleAddExisting.
   const handleAddExisting = async (definitionId: string) => {
     if (!addTaskSheetFor) return;
     await fetch("/api/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ taskListId: addTaskSheetFor.id, definitionId }),
+    });
+    setAddTaskSheetFor(null);
+    router.refresh();
+  };
+
+  // Clones a definition saved at a DIFFERENT location — mirrors
+  // TaskListEditView.tsx's own handleAddClone.
+  const handleAddClone = async (definitionId: string) => {
+    if (!addTaskSheetFor) return;
+    await fetch("/api/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ taskListId: addTaskSheetFor.id, cloneFromDefinitionId: definitionId }),
     });
     setAddTaskSheetFor(null);
     router.refresh();
@@ -703,6 +717,7 @@ export default function ManageTasksView({ userName, today, skipAuth, taskLists, 
           taskListName={addTaskSheetFor.name}
           onAdd={handleAddTask}
           onAddExisting={handleAddExisting}
+          onAddClone={handleAddClone}
           onClose={() => setAddTaskSheetFor(null)}
         />
       )}

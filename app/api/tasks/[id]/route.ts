@@ -5,7 +5,8 @@ import TaskDefinition from "@/models/TaskDefinition";
 import TaskList from "@/models/TaskList";
 import { sanitizeFormFields } from "@/lib/form-fields";
 import { resolveTask } from "@/lib/task-definitions";
-import { resolveSessionUser } from "@/lib/session";
+import { resolveSessionUser, pickActiveLocationId } from "@/lib/session";
+import { validateLocationId } from "@/lib/locations";
 
 export const dynamic = "force-dynamic";
 
@@ -22,10 +23,12 @@ export async function DELETE(
   if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { companyId } = sessionUser;
   if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
+  const requestedLocationId = await validateLocationId(companyId, req.nextUrl.searchParams.get("locationId"));
+  const locationId = pickActiveLocationId(sessionUser, requestedLocationId);
 
   await connectDB();
 
-  const task = await Task.findOne({ _id: params.id, companyId });
+  const task = await Task.findOne({ _id: params.id, companyId, locationId });
   if (!task) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   // Soft delete — keeps log history intact
@@ -39,11 +42,12 @@ export async function DELETE(
   const remaining = await Task.countDocuments({
     taskListId: task.taskListId,
     companyId,
+    locationId,
     isActive: true,
   });
   if (remaining === 0) {
     await TaskList.updateOne(
-      { _id: task.taskListId, companyId },
+      { _id: task.taskListId, companyId, locationId },
       { $set: { isActive: false } }
     );
   }
@@ -70,6 +74,8 @@ export async function PATCH(
   if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { companyId } = sessionUser;
   if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
+  const requestedLocationId = await validateLocationId(companyId, req.nextUrl.searchParams.get("locationId"));
+  const locationId = pickActiveLocationId(sessionUser, requestedLocationId);
 
   const updates = await req.json();
   const definitionUpdates: Partial<Record<(typeof DEFINITION_FIELDS)[number], unknown>> = {};
@@ -80,7 +86,7 @@ export async function PATCH(
 
   await connectDB();
 
-  const task = await Task.findOne({ _id: params.id, companyId }).lean();
+  const task = await Task.findOne({ _id: params.id, companyId, locationId }).lean();
   if (!task) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   // Clamp threshold against whichever scheduledDays is now in effect —
@@ -100,13 +106,13 @@ export async function PATCH(
   }
 
   if (Object.keys(definitionUpdates).length > 0) {
-    await TaskDefinition.updateOne({ _id: task.definitionId, companyId }, { $set: definitionUpdates });
+    await TaskDefinition.updateOne({ _id: task.definitionId, companyId, locationId }, { $set: definitionUpdates });
   }
   if (Object.keys(placementUpdates).length > 0) {
-    await Task.updateOne({ _id: task._id, companyId }, { $set: placementUpdates });
+    await Task.updateOne({ _id: task._id, companyId, locationId }, { $set: placementUpdates });
   }
 
-  const updatedTask = await Task.findOne({ _id: task._id, companyId }).lean();
+  const updatedTask = await Task.findOne({ _id: task._id, companyId, locationId }).lean();
   if (!updatedTask) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const resolved = await resolveTask(updatedTask);
 

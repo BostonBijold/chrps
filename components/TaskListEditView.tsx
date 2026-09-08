@@ -584,6 +584,42 @@ export default function TaskListEditView({ isManager, taskList, tasks: initialTa
     router.refresh();
   };
 
+  // Clones a definition saved at a DIFFERENT location into a brand-new
+  // definition at THIS one (name/icon/fields copied, no NFC binding/
+  // instructions/photo — see AddTaskSheet's "From Other Locations"
+  // section), then places that new definition into this list. Same POST
+  // /api/tasks endpoint as handleAdd/handleAddExisting above, just with
+  // cloneFromDefinitionId instead.
+  const handleAddClone = async (definitionId: string) => {
+    const res = await fetch("/api/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ taskListId: taskList._id, cloneFromDefinitionId: definitionId }),
+    });
+    const newTask = await res.json();
+    setTasks((prev) => [
+      ...prev,
+      {
+        _id: newTask._id,
+        name: newTask.name,
+        icon: newTask.icon,
+        projectedMinutes: newTask.projectedMinutes,
+        taskType: (newTask.taskType ?? "form") as TaskType,
+        formFields: newTask.formFields ?? [],
+        order: prev.length,
+        scheduledDays: newTask.scheduledDays ?? ALL_DAYS,
+        successThreshold: newTask.successThreshold ?? 7,
+        nfcTagCode: null,
+        nfcTagUid: null,
+        definitionId: newTask.definitionId,
+        instructionSteps: [],
+        requiresPhoto: false,
+      },
+    ]);
+    setShowAddSheet(false);
+    router.refresh();
+  };
+
   const totalMins = tasks.reduce((s, t) => s + t.projectedMinutes, 0);
   const fmtTotal = totalMins < 60
     ? `${totalMins}m`
@@ -755,6 +791,7 @@ export default function TaskListEditView({ isManager, taskList, tasks: initialTa
           taskListName={taskList.name}
           onAdd={handleAdd}
           onAddExisting={handleAddExisting}
+          onAddClone={handleAddClone}
           onClose={() => setShowAddSheet(false)}
         />
       )}
