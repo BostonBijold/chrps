@@ -277,35 +277,31 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
 
   const timeDisplay = `${pad(Math.floor(elapsed / 60))}:${pad(elapsed % 60)}`;
 
-  // The Save/Scan FAB now lives at the end of the scrollable field list
-  // (below) rather than pinned outside it, so a long checklist/inventory
-  // sublist can genuinely push it below the fold. saveButtonVisible tracks
-  // whether the Save/Scan button itself (saveBlockRef — just the button +
-  // its label, NOT the "Missed it" button below it) is currently in view
-  // within the scroll container; when it's not, a mini FAB-sized version
-  // (same size/style as BottomNav.tsx's own FAB) floats at the bottom of
-  // the card as a shortcut back down to it.
+  // The Save/Scan button is a single `position: sticky` element pinned near
+  // the bottom of the scroll container, so a long checklist/inventory
+  // sublist can genuinely push "Missed it" below the fold while the Save
+  // button itself stays reachable without a second, separately-animated
+  // FAB (that used to visibly double up with the real button as it faded
+  // in/out). atRest tracks whether the true end of the content — the
+  // "Missed it" button — is in view: true once nothing's left to scroll to
+  // (the Save button is at its natural resting spot, shown full-size),
+  // false while there's still content below (Save button shrinks to a
+  // docked mini size but keeps working — same element, same onClick).
   const scrollRef = useRef<HTMLDivElement>(null);
-  const saveBlockRef = useRef<HTMLDivElement>(null);
-  const [saveButtonVisible, setSaveButtonVisible] = useState(true);
+  const missedButtonRef = useRef<HTMLButtonElement>(null);
+  const [atRest, setAtRest] = useState(true);
 
   useEffect(() => {
     const root = scrollRef.current;
-    const target = saveBlockRef.current;
+    const target = missedButtonRef.current;
     if (!root || !target) return;
-    const observer = new IntersectionObserver(([entry]) => setSaveButtonVisible(entry.isIntersecting), {
+    const observer = new IntersectionObserver(([entry]) => setAtRest(entry.isIntersecting), {
       root,
       threshold: 0.9,
     });
     observer.observe(target);
     return () => observer.disconnect();
   }, []);
-
-  const scrollToSaveButton = () => {
-    const root = scrollRef.current;
-    if (!root) return;
-    root.scrollTo({ top: root.scrollHeight, behavior: "smooth" });
-  };
 
   return (
     // Outer layer is a plain, static blue backdrop — never animated, always
@@ -367,7 +363,13 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
           )}
         </div>
 
-        <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 pb-6 space-y-5">
+        {/* flex flex-col + mt-auto on the Save/Missed block below is what
+            keeps that block pinned to its original spot at the bottom of
+            the card when the fields are short (e.g. a single-item
+            checklist) instead of it just trailing the last field — while
+            still scrolling normally once real content overflows. */}
+        <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 pb-6 flex flex-col">
+          <div className="space-y-5">
           {fields.map((f) => {
             if (f.type === "checklist") {
               const items = checklistItems(f);
@@ -523,31 +525,63 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
           )}
 
           {error && <p className="font-mono text-xs text-burgundy-light">{error}</p>}
+          </div>
 
-          {/* Primary action — same big FAB either way (Nfc icon while a tag
-              scan is still required, Check once ready to save). Now part of
-              the scrollable content itself (rather than pinned outside it),
-              so a long checklist/inventory sublist can genuinely push it
-              below the fold — the mini FAB below is the way back to it. */}
-          <div className="pt-4 w-full flex flex-col items-center">
-            <div ref={saveBlockRef} className="w-full flex flex-col items-center">
+          {/* Primary action — same single button either way (Nfc icon while
+              a tag scan is still required, Check once ready to save).
+              `sticky bottom-4` keeps it reachable on screen the whole time
+              a long checklist/inventory sublist scrolls beneath it, instead
+              of a separate mini FAB crossfading in over it. atRest (true
+              once "Missed it" — the real end of content — is in view)
+              drives a single size transition: full-size at its natural
+              resting spot above Missed it, shrunk to a docked mini size
+              while still floating above content further up. Always the
+              same element, so there's never two blue circles overlapping
+              mid-animation. mt-auto on the outer block still anchors
+              everything to the bottom of the card when the fields above
+              don't fill the available height on their own. */}
+          <div className="mt-auto pt-4 w-full flex flex-col items-center">
+            <div className="sticky bottom-4 z-20 flex flex-col items-center">
               <button
                 onClick={handleSave}
                 disabled={scanning}
                 aria-label={requiresNfcScan && !alreadyVerified ? "Scan NFC tag to save" : "Save"}
-                className="relative z-10 w-32 h-32 rounded-full border-4 border-bg shadow-lg flex items-center justify-center bg-olive transition-all duration-200 disabled:opacity-70 active:opacity-90"
+                className={`relative rounded-full border-4 border-bg shadow-lg flex items-center justify-center bg-olive transition-all duration-300 ease-out disabled:opacity-70 active:opacity-90 ${
+                  atRest ? "w-32 h-32" : "w-14 h-14"
+                }`}
               >
+                {/* The icon's `size` prop sets a literal SVG width/height
+                    attribute, which can't CSS-transition — so it's kept at
+                    one intrinsic size and scaled with a transform instead,
+                    which animates smoothly in step with the button. */}
                 {requiresNfcScan && !alreadyVerified ? (
-                  <Nfc size={52} strokeWidth={1.75} className={`text-bg ${scanning ? "animate-pulse" : ""}`} />
+                  <span
+                    className={`inline-flex transition-transform duration-300 ease-out ${
+                      atRest ? "scale-100" : "scale-[0.42]"
+                    } ${scanning ? "animate-pulse" : ""}`}
+                  >
+                    <Nfc size={52} strokeWidth={1.75} className="text-bg" />
+                  </span>
                 ) : (
-                  <Check size={56} strokeWidth={2.25} className="text-bg" />
+                  <span
+                    className={`inline-flex transition-transform duration-300 ease-out ${
+                      atRest ? "scale-100" : "scale-[0.42]"
+                    }`}
+                  >
+                    <Check size={56} strokeWidth={2.25} className="text-bg" />
+                  </span>
                 )}
               </button>
-              <p className="font-mono text-xs text-dim uppercase tracking-widest mt-3 mb-6">
+              <p
+                className={`font-mono text-xs text-dim uppercase tracking-widest overflow-hidden transition-all duration-300 ease-out ${
+                  atRest ? "max-h-6 opacity-100 mt-3 mb-6" : "max-h-0 opacity-0 mt-0 mb-2"
+                }`}
+              >
                 {scanning ? "Hold near tag…" : requiresNfcScan && !alreadyVerified ? "Scan NFC to Save" : "Save"}
               </p>
             </div>
             <button
+              ref={missedButtonRef}
               onClick={onMissed}
               disabled={scanning}
               className="w-full py-3.5 rounded-card border border-burgundy/30 text-burgundy-light font-body text-sm min-h-[44px] disabled:opacity-60"
@@ -556,31 +590,6 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
             </button>
           </div>
         </div>
-
-        {/* Mini FAB — same size/style as BottomNav.tsx's own FAB. Sits
-            pinned near the bottom of the card, scaled to nothing and
-            untappable while the real Save/Scan button is in view; once a
-            long sublist scrolls it out of view, this grows in as a
-            shortcut back down to it. Tapping it smooth-scrolls the field
-            list to the bottom, where the real button already sits at full
-            size — so the mini FAB shrinks away right as the full one comes
-            into view. */}
-        <button
-          type="button"
-          onClick={scrollToSaveButton}
-          aria-label="Scroll to Save button"
-          tabIndex={saveButtonVisible ? -1 : 0}
-          aria-hidden={saveButtonVisible}
-          className={`absolute bottom-6 left-1/2 -translate-x-1/2 z-20 w-14 h-14 rounded-full border-4 border-bg shadow-lg flex items-center justify-center bg-olive transition-all duration-300 ease-out ${
-            saveButtonVisible ? "opacity-0 scale-50 pointer-events-none" : "opacity-100 scale-100"
-          }`}
-        >
-          {requiresNfcScan && !alreadyVerified ? (
-            <Nfc size={22} strokeWidth={1.75} className="text-bg" />
-          ) : (
-            <Check size={24} strokeWidth={2.25} className="text-bg" />
-          )}
-        </button>
       </div>
     </div>
     {showInstructions && (
