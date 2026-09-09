@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { ClipboardList } from "lucide-react";
+import { ClipboardList, Image as ImageIcon } from "lucide-react";
 import StreakDots from "@/components/StreakDots";
 import AppIcon from "@/components/AppIcon";
 import TaskInstructionsSheet, { type TaskInstructionStep } from "@/components/TaskInstructionsSheet";
+import TaskPhotoViewSheet from "@/components/TaskPhotoViewSheet";
 import type { TaskLogEntry } from "@/components/TasksView";
 import type { LogState } from "@/models/TaskLog";
 import type { FormFieldDef } from "@/models/TaskDefinition";
@@ -104,6 +105,7 @@ export default function TaskRow({
   const formFields = item.formFields ?? [];
   const [showInstructions, setShowInstructions] = useState(false);
   const instructionSteps = item.instructionSteps ?? [];
+  const [showPhoto, setShowPhoto] = useState(false);
 
   const variance =
     !isCheckbox && !isStopwatch && state === "done" && log?.actualMinutes != null
@@ -145,19 +147,6 @@ export default function TaskRow({
           >
             {item.name}
           </p>
-          {instructionSteps.length > 0 && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowInstructions(true);
-              }}
-              className="mt-1.5 inline-flex items-center gap-1 font-mono text-[10px] text-olive border border-olive/30 bg-olive/10 px-2 py-1 rounded-pill"
-            >
-              <ClipboardList size={11} strokeWidth={1.75} />
-              Instructions
-            </button>
-          )}
           <div className="mt-1.5">
             <StreakDots
               logs={weekLogs}
@@ -207,9 +196,51 @@ export default function TaskRow({
         />
       )}
 
-      {/* View-only detail panel — no actions, see the note above */}
+      {showPhoto && log?.photoUrl && (
+        <TaskPhotoViewSheet
+          taskName={item.name}
+          taskIcon={item.icon}
+          photoUrl={log.photoUrl}
+          onClose={() => setShowPhoto(false)}
+        />
+      )}
+
+      {/* View-only detail panel — no actions besides Instructions/View Image/Undo, see the note above */}
       {isExpanded && (
         <div className="px-4 pb-4">
+          {(instructionSteps.length > 0 || (canUndo && log?.photoUrl)) && (
+          <div className="flex flex-wrap gap-2 mb-2">
+            {instructionSteps.length > 0 && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowInstructions(true);
+                }}
+                className="inline-flex items-center gap-1 font-mono text-[10px] text-olive border border-olive/30 bg-olive/10 px-2 py-1 rounded-pill"
+              >
+                <ClipboardList size={11} strokeWidth={1.75} />
+                Instructions
+              </button>
+            )}
+            {/* Manager-facing review surface for the employee-captured
+                completion photo — same canUndo gating as the Undo button
+                below, see docs/features/task-completion-photo.md. */}
+            {canUndo && log?.photoUrl && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowPhoto(true);
+                }}
+                className="inline-flex items-center gap-1 font-mono text-[10px] text-olive border border-olive/30 bg-olive/10 px-2 py-1 rounded-pill"
+              >
+                <ImageIcon size={11} strokeWidth={1.75} />
+                View Image
+              </button>
+            )}
+          </div>
+          )}
           {!state ? (
             <p className="font-mono text-[11px] text-dim">
               Not started yet — use Start Tasks / Continue Tasks below.

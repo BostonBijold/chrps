@@ -280,9 +280,11 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
   // The Save/Scan FAB now lives at the end of the scrollable field list
   // (below) rather than pinned outside it, so a long checklist/inventory
   // sublist can genuinely push it below the fold. saveButtonVisible tracks
-  // whether it's currently in view within the scroll container; when it's
-  // not, a mini FAB-sized version (same size/style as BottomNav.tsx's own
-  // FAB) floats at the bottom of the card as a shortcut back down to it.
+  // whether the Save/Scan button itself (saveBlockRef — just the button +
+  // its label, NOT the "Missed it" button below it) is currently in view
+  // within the scroll container; when it's not, a mini FAB-sized version
+  // (same size/style as BottomNav.tsx's own FAB) floats at the bottom of
+  // the card as a shortcut back down to it.
   const scrollRef = useRef<HTMLDivElement>(null);
   const saveBlockRef = useRef<HTMLDivElement>(null);
   const [saveButtonVisible, setSaveButtonVisible] = useState(true);
@@ -527,22 +529,24 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
               the scrollable content itself (rather than pinned outside it),
               so a long checklist/inventory sublist can genuinely push it
               below the fold — the mini FAB below is the way back to it. */}
-          <div ref={saveBlockRef} className="pt-4 w-full flex flex-col items-center">
-            <button
-              onClick={handleSave}
-              disabled={scanning}
-              aria-label={requiresNfcScan && !alreadyVerified ? "Scan NFC tag to save" : "Save"}
-              className="relative z-10 w-32 h-32 rounded-full border-4 border-bg shadow-lg flex items-center justify-center bg-olive transition-all duration-200 disabled:opacity-70 active:opacity-90"
-            >
-              {requiresNfcScan && !alreadyVerified ? (
-                <Nfc size={52} strokeWidth={1.75} className={`text-bg ${scanning ? "animate-pulse" : ""}`} />
-              ) : (
-                <Check size={56} strokeWidth={2.25} className="text-bg" />
-              )}
-            </button>
-            <p className="font-mono text-xs text-dim uppercase tracking-widest mt-3 mb-6">
-              {scanning ? "Hold near tag…" : requiresNfcScan && !alreadyVerified ? "Scan NFC to Save" : "Save"}
-            </p>
+          <div className="pt-4 w-full flex flex-col items-center">
+            <div ref={saveBlockRef} className="w-full flex flex-col items-center">
+              <button
+                onClick={handleSave}
+                disabled={scanning}
+                aria-label={requiresNfcScan && !alreadyVerified ? "Scan NFC tag to save" : "Save"}
+                className="relative z-10 w-32 h-32 rounded-full border-4 border-bg shadow-lg flex items-center justify-center bg-olive transition-all duration-200 disabled:opacity-70 active:opacity-90"
+              >
+                {requiresNfcScan && !alreadyVerified ? (
+                  <Nfc size={52} strokeWidth={1.75} className={`text-bg ${scanning ? "animate-pulse" : ""}`} />
+                ) : (
+                  <Check size={56} strokeWidth={2.25} className="text-bg" />
+                )}
+              </button>
+              <p className="font-mono text-xs text-dim uppercase tracking-widest mt-3 mb-6">
+                {scanning ? "Hold near tag…" : requiresNfcScan && !alreadyVerified ? "Scan NFC to Save" : "Save"}
+              </p>
+            </div>
             <button
               onClick={onMissed}
               disabled={scanning}
