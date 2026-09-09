@@ -545,8 +545,16 @@ export default function TaskListEditView({ isManager, taskList, tasks: initialTa
         requiresPhoto: newTask.requiresPhoto ?? false,
       },
     ]);
-    setShowAddSheet(false);
     router.refresh(); // invalidate Tasks page cache for when user navigates back
+    // AddTaskSheet itself closes the sheet now — see its onAdd prop comment;
+    // either right away (quick template add) or after the "Task Added"
+    // phase-2 panels' Done button (Create custom task).
+    return {
+      definitionId: newTask.definitionId,
+      nfcTagUid: newTask.nfcTagUid ?? null,
+      instructionSteps: newTask.instructionSteps ?? [],
+      requiresPhoto: newTask.requiresPhoto ?? false,
+    };
   };
 
   // Places an existing company saved task (TaskDefinition) into this list —

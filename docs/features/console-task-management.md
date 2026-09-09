@@ -171,12 +171,18 @@ to get subtly wrong with a hand-rolled local patch.
   row, and "Bound · `<uid>`" in the expanded edit panel; one with none
   shows "Not linked — link NFC on mobile device," no button. This is the
   one deliberate capability gap versus mobile, called out in the UI itself
-  rather than left as a silent missing feature. The tap-to-trigger
-  `nfcTagCode` system and Task ↔ Inventory Linking are both **not shown at
-  all** here — out of the spec's enumerated scope for this pane (name,
-  icon, form fields, `projectedMinutes`, `scheduledDays`,
-  `successThreshold`, reorder, add task, NFC status only), unaffected on
-  mobile.
+  rather than left as a silent missing feature — it holds even after the
+  edit-parity backfill below, since a browser still has no scanner. The
+  tap-to-trigger `nfcTagCode` system stays **not shown at all** here —
+  genuinely out of scope, unaffected on mobile.
+- **Instructions, Require Photo, Linked Inventory** — originally not shown
+  here either (out of this pane's first-pass scope), these three were
+  later backfilled by
+  [`unified-task-create-edit.md`](unified-task-create-edit.md), rendering
+  the exact same shared panels/hooks mobile's edit surface uses
+  (`unified-task-edit-surface.md`), scoped to this row's `definitionId`.
+  That same doc also added them (plus NFC as status-only, matching this
+  page's own rule) to "+ Add Task"'s create flow.
 
 ### Task Catalog pane
 
@@ -213,15 +219,22 @@ always creates a placement in the same request.
 
 Both new routes are manager-or-above gated, same convention as this file's
 pre-existing `DELETE`. NFC binding stays status-only here too, same
-reasoning as the Task Lists pane below.
+reasoning as the Task Lists pane above. "+ New catalog task" later gained
+the same Instructions/Require Photo/Linked Inventory phase-2 panels as
+"+ Add Task" — see
+[`unified-task-create-edit.md`](unified-task-create-edit.md).
 
 ### What's explicitly unaffected
 
-`ManageTasksView.tsx`, `TaskListEditView.tsx`, `AddTaskSheet.tsx` (reused,
-not modified), `ManageTaskDetailSheet.tsx` — untouched. Same APIs, same
-capabilities, same NFC binding flow, same on-the-fly mid-checklist
-editing, same Task ↔ Inventory Linking. This page is a parallel entry
-point into the same data, not a replacement for any of it.
+`ManageTasksView.tsx`, `TaskListEditView.tsx`, `ManageTaskDetailSheet.tsx`
+— untouched by this doc's own build. `AddTaskSheet.tsx` **is** shared
+as-is across both platforms (no console-specific fork), but it was later
+modified in place by
+[`unified-task-create-edit.md`](unified-task-create-edit.md) to add the
+two-phase create flow — that change applies identically wherever the sheet
+is used, mobile included. Same APIs, same NFC binding flow, same
+on-the-fly mid-checklist editing. This page is a parallel entry point into
+the same data, not a replacement for any of it.
 
 ## Deferred (not built this pass)
 

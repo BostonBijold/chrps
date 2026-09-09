@@ -20,8 +20,14 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, X, ChevronDown, ChevronUp, Check, Nfc } from "lucide-react";
 import AppIcon, { IconPicker } from "@/components/AppIcon";
-import AddTaskSheet from "@/components/AddTaskSheet";
+import AddTaskSheet, { type CreatedTaskInfo } from "@/components/AddTaskSheet";
 import TaskFieldsEditor from "@/components/TaskFieldsEditor";
+import LinkInventoryItemSheet from "@/components/LinkInventoryItemSheet";
+import InstructionsEditorPanel, { type InstructionStepView } from "@/components/task-panels/InstructionsEditorPanel";
+import RequiresPhotoTogglePanel from "@/components/task-panels/RequiresPhotoTogglePanel";
+import LinkedInventoryPanel from "@/components/task-panels/LinkedInventoryPanel";
+import { useTaskDefinitionPanel, type DefinitionInstructionStep } from "@/lib/client/use-task-definition-panel";
+import { useInventoryLinks } from "@/lib/client/use-inventory-links";
 import type { TaskType, FormFieldDef } from "@/models/TaskDefinition";
 
 export interface ConsoleTask {
@@ -36,6 +42,11 @@ export interface ConsoleTask {
   scheduledDays: number[];
   successThreshold: number;
   order: number;
+  // Definition-level fields — shared with mobile's SortableRow/CatalogRow
+  // via lib/client/use-task-definition-panel.ts/use-inventory-links.ts, see
+  // docs/features/unified-task-create-edit.md's console edit-parity backfill.
+  instructionSteps: DefinitionInstructionStep[];
+  requiresPhoto: boolean;
 }
 
 interface Props {
@@ -61,7 +72,7 @@ interface Props {
     scheduledDays: number[],
     successThreshold: number,
     formFields: FormFieldDef[]
-  ) => Promise<void>;
+  ) => Promise<CreatedTaskInfo | null>;
   onAddExisting: (definitionId: string) => Promise<void>;
   onAddClone: (definitionId: string) => Promise<void>;
 }
@@ -103,6 +114,20 @@ function SortableTaskRow({
   const [editScheduledDays, setEditScheduledDays] = useState<number[]>(task.scheduledDays);
   const [editThreshold, setEditThreshold] = useState(task.successThreshold);
   const [saving, setSaving] = useState(false);
+
+  // Instructions, Require Photo, Linked Inventory — all definitionId-scoped
+  // and shared with mobile's SortableRow/CatalogRow, see
+  // lib/client/use-task-definition-panel.ts and
+  // docs/features/unified-task-create-edit.md's console edit-parity
+  // backfill. NFC stays status-only (below) — no scanner in a browser, see
+  // docs/features/console-task-management.md's "NFC status, not NFC action".
+  const panel = useTaskDefinitionPanel(task.definitionId, {
+    nfcTagUid: task.nfcTagUid,
+    instructionSteps: task.instructionSteps,
+    requiresPhoto: task.requiresPhoto,
+  });
+  const inventory = useInventoryLinks(task.definitionId, isEditing);
+  const [showLinkPicker, setShowLinkPicker] = useState(false);
 
   const toggleEditDay = (day: number) => {
     setEditScheduledDays((prev) => {
@@ -242,7 +267,54 @@ function SortableTaskRow({
               {task.nfcTagUid ? `Linked · ${task.nfcTagUid}` : "Not linked — link NFC on mobile device."}
             </p>
           </div>
+
+          <InstructionsEditorPanel
+            instructions={{
+              steps: panel.instructionSteps.map((s): InstructionStepView => ({
+                key: s._id,
+                description: s.description,
+                imageUrl: s.imageUrl,
+              })),
+              maxSteps: 3,
+              busy: panel.stepsBusy,
+              error: panel.stepsError,
+              capturing: panel.capturing,
+              captureError: panel.captureError,
+              onTakePhoto: panel.handleTakePhoto,
+              onAddStep: panel.handleAddStep,
+              onDeleteStep: panel.handleDeleteStep,
+            }}
+          />
+
+          <RequiresPhotoTogglePanel
+            toggle={{
+              value: panel.requiresPhoto,
+              busy: panel.requiresPhotoBusy,
+              onChange: panel.handleToggleRequiresPhoto,
+            }}
+          />
+
+          <LinkedInventoryPanel
+            links={inventory.links}
+            busyId={inventory.busyId}
+            error={inventory.error}
+            onAdd={() => setShowLinkPicker(true)}
+            onToggleRequired={inventory.toggleRequired}
+            onRemove={inventory.removeLink}
+          />
         </div>
+      )}
+
+      {showLinkPicker && (
+        <LinkInventoryItemSheet
+          excludeItemTypeIds={(inventory.links ?? []).map((l) => l.itemTypeId)}
+          busy={inventory.busyId !== null}
+          onPick={async (itemTypeId) => {
+            const ok = await inventory.addLink(itemTypeId);
+            if (ok) setShowLinkPicker(false);
+          }}
+          onClose={() => setShowLinkPicker(false)}
+        />
       )}
     </div>
   );
@@ -332,10 +404,11 @@ export default function TaskListDetailPane({ taskList, tasks, onReorder, onSaveT
         <AddTaskSheet
           taskListId={taskList._id}
           taskListName={taskList.name}
-          onAdd={async (...args) => {
-            await onAddTask(...args);
-            setShowAddSheet(false);
-          }}
+          // AddTaskSheet itself closes now (via onClose below) once the
+          // add actually completes — right away for a quick template add,
+          // or after the "Task Added" phase-2 panels' Done button for
+          // "Create custom task" — see AddTaskSheet's onAdd prop comment.
+          onAdd={onAddTask}
           onAddExisting={async (definitionId) => {
             await onAddExisting(definitionId);
             setShowAddSheet(false);
@@ -345,6 +418,7 @@ export default function TaskListDetailPane({ taskList, tasks, onReorder, onSaveT
             setShowAddSheet(false);
           }}
           onClose={() => setShowAddSheet(false)}
+          allowNfcScan={false}
         />
       )}
     </div>

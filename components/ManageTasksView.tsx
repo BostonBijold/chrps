@@ -398,8 +398,8 @@ export default function ManageTasksView({ userName, skipAuth, taskLists, standal
     successThreshold: number = 7,
     formFields: FormFieldDef[] = []
   ) => {
-    if (!addTaskSheetFor) return;
-    await fetch("/api/tasks", {
+    if (!addTaskSheetFor) return null;
+    const res = await fetch("/api/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -414,8 +414,16 @@ export default function ManageTasksView({ userName, skipAuth, taskLists, standal
         formFields,
       }),
     });
-    setAddTaskSheetFor(null);
     router.refresh();
+    if (!res.ok) return null;
+    const created = await res.json();
+    return {
+      definitionId: created.definitionId,
+      nfcTagUid: created.nfcTagUid ?? null,
+      instructionSteps: created.instructionSteps ?? [],
+      requiresPhoto: created.requiresPhoto ?? false,
+    };
+    // AddTaskSheet itself closes the sheet now — see its onAdd prop comment.
   };
 
   // Places an existing saved task (TaskDefinition) at THIS location into

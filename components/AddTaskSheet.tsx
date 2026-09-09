@@ -4,7 +4,10 @@ import { useState, useEffect, useRef } from "react";
 import { X, Search, ChevronLeft } from "lucide-react";
 import AppIcon, { IconPicker } from "@/components/AppIcon";
 import TaskFieldsEditor from "@/components/TaskFieldsEditor";
+import CreatedTaskPanels, { type CreatedTaskInfo } from "@/components/task-panels/CreatedTaskPanels";
 import type { FormFieldDef } from "@/models/TaskDefinition";
+
+export type { CreatedTaskInfo };
 
 interface Template {
   _id: string;
@@ -47,6 +50,15 @@ interface OtherLocationTask {
 interface Props {
   taskListId: string;
   taskListName: string;
+  // Returns the newly-created TaskDefinition's id (plus its starting NFC/
+  // instructions/photo state) on success, or null on failure — NOT void.
+  // The "Create custom task" path (handleSaveCustom below) uses this to
+  // move into a "phase 2" view (CreatedTaskPanels) instead of closing the
+  // sheet immediately, per docs/features/unified-task-create-edit.md.
+  // Quick-adding a template (handleAddTemplate) still closes right away —
+  // the extra panels are only worth the detour for a task built from
+  // scratch. The caller (not this component) owns creating the
+  // task/placement and must NOT close the sheet itself on this path.
   onAdd: (
     templateId: string | null,
     name: string,
@@ -56,7 +68,7 @@ interface Props {
     scheduledDays: number[],
     successThreshold: number,
     formFields: FormFieldDef[]
-  ) => Promise<void>;
+  ) => Promise<CreatedTaskInfo | null>;
   // Places an existing saved task (TaskDefinition) at THIS location into
   // this list instead of creating a new one — see ExistingTask above.
   onAddExisting: (definitionId: string) => Promise<void>;
@@ -65,6 +77,10 @@ interface Props {
   // OtherLocationTask above.
   onAddClone: (definitionId: string) => Promise<void>;
   onClose: () => void;
+  // False on console (no scanner available) — see CreatedTaskPanels'
+  // `allowNfcScan` and docs/features/console-task-management.md's "NFC
+  // status, not NFC action". Defaults true (mobile).
+  allowNfcScan?: boolean;
 }
 
 const DAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"]; // Sun..Sat, matches calendarWeekDates order
@@ -79,16 +95,19 @@ const CATEGORY_LABELS: Record<string, string> = {
   custom: "Custom",
 };
 
-export default function AddTaskSheet({ taskListId, taskListName, onAdd, onAddExisting, onAddClone, onClose }: Props) {
+export default function AddTaskSheet({ taskListId, taskListName, onAdd, onAddExisting, onAddClone, onClose, allowNfcScan = true }: Props) {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [existingTasks, setExistingTasks] = useState<ExistingTask[]>([]);
   const [otherLocationTasks, setOtherLocationTasks] = useState<OtherLocationTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [view, setView] = useState<"browse" | "create">("browse");
+  const [view, setView] = useState<"browse" | "create" | "created">("browse");
   const [adding, setAdding] = useState<string | null>(null);
   const [addingExisting, setAddingExisting] = useState<string | null>(null);
   const [addingClone, setAddingClone] = useState<string | null>(null);
+  // Set once the "Create custom task" path's initial save succeeds — see
+  // the onAdd prop's own comment. Drives the "created" view (phase 2).
+  const [createdTask, setCreatedTask] = useState<{ name: string; icon: string } & CreatedTaskInfo | null>(null);
 
   // Custom form state
   const [customIcon, setCustomIcon] = useState("star");
@@ -168,9 +187,13 @@ export default function AddTaskSheet({ taskListId, taskListName, onAdd, onAddExi
     setAdding(t._id);
     // Browsing a template skips the schedule/threshold prompt — every day,
     // full threshold — same as today's behavior; editable afterward. The
-    // template's own formFields come along unedited.
-    await onAdd(t._id, t.name, t.icon, t.defaultProjectedMinutes, "form", ALL_DAYS, 7, t.formFields ?? []);
+    // template's own formFields come along unedited. Unlike "Create custom
+    // task" below, a quick template add still closes immediately — the
+    // point of browsing a template is speed, and every field the phase-2
+    // panels cover stays reachable afterward from Manage Tasks.
+    const created = await onAdd(t._id, t.name, t.icon, t.defaultProjectedMinutes, "form", ALL_DAYS, 7, t.formFields ?? []);
     setAdding(null);
+    if (created) onClose();
   };
 
   const handleAddExistingTask = async (d: ExistingTask) => {
@@ -202,7 +225,7 @@ export default function AddTaskSheet({ taskListId, taskListName, onAdd, onAddExi
       }),
     });
     const template = await res.json();
-    await onAdd(
+    const created = await onAdd(
       template._id,
       template.name,
       template.icon,
@@ -213,6 +236,12 @@ export default function AddTaskSheet({ taskListId, taskListName, onAdd, onAddExi
       template.formFields ?? customFields
     );
     setSaving(false);
+    // Move into phase 2 (CreatedTaskPanels) instead of closing — see the
+    // onAdd prop's own comment and docs/features/unified-task-create-edit.md.
+    if (created) {
+      setCreatedTask({ name: template.name, icon: template.icon, ...created });
+      setView("created");
+    }
   };
 
   return (
@@ -238,6 +267,8 @@ export default function AddTaskSheet({ taskListId, taskListName, onAdd, onAddExi
                 <ChevronLeft size={16} />
                 Back
               </button>
+            ) : view === "created" ? (
+              <h2 className="font-heading text-lg text-text">Task Added</h2>
             ) : (
               <h2 className="font-heading text-lg text-text">
                 Add to {taskListName}
@@ -248,7 +279,20 @@ export default function AddTaskSheet({ taskListId, taskListName, onAdd, onAddExi
             </button>
           </div>
 
-          {view === "browse" ? (
+          {view === "created" && createdTask ? (
+            <div className="px-4 pb-8 overflow-y-auto">
+              <CreatedTaskPanels
+                name={createdTask.name}
+                icon={createdTask.icon}
+                definitionId={createdTask.definitionId}
+                nfcTagUid={createdTask.nfcTagUid}
+                instructionSteps={createdTask.instructionSteps}
+                requiresPhoto={createdTask.requiresPhoto}
+                allowNfcScan={allowNfcScan}
+                onDone={onClose}
+              />
+            </div>
+          ) : view === "browse" ? (
             <>
               {/* Create custom CTA */}
               <div className="px-4 mb-3 flex-shrink-0">

@@ -4,6 +4,13 @@ import { useState } from "react";
 import { ChevronDown, ChevronUp, Check, Trash2, Plus, Search, Nfc } from "lucide-react";
 import AppIcon, { IconPicker } from "@/components/AppIcon";
 import TaskFieldsEditor from "@/components/TaskFieldsEditor";
+import LinkInventoryItemSheet from "@/components/LinkInventoryItemSheet";
+import InstructionsEditorPanel, { type InstructionStepView } from "@/components/task-panels/InstructionsEditorPanel";
+import RequiresPhotoTogglePanel from "@/components/task-panels/RequiresPhotoTogglePanel";
+import LinkedInventoryPanel from "@/components/task-panels/LinkedInventoryPanel";
+import CreatedTaskPanels, { type CreatedTaskInfo } from "@/components/task-panels/CreatedTaskPanels";
+import { useTaskDefinitionPanel, type DefinitionInstructionStep } from "@/lib/client/use-task-definition-panel";
+import { useInventoryLinks } from "@/lib/client/use-inventory-links";
 import type { FormFieldDef } from "@/models/TaskDefinition";
 
 export interface CatalogDefinition {
@@ -13,6 +20,8 @@ export interface CatalogDefinition {
   formFields: FormFieldDef[];
   projectedMinutes: number;
   nfcTagUid: string | null;
+  instructionSteps: DefinitionInstructionStep[];
+  requiresPhoto: boolean;
   placements: Array<{ taskId: string; taskListId: string; taskListName: string }>;
 }
 
@@ -20,7 +29,11 @@ interface Props {
   definitions: CatalogDefinition[] | null;
   onSave: (id: string, name: string, icon: string, projectedMinutes: number, formFields: FormFieldDef[]) => Promise<void>;
   onDelete: (id: string) => Promise<{ ok: boolean; error?: string }>;
-  onCreate: (name: string, icon: string, projectedMinutes: number, formFields: FormFieldDef[]) => Promise<void>;
+  // Returns the newly-created definition's id (plus its starting NFC/
+  // instructions/photo state, always empty here since it's brand new) on
+  // success, or null on failure — see NewCatalogTaskForm below and
+  // docs/features/unified-task-create-edit.md.
+  onCreate: (name: string, icon: string, projectedMinutes: number, formFields: FormFieldDef[]) => Promise<CreatedTaskInfo | null>;
 }
 
 function usageLabel(definition: CatalogDefinition) {
@@ -51,6 +64,19 @@ function CatalogRow({
   const [editMins, setEditMins] = useState(String(definition.projectedMinutes));
   const [editFields, setEditFields] = useState<FormFieldDef[]>(definition.formFields);
   const [saving, setSaving] = useState(false);
+
+  // Instructions, Require Photo, Linked Inventory — definitionId-scoped,
+  // shared with mobile's CatalogRow/SortableRow and console's own
+  // SortableTaskRow, see lib/client/use-task-definition-panel.ts and
+  // docs/features/unified-task-create-edit.md's console edit-parity
+  // backfill. NFC stays status-only below (no scanner in a browser).
+  const panel = useTaskDefinitionPanel(definition._id, {
+    nfcTagUid: definition.nfcTagUid,
+    instructionSteps: definition.instructionSteps,
+    requiresPhoto: definition.requiresPhoto,
+  });
+  const inventory = useInventoryLinks(definition._id, isEditing);
+  const [showLinkPicker, setShowLinkPicker] = useState(false);
 
   const handleSave = async () => {
     setSaving(true);
@@ -144,25 +170,98 @@ function CatalogRow({
               {definition.nfcTagUid ? `Linked · ${definition.nfcTagUid}` : "Not linked — link NFC on mobile device."}
             </p>
           </div>
+
+          <InstructionsEditorPanel
+            instructions={{
+              steps: panel.instructionSteps.map((s): InstructionStepView => ({
+                key: s._id,
+                description: s.description,
+                imageUrl: s.imageUrl,
+              })),
+              maxSteps: 3,
+              busy: panel.stepsBusy,
+              error: panel.stepsError,
+              capturing: panel.capturing,
+              captureError: panel.captureError,
+              onTakePhoto: panel.handleTakePhoto,
+              onAddStep: panel.handleAddStep,
+              onDeleteStep: panel.handleDeleteStep,
+            }}
+          />
+
+          <RequiresPhotoTogglePanel
+            toggle={{
+              value: panel.requiresPhoto,
+              busy: panel.requiresPhotoBusy,
+              onChange: panel.handleToggleRequiresPhoto,
+            }}
+          />
+
+          <LinkedInventoryPanel
+            links={inventory.links}
+            busyId={inventory.busyId}
+            error={inventory.error}
+            onAdd={() => setShowLinkPicker(true)}
+            onToggleRequired={inventory.toggleRequired}
+            onRemove={inventory.removeLink}
+          />
         </div>
+      )}
+
+      {showLinkPicker && (
+        <LinkInventoryItemSheet
+          excludeItemTypeIds={(inventory.links ?? []).map((l) => l.itemTypeId)}
+          busy={inventory.busyId !== null}
+          onPick={async (itemTypeId) => {
+            const ok = await inventory.addLink(itemTypeId);
+            if (ok) setShowLinkPicker(false);
+          }}
+          onClose={() => setShowLinkPicker(false)}
+        />
       )}
     </div>
   );
 }
 
+// Two-phase create (see docs/features/unified-task-create-edit.md): once
+// the core fields (name/icon/fields/minutes) are saved, `created` holds the
+// new definition's id and this same card switches to CreatedTaskPanels —
+// the shared NFC(status-only)/Instructions/Require Photo/Linked Inventory
+// panels, scoped to that id — instead of closing straight back to the "+
+// New catalog task" button. Closing at any point after that leaves a
+// valid, saved catalog entry.
 function NewCatalogTaskForm({ onCreate, onClose }: { onCreate: Props["onCreate"]; onClose: () => void }) {
   const [name, setName] = useState("");
   const [icon, setIcon] = useState("list-checks");
   const [mins, setMins] = useState("5");
   const [fields, setFields] = useState<FormFieldDef[]>([]);
   const [saving, setSaving] = useState(false);
+  const [created, setCreated] = useState<CreatedTaskInfo | null>(null);
 
   const handleCreate = async () => {
     if (!name.trim() || fields.length === 0) return;
     setSaving(true);
-    await onCreate(name.trim(), icon, parseInt(mins) || 5, fields);
+    const result = await onCreate(name.trim(), icon, parseInt(mins) || 5, fields);
     setSaving(false);
+    if (result) setCreated(result);
   };
+
+  if (created) {
+    return (
+      <div className="rounded-card border border-border bg-card p-4 mb-4">
+        <CreatedTaskPanels
+          name={name.trim()}
+          icon={icon}
+          definitionId={created.definitionId}
+          nfcTagUid={created.nfcTagUid}
+          instructionSteps={created.instructionSteps}
+          requiresPhoto={created.requiresPhoto}
+          allowNfcScan={false}
+          onDone={onClose}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-card border border-border bg-card p-4 space-y-3 mb-4">
@@ -271,13 +370,11 @@ export default function TaskCatalogPane({ definitions, onSave, onDelete, onCreat
       </div>
 
       {creating ? (
-        <NewCatalogTaskForm
-          onCreate={async (...args) => {
-            await onCreate(...args);
-            setCreating(false);
-          }}
-          onClose={() => setCreating(false)}
-        />
+        // The form now manages its own two-phase transition (see
+        // NewCatalogTaskForm's own comment) — onCreate is passed straight
+        // through, and `creating` only resets via onClose (its Done button
+        // once phase 2 is finished, or Cancel before ever creating).
+        <NewCatalogTaskForm onCreate={onCreate} onClose={() => setCreating(false)} />
       ) : (
         <button
           onClick={() => setCreating(true)}

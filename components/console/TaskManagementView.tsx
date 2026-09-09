@@ -5,7 +5,9 @@ import LocationSwitcher from "@/components/LocationSwitcher";
 import TaskListsPane, { type ConsoleTaskList } from "@/components/console/TaskListsPane";
 import TaskListDetailPane, { type ConsoleTask } from "@/components/console/TaskListDetailPane";
 import TaskCatalogPane from "@/components/console/TaskCatalogPane";
+import type { CreatedTaskInfo } from "@/components/AddTaskSheet";
 import type { JobTagOption } from "@/components/console/JobTagsPanel";
+import type { DefinitionInstructionStep } from "@/lib/client/use-task-definition-panel";
 import type { TaskType, FormFieldDef } from "@/models/TaskDefinition";
 
 interface Props {
@@ -41,6 +43,8 @@ interface TaskDefinitionEntry {
   formFields: FormFieldDef[];
   projectedMinutes: number;
   nfcTagUid: string | null;
+  instructionSteps: DefinitionInstructionStep[];
+  requiresPhoto: boolean;
   placements: Array<{ taskId: string; taskListId: string; taskListName: string }>;
 }
 
@@ -65,6 +69,8 @@ function resolveTasksForList(list: RawTaskList, definitions: TaskDefinitionEntry
         formFields: def?.formFields ?? [],
         projectedMinutes: t.projectedMinutes ?? def?.projectedMinutes ?? 0,
         nfcTagUid: def?.nfcTagUid ?? null,
+        instructionSteps: def?.instructionSteps ?? [],
+        requiresPhoto: def?.requiresPhoto ?? false,
         scheduledDays: t.scheduledDays,
         successThreshold: t.successThreshold,
         order: t.order,
@@ -220,9 +226,9 @@ export default function TaskManagementView({ isOwner, activeLocationId }: Props)
     scheduledDays: number[],
     successThreshold: number,
     formFields: FormFieldDef[]
-  ) => {
-    if (!selectedListId) return;
-    await fetch("/api/tasks", {
+  ): Promise<CreatedTaskInfo | null> => {
+    if (!selectedListId) return null;
+    const res = await fetch("/api/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -238,6 +244,14 @@ export default function TaskManagementView({ isOwner, activeLocationId }: Props)
       }),
     });
     await refetchTasksAndDefinitions();
+    if (!res.ok) return null;
+    const created = await res.json();
+    return {
+      definitionId: created.definitionId,
+      nfcTagUid: created.nfcTagUid ?? null,
+      instructionSteps: created.instructionSteps ?? [],
+      requiresPhoto: created.requiresPhoto ?? false,
+    };
   };
 
   const handleAddExisting = async (definitionId: string) => {
@@ -296,13 +310,25 @@ export default function TaskManagementView({ isOwner, activeLocationId }: Props)
     icon: string,
     projectedMinutes: number,
     formFields: FormFieldDef[]
-  ) => {
-    await fetch("/api/task-definitions", {
+  ): Promise<CreatedTaskInfo | null> => {
+    const res = await fetch("/api/task-definitions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, icon, projectedMinutes, formFields }),
     });
     await fetchDefinitions();
+    if (!res.ok) return null;
+    const created = await res.json();
+    return {
+      // No placement here — POST /api/task-definitions creates a
+      // catalog-only entry, so the definition's own _id is the id to
+      // scope every phase-2 panel to (no separate task/placement id
+      // exists yet).
+      definitionId: created._id,
+      nfcTagUid: created.nfcTagUid ?? null,
+      instructionSteps: created.instructionSteps ?? [],
+      requiresPhoto: created.requiresPhoto ?? false,
+    };
   };
 
   const consoleTaskLists: ConsoleTaskList[] | null =

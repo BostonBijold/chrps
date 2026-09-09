@@ -2,7 +2,7 @@
 
 # Unified Task Edit Surface (Task Lists ↔ Task Catalog)
 
-**Status: BUILT.** Builds on [`manage-tasks-tabs.md`](manage-tasks-tabs.md) (the Task Lists / Task Catalog tab split) — this addresses what happens *inside* each tab when a manager opens one task, not the top-level navigation.
+**Status: BUILT.** Builds on [`manage-tasks-tabs.md`](manage-tasks-tabs.md) (the Task Lists / Task Catalog tab split) — this addresses what happens *inside* each tab when a manager opens one task, not the top-level navigation. **Mobile-only** — console's `TaskListDetailPane.tsx`/`TaskCatalogPane.tsx` did not get Instructions/Require Photo/Linked Inventory until [`unified-task-create-edit.md`](unified-task-create-edit.md) brought console up to the same parity, alongside adding these same fields at *creation* time on both platforms.
 
 ## Problem
 
