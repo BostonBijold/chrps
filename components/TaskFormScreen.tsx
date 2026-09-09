@@ -284,58 +284,65 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
   // FAB (that used to visibly double up with the real button as it faded
   // in/out).
   //
-  // restProgress is a continuous 0–1 value — how much of the "Missed it"
-  // button (the true end of content) is currently visible — recomputed on
-  // every scroll frame via getBoundingClientRect, NOT a discrete
-  // IntersectionObserver threshold. A threshold toggling true/false as the
-  // boundary hovers right at the cutoff (especially with iOS momentum
-  // scroll overshoot) was flipping state back and forth and restarting a
-  // CSS transition each time, which read as bouncing/flashing. Tracking
-  // scroll position 1:1 and driving the button's size via inline style
-  // (no CSS transition) keeps it glued to your finger instead.
+  // Its size tracks a continuous 0–1 "rest progress" value — how much of
+  // the "Missed it" button (the true end of content) is currently visible
+  // — via a running requestAnimationFrame loop rather than scroll-event
+  // callbacks + React state. Two reasons:
+  //   1. iOS momentum scroll can rubber-band right at the bottom of a
+  //      nested scroll container, which for a frame or two reports
+  //      inconsistent geometry from getBoundingClientRect (the missed
+  //      button briefly reading as "more visible" than it actually is).
+  //      Driving through a low-pass filter (lerp toward the raw value each
+  //      frame, sizeProgressRef below) damps that noise out instead of
+  //      snapping the button to it, which is what read as flashing/
+  //      bouncing right as "Missed it" scrolled off the bottom edge.
+  //   2. Writing scale/opacity straight to the DOM via refs, instead of
+  //      through setState, avoids a React re-render on every scroll frame
+  //      (this component re-renders fields/values too) competing with the
+  //      animation for the same frame budget.
   const scrollRef = useRef<HTMLDivElement>(null);
   const missedButtonRef = useRef<HTMLButtonElement>(null);
-  const [restProgress, setRestProgress] = useState(1);
+  const saveButtonRef = useRef<HTMLButtonElement>(null);
+  const saveLabelRef = useRef<HTMLParagraphElement>(null);
+  const sizeProgressRef = useRef(1);
 
   useEffect(() => {
     const root = scrollRef.current;
     const target = missedButtonRef.current;
-    if (!root || !target) return;
+    const btn = saveButtonRef.current;
+    const label = saveLabelRef.current;
+    if (!root || !target || !btn || !label) return;
 
-    let frame: number | null = null;
-    const measure = () => {
-      frame = null;
+    const MINI_SCALE = 56 / 128;
+    const apply = (value: number) => {
+      btn.style.transform = `scale(${MINI_SCALE + value * (1 - MINI_SCALE)})`;
+      label.style.opacity = String(value);
+      label.style.maxHeight = `${24 * value}px`;
+      label.style.marginTop = `${12 * value}px`;
+      label.style.marginBottom = `${24 * value}px`;
+    };
+
+    let frame: number;
+    const tick = () => {
       const rootRect = root.getBoundingClientRect();
       const targetRect = target.getBoundingClientRect();
       const visibleTop = Math.max(targetRect.top, rootRect.top);
       const visibleBottom = Math.min(targetRect.bottom, rootRect.bottom);
       const visible = Math.max(0, visibleBottom - visibleTop);
-      const ratio = targetRect.height > 0 ? visible / targetRect.height : 1;
-      setRestProgress(Math.min(1, Math.max(0, ratio)));
-    };
-    const requestMeasure = () => {
-      if (frame == null) frame = requestAnimationFrame(measure);
+      const raw = targetRect.height > 0 ? Math.min(1, Math.max(0, visible / targetRect.height)) : 1;
+
+      const current = sizeProgressRef.current;
+      const next = Math.abs(raw - current) < 0.002 ? raw : current + (raw - current) * 0.25;
+      sizeProgressRef.current = next;
+      apply(next);
+
+      frame = requestAnimationFrame(tick);
     };
 
-    measure();
-    root.addEventListener("scroll", requestMeasure, { passive: true });
-    // Covers layout shifts scrolling alone wouldn't catch (an error message
-    // or photo preview appearing changes content height without a scroll).
-    const resizeObserver = new ResizeObserver(requestMeasure);
-    resizeObserver.observe(root);
-    resizeObserver.observe(target);
-
-    return () => {
-      root.removeEventListener("scroll", requestMeasure);
-      resizeObserver.disconnect();
-      if (frame != null) cancelAnimationFrame(frame);
-    };
+    apply(sizeProgressRef.current);
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
   }, []);
-
-  // Mini size (56px) as a fraction of the full button (128px) — the scale
-  // factor at restProgress === 0.
-  const MINI_SCALE = 56 / 128;
-  const saveButtonScale = MINI_SCALE + restProgress * (1 - MINI_SCALE);
 
   return (
     // Outer layer is a plain, static blue backdrop — never animated, always
@@ -566,22 +573,25 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
               `sticky bottom-4` keeps it reachable on screen the whole time
               a long checklist/inventory sublist scrolls beneath it, instead
               of a separate mini FAB crossfading in over it. Its size is
-              driven directly by restProgress via inline transform — NOT a
-              CSS transition — so it tracks the scroll position exactly,
-              1:1, shrinking toward a docked mini size (scaled from the
-              bottom edge, so it stays anchored to the same sticky spot)
-              while content is still below, and growing back to full size
-              right as it settles into its natural resting spot above
-              Missed it. mt-auto on the outer block still anchors
-              everything to the bottom of the card when the fields above
-              don't fill the available height on their own. */}
+              driven by a smoothed, continuous rAF loop (see the effect
+              above) writing straight to these two elements' inline
+              styles — NOT React state/a CSS transition — so it eases
+              toward the scroll position without snapping, shrinking
+              toward a docked mini size (scaled from the bottom edge, so
+              it stays anchored to the same sticky spot) while content is
+              still below, and growing back to full size right as it
+              settles into its natural resting spot above Missed it.
+              mt-auto on the outer block still anchors everything to the
+              bottom of the card when the fields above don't fill the
+              available height on their own. */}
           <div className="mt-auto pt-4 w-full flex flex-col items-center">
             <div className="sticky bottom-4 z-20 flex flex-col items-center">
               <button
+                ref={saveButtonRef}
                 onClick={handleSave}
                 disabled={scanning}
                 aria-label={requiresNfcScan && !alreadyVerified ? "Scan NFC tag to save" : "Save"}
-                style={{ transform: `scale(${saveButtonScale})`, transformOrigin: "bottom center" }}
+                style={{ transform: "scale(1)", transformOrigin: "bottom center" }}
                 className="relative w-32 h-32 rounded-full border-4 border-bg shadow-lg flex items-center justify-center bg-olive disabled:opacity-70 active:opacity-90"
               >
                 {requiresNfcScan && !alreadyVerified ? (
@@ -591,13 +601,9 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
                 )}
               </button>
               <p
+                ref={saveLabelRef}
                 className="font-mono text-xs text-dim uppercase tracking-widest overflow-hidden"
-                style={{
-                  opacity: restProgress,
-                  maxHeight: `${24 * restProgress}px`,
-                  marginTop: `${12 * restProgress}px`,
-                  marginBottom: `${24 * restProgress}px`,
-                }}
+                style={{ opacity: 1, maxHeight: "24px", marginTop: "12px", marginBottom: "24px" }}
               >
                 {scanning ? "Hold near tag…" : requiresNfcScan && !alreadyVerified ? "Scan NFC to Save" : "Save"}
               </p>
