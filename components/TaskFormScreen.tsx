@@ -282,26 +282,60 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
   // sublist can genuinely push "Missed it" below the fold while the Save
   // button itself stays reachable without a second, separately-animated
   // FAB (that used to visibly double up with the real button as it faded
-  // in/out). atRest tracks whether the true end of the content — the
-  // "Missed it" button — is in view: true once nothing's left to scroll to
-  // (the Save button is at its natural resting spot, shown full-size),
-  // false while there's still content below (Save button shrinks to a
-  // docked mini size but keeps working — same element, same onClick).
+  // in/out).
+  //
+  // restProgress is a continuous 0–1 value — how much of the "Missed it"
+  // button (the true end of content) is currently visible — recomputed on
+  // every scroll frame via getBoundingClientRect, NOT a discrete
+  // IntersectionObserver threshold. A threshold toggling true/false as the
+  // boundary hovers right at the cutoff (especially with iOS momentum
+  // scroll overshoot) was flipping state back and forth and restarting a
+  // CSS transition each time, which read as bouncing/flashing. Tracking
+  // scroll position 1:1 and driving the button's size via inline style
+  // (no CSS transition) keeps it glued to your finger instead.
   const scrollRef = useRef<HTMLDivElement>(null);
   const missedButtonRef = useRef<HTMLButtonElement>(null);
-  const [atRest, setAtRest] = useState(true);
+  const [restProgress, setRestProgress] = useState(1);
 
   useEffect(() => {
     const root = scrollRef.current;
     const target = missedButtonRef.current;
     if (!root || !target) return;
-    const observer = new IntersectionObserver(([entry]) => setAtRest(entry.isIntersecting), {
-      root,
-      threshold: 0.9,
-    });
-    observer.observe(target);
-    return () => observer.disconnect();
+
+    let frame: number | null = null;
+    const measure = () => {
+      frame = null;
+      const rootRect = root.getBoundingClientRect();
+      const targetRect = target.getBoundingClientRect();
+      const visibleTop = Math.max(targetRect.top, rootRect.top);
+      const visibleBottom = Math.min(targetRect.bottom, rootRect.bottom);
+      const visible = Math.max(0, visibleBottom - visibleTop);
+      const ratio = targetRect.height > 0 ? visible / targetRect.height : 1;
+      setRestProgress(Math.min(1, Math.max(0, ratio)));
+    };
+    const requestMeasure = () => {
+      if (frame == null) frame = requestAnimationFrame(measure);
+    };
+
+    measure();
+    root.addEventListener("scroll", requestMeasure, { passive: true });
+    // Covers layout shifts scrolling alone wouldn't catch (an error message
+    // or photo preview appearing changes content height without a scroll).
+    const resizeObserver = new ResizeObserver(requestMeasure);
+    resizeObserver.observe(root);
+    resizeObserver.observe(target);
+
+    return () => {
+      root.removeEventListener("scroll", requestMeasure);
+      resizeObserver.disconnect();
+      if (frame != null) cancelAnimationFrame(frame);
+    };
   }, []);
+
+  // Mini size (56px) as a fraction of the full button (128px) — the scale
+  // factor at restProgress === 0.
+  const MINI_SCALE = 56 / 128;
+  const saveButtonScale = MINI_SCALE + restProgress * (1 - MINI_SCALE);
 
   return (
     // Outer layer is a plain, static blue backdrop — never animated, always
@@ -531,13 +565,14 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
               a tag scan is still required, Check once ready to save).
               `sticky bottom-4` keeps it reachable on screen the whole time
               a long checklist/inventory sublist scrolls beneath it, instead
-              of a separate mini FAB crossfading in over it. atRest (true
-              once "Missed it" — the real end of content — is in view)
-              drives a single size transition: full-size at its natural
-              resting spot above Missed it, shrunk to a docked mini size
-              while still floating above content further up. Always the
-              same element, so there's never two blue circles overlapping
-              mid-animation. mt-auto on the outer block still anchors
+              of a separate mini FAB crossfading in over it. Its size is
+              driven directly by restProgress via inline transform — NOT a
+              CSS transition — so it tracks the scroll position exactly,
+              1:1, shrinking toward a docked mini size (scaled from the
+              bottom edge, so it stays anchored to the same sticky spot)
+              while content is still below, and growing back to full size
+              right as it settles into its natural resting spot above
+              Missed it. mt-auto on the outer block still anchors
               everything to the bottom of the card when the fields above
               don't fill the available height on their own. */}
           <div className="mt-auto pt-4 w-full flex flex-col items-center">
@@ -546,36 +581,23 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
                 onClick={handleSave}
                 disabled={scanning}
                 aria-label={requiresNfcScan && !alreadyVerified ? "Scan NFC tag to save" : "Save"}
-                className={`relative rounded-full border-4 border-bg shadow-lg flex items-center justify-center bg-olive transition-all duration-300 ease-out disabled:opacity-70 active:opacity-90 ${
-                  atRest ? "w-32 h-32" : "w-14 h-14"
-                }`}
+                style={{ transform: `scale(${saveButtonScale})`, transformOrigin: "bottom center" }}
+                className="relative w-32 h-32 rounded-full border-4 border-bg shadow-lg flex items-center justify-center bg-olive disabled:opacity-70 active:opacity-90"
               >
-                {/* The icon's `size` prop sets a literal SVG width/height
-                    attribute, which can't CSS-transition — so it's kept at
-                    one intrinsic size and scaled with a transform instead,
-                    which animates smoothly in step with the button. */}
                 {requiresNfcScan && !alreadyVerified ? (
-                  <span
-                    className={`inline-flex transition-transform duration-300 ease-out ${
-                      atRest ? "scale-100" : "scale-[0.42]"
-                    } ${scanning ? "animate-pulse" : ""}`}
-                  >
-                    <Nfc size={52} strokeWidth={1.75} className="text-bg" />
-                  </span>
+                  <Nfc size={52} strokeWidth={1.75} className={`text-bg ${scanning ? "animate-pulse" : ""}`} />
                 ) : (
-                  <span
-                    className={`inline-flex transition-transform duration-300 ease-out ${
-                      atRest ? "scale-100" : "scale-[0.42]"
-                    }`}
-                  >
-                    <Check size={56} strokeWidth={2.25} className="text-bg" />
-                  </span>
+                  <Check size={56} strokeWidth={2.25} className="text-bg" />
                 )}
               </button>
               <p
-                className={`font-mono text-xs text-dim uppercase tracking-widest overflow-hidden transition-all duration-300 ease-out ${
-                  atRest ? "max-h-6 opacity-100 mt-3 mb-6" : "max-h-0 opacity-0 mt-0 mb-2"
-                }`}
+                className="font-mono text-xs text-dim uppercase tracking-widest overflow-hidden"
+                style={{
+                  opacity: restProgress,
+                  maxHeight: `${24 * restProgress}px`,
+                  marginTop: `${12 * restProgress}px`,
+                  marginBottom: `${24 * restProgress}px`,
+                }}
               >
                 {scanning ? "Hold near tag…" : requiresNfcScan && !alreadyVerified ? "Scan NFC to Save" : "Save"}
               </p>
