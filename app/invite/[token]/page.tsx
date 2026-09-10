@@ -11,11 +11,11 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
-// Public, unauthenticated deep link — same pattern as app/nfc/[tagCode]/
-// page.tsx: not in middleware.ts's PUBLIC_PAGE_PATHS, so a logged-out tap
-// redirects through /login?callbackUrl=/invite/<token> and lands back here
-// afterward. companyId/role are never client-supplied — always resolved
-// from the Invite document itself. See docs/features/team-invites.md.
+// Public, unauthenticated deep link — not in middleware.ts's
+// PUBLIC_PAGE_PATHS, so a logged-out tap redirects through
+// /login?callbackUrl=/invite/<token> and lands back here afterward.
+// companyId/role are never client-supplied — always resolved from the
+// Invite document itself. See docs/features/team-invites.md.
 export default async function InvitePage({
   params,
 }: {

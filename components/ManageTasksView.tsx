@@ -79,7 +79,7 @@ interface Props {
   // being managed, same as Tasks/Team/Reports/Inventory, instead of the
   // plain "Ch'rps" wordmark every other non-bottom-nav Header call site
   // still uses.
-  userRole: "manager" | "employee" | "owner";
+  userRole: "manager" | "employee" | "owner" | "developer";
   activeLocationId: string | null;
   locationId: string | null;
 }
@@ -98,9 +98,7 @@ function fmtTime(t: string) {
 // for a saved task regardless of which list (if any) currently places it —
 // see docs/features/nfc.md's "In-app scan-to-complete binding" and
 // docs/features/task-lists.md's "Company Task Catalog" section. Mirrors
-// TaskListEditView.tsx's SortableRow bind logic, minus drag-and-drop and
-// the tap-to-trigger "NFC Tag" panel (that one stays placement-scoped,
-// unaffected by this screen). ──
+// TaskListEditView.tsx's SortableRow bind logic, minus drag-and-drop. ──
 function CatalogRow({
   definition,
   open,
@@ -203,8 +201,11 @@ function CatalogRow({
             busy: panel.bindBusy,
             error: panel.bindError,
             alsoBoundTo: panel.alsoBoundTo,
+            unclaimedUid: panel.unclaimedUid,
+            claiming: panel.claiming,
             onScanToLink: panel.handleScanToLink,
             onUnbind: panel.handleUnbindTag,
+            onClaimAndLink: panel.handleClaimAndLink,
           }}
           instructions={{
             steps: panel.instructionSteps.map((s): InstructionStepView => ({

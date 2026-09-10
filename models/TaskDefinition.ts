@@ -127,8 +127,10 @@ export interface ITaskDefinition extends Document {
   // scan-to-complete binding". Binding lives here, one layer above any
   // single list placement, so every list this task is placed in shares the
   // same tag automatically. null/unset = completes normally, no scan
-  // required. Distinct from models/NfcTag.ts's tagCode/URL-based
-  // tap-to-trigger system.
+  // required. Must be a UID currently `claimed` in the models/NfcTag.ts
+  // registry for this same company+location before it can be bound here —
+  // see docs/features/nfc.md's "Claiming" and lib/task-definitions.ts's
+  // bindNfcTag.
   nfcTagUid: string | null;
   // Up to 3 manager-authored "what this should look like when done"
   // steps (photo and/or caption) — see

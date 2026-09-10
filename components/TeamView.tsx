@@ -9,7 +9,7 @@ interface Member {
   _id: string;
   name: string;
   image: string | null;
-  role: "manager" | "employee" | "owner";
+  role: "manager" | "employee" | "owner" | "developer";
   joinedAt: string | null;
 }
 
@@ -64,14 +64,18 @@ function Avatar({ name }: { name: string }) {
   );
 }
 
-function RoleBadge({ role }: { role: "manager" | "employee" | "owner" }) {
+function RoleBadge({ role }: { role: "manager" | "employee" | "owner" | "developer" }) {
   return (
     <span
       className={`font-mono text-[10px] uppercase tracking-widest px-2 py-1 rounded-pill flex-shrink-0 ${
-        role === "owner" ? "bg-gold/10 text-gold" : role === "manager" ? "bg-olive/10 text-olive" : "bg-card-hover text-muted"
+        role === "developer" || role === "owner"
+          ? "bg-gold/10 text-gold"
+          : role === "manager"
+            ? "bg-olive/10 text-olive"
+            : "bg-card-hover text-muted"
       }`}
     >
-      {role === "owner" ? "Owner" : role === "manager" ? "Manager" : "Employee"}
+      {role === "developer" ? "Developer" : role === "owner" ? "Owner" : role === "manager" ? "Manager" : "Employee"}
     </span>
   );
 }

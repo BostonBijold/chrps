@@ -43,7 +43,6 @@ export interface EditTask {
   formFields: FormFieldDef[];
   scheduledDays: number[];  // 0=Sun..6=Sat — which days this task is expected
   successThreshold: number; // how many of this week's scheduled days = 100%
-  nfcTagCode: string | null; // tagCode of the NFC tag linked to this task, if any — see docs/features/nfc.md
   nfcTagUid: string | null; // raw UID of the physical tag bound for scan-to-complete, if any — see docs/features/nfc.md
   // Definition-level fields — shared with the Task Catalog's CatalogRow via
   // lib/client/use-task-definition-panel.ts/use-inventory-links.ts, see
@@ -104,35 +103,10 @@ function SortableRow({
   const [editThreshold, setEditThreshold] = useState(task.successThreshold);
   const [saving, setSaving] = useState(false);
 
-  // Tap-to-trigger NFC status (see docs/features/nfc.md) — creating a NEW
-  // link this way is removed from the UI (Scan-to-Complete Tag below is now
-  // the only way to link a tag from this screen), but a task linked before
-  // that removal still shows its status here and can be unlinked, so an
-  // already-deployed physical tag or built Shortcut isn't silently orphaned.
-  const [nfcTagCode, setNfcTagCode] = useState<string | null>(task.nfcTagCode);
-  const [nfcBusy, setNfcBusy] = useState(false);
-  const [nfcError, setNfcError] = useState<string | null>(null);
-
-  async function handleUnlinkTag() {
-    if (!nfcTagCode) return;
-    setNfcBusy(true);
-    setNfcError(null);
-    try {
-      const res = await fetch(`/api/nfc-tags/${nfcTagCode}`, { method: "DELETE" });
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Failed to unlink");
-      setNfcTagCode(null);
-    } catch (err) {
-      setNfcError(err instanceof Error ? err.message : "Failed to unlink");
-    } finally {
-      setNfcBusy(false);
-    }
-  }
-
   // Scan-to-complete binding, Instructions, and Require Photo — all
   // definitionId-scoped and shared with the Task Catalog's CatalogRow, see
   // lib/client/use-task-definition-panel.ts and
-  // docs/features/unified-task-edit-surface.md. Distinct from nfcTagCode
-  // above (that's the tagCode/URL tap-to-trigger system).
+  // docs/features/unified-task-edit-surface.md.
   const panel = useTaskDefinitionPanel(task.definitionId, {
     nfcTagUid: task.nfcTagUid,
     instructionSteps: task.instructionSteps,
@@ -289,37 +263,6 @@ function SortableRow({
             {saving ? "Saving…" : "Save changes"}
           </button>
 
-          {/* Tap-to-trigger NFC tag — manager-only, same gate as the
-              /api/nfc-tags routes. See docs/features/nfc.md. Only rendered
-              for a task already linked this way before "Link a Physical
-              Tag"/"Generate Silent Trigger" were removed from the UI — view
-              status and Unlink only, no way to create a new one from here
-              anymore (Scan-to-Complete Tag below is the only linking path
-              now). */}
-          {isManager && nfcTagCode && (
-            <div className="pt-2 border-t border-border">
-              <p className="font-mono text-[10px] uppercase tracking-widest text-dim mb-1.5">
-                NFC Tag
-              </p>
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-[11px] text-olive flex-1">
-                  Linked · {nfcTagCode}
-                </span>
-                <button
-                  type="button"
-                  onClick={handleUnlinkTag}
-                  disabled={nfcBusy}
-                  className="font-mono text-[11px] text-burgundy-light px-2 py-1 disabled:opacity-40"
-                >
-                  Unlink
-                </button>
-              </div>
-              {nfcError && (
-                <p className="font-mono text-[11px] text-burgundy-light mt-1.5">{nfcError}</p>
-              )}
-            </div>
-          )}
-
           {/* Scan-to-complete binding, Instructions, Require Photo, and
               Linked Inventory — all definitionId-scoped, shared with the
               Task Catalog's CatalogRow (components/ManageTasksView.tsx),
@@ -331,8 +274,11 @@ function SortableRow({
                 busy: panel.bindBusy,
                 error: panel.bindError,
                 alsoBoundTo: panel.alsoBoundTo,
+                unclaimedUid: panel.unclaimedUid,
+                claiming: panel.claiming,
                 onScanToLink: panel.handleScanToLink,
                 onUnbind: panel.handleUnbindTag,
+                onClaimAndLink: panel.handleClaimAndLink,
               }}
             />
           )}
@@ -538,7 +484,6 @@ export default function TaskListEditView({ isManager, taskList, tasks: initialTa
         order: prev.length,
         scheduledDays: newTask.scheduledDays ?? taskScheduledDays,
         successThreshold: newTask.successThreshold ?? successThreshold,
-        nfcTagCode: null,
         nfcTagUid: null,
         definitionId: newTask.definitionId,
         instructionSteps: newTask.instructionSteps ?? [],
@@ -581,7 +526,6 @@ export default function TaskListEditView({ isManager, taskList, tasks: initialTa
         order: prev.length,
         scheduledDays: newTask.scheduledDays ?? ALL_DAYS,
         successThreshold: newTask.successThreshold ?? 7,
-        nfcTagCode: null,
         nfcTagUid: newTask.nfcTagUid ?? null,
         definitionId: newTask.definitionId,
         instructionSteps: newTask.instructionSteps ?? [],
@@ -617,7 +561,6 @@ export default function TaskListEditView({ isManager, taskList, tasks: initialTa
         order: prev.length,
         scheduledDays: newTask.scheduledDays ?? ALL_DAYS,
         successThreshold: newTask.successThreshold ?? 7,
-        nfcTagCode: null,
         nfcTagUid: null,
         definitionId: newTask.definitionId,
         instructionSteps: [],

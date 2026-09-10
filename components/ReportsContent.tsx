@@ -8,7 +8,7 @@ import InventoryTab from "@/components/reports/InventoryTab";
 import { isManagerOrAbove } from "@/lib/roles";
 
 interface Props {
-  role: "manager" | "employee" | "owner";
+  role: "manager" | "employee" | "owner" | "developer";
 }
 
 type Tab = "overview" | "logs" | "inventory";

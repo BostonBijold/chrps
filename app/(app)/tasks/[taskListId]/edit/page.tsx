@@ -4,7 +4,6 @@ import { connectDB } from "@/lib/mongoose";
 import TaskList from "@/models/TaskList";
 import Task from "@/models/Task";
 import type { TaskType, InstructionStep } from "@/models/TaskDefinition";
-import NfcTag from "@/models/NfcTag";
 import TaskListEditView from "@/components/TaskListEditView";
 import { resolveTasks } from "@/lib/task-definitions";
 import { resolveSessionUser, isManagerOrAbove } from "@/lib/session";
@@ -39,14 +38,6 @@ export default async function EditTaskListPage({
     .lean();
   const tasks = await resolveTasks(rawTasks);
 
-  // Company-scoped — an NFC tag is a shared physical object at the
-  // restaurant, not tied to whoever set it up.
-  const nfcTags = await NfcTag.find({
-    companyId,
-    taskId: { $in: tasks.map((t) => t._id) },
-  }).lean();
-  const nfcTagCodeByTaskId = new Map(nfcTags.map((t) => [t.taskId!.toString(), t.tagCode]));
-
   return (
     <TaskListEditView
       isManager={isManagerOrAbove(role)}
@@ -68,7 +59,6 @@ export default async function EditTaskListPage({
         // apply on create, so a .lean() read can come back undefined.
         scheduledDays: t.scheduledDays ?? [0, 1, 2, 3, 4, 5, 6],
         successThreshold: t.successThreshold ?? (t.scheduledDays?.length ?? 7),
-        nfcTagCode: nfcTagCodeByTaskId.get(t._id.toString()) ?? null,
         nfcTagUid: t.nfcTagUid ?? null,
         // Definition-level fields — see docs/features/unified-task-edit-surface.md.
         // definitionId lets SortableRow's Instructions/Require Photo/Linked

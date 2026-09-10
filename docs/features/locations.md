@@ -157,8 +157,7 @@ reintroduced" for why this lives there rather than its own page.
 function in `lib/task-log-actions.ts`, `lib/task-list-session-actions.ts`,
 and the relevant functions in `lib/inventory.ts`
 (`getLatestInventoryLogs`/`writeInventoryLogsForTaskCompletion`), and
-through `lib/task-trigger.ts`'s `triggerTask` (the NFC Universal Link entry
-point) and `lib/task-definitions.ts`'s `resolveMostRelevantPlacement`.
+through `lib/task-definitions.ts`'s `resolveMostRelevantPlacement`.
 Every route that calls into these resolves `locationId` from the caller's
 own session (`sessionUser.locationId`) for employee/manager, or via
 `pickActiveLocationId(sessionUser, validatedRequestedLocationId)` for an
@@ -332,12 +331,14 @@ this feature as fully "done":
   view in Reports; and per-location business hours/timezone actually being
   read anywhere.
 - **The NFC/`TaskDefinition` "shared catalog vs. per-location catalog"
-  question — RESOLVED, `TaskList`/`Task`/`TaskDefinition`/`NfcTag`/
-  `PendingNfcLink` are now location-owned**, not company-wide. A physical
-  NFC tag (either `TaskDefinition.nfcTagUid`'s in-app scan-to-complete
-  binding, or the separate tap-to-trigger `NfcTag` collection) now binds to
-  exactly one location's `TaskDefinition`/task, never leaking across
-  stores; `instructionSteps`/`requiresPhoto` are the same. Browsing another
+  question — RESOLVED, `TaskList`/`Task`/`TaskDefinition` are now
+  location-owned**, not company-wide. A physical NFC tag
+  (`TaskDefinition.nfcTagUid`'s in-app scan-to-complete binding — the old
+  tap-to-trigger `NfcTag` collection this used to also mention has since
+  been removed entirely, see `docs/features/nfc.md`'s "History:
+  Tap-to-trigger (removed)") now binds to exactly one location's
+  `TaskDefinition`/task, never leaking across stores; `instructionSteps`/
+  `requiresPhoto` are the same. Browsing another
   location's (or the company's) saved tasks is still possible, but only as
   read-only example data (`GET /api/task-definitions?scope=company`) that
   gets CLONED into a new, same-location definition on add — never a live

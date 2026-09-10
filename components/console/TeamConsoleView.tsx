@@ -9,7 +9,7 @@ import LocationsPanel, { LocationRow } from "@/components/console/LocationsPanel
 interface Member {
   _id: string;
   name: string;
-  role: "manager" | "employee" | "owner";
+  role: "manager" | "employee" | "owner" | "developer";
   joinedAt: string | null;
   locationId: string | null;
   jobTags: string[];

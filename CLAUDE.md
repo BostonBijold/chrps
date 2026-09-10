@@ -206,13 +206,16 @@ way around.
   _id, email, name,
   companyId,                   // ref Company — null until attached via an Invite redemption or (still supported)
                                // a developer manually attaching one in MongoDB
-  role: 'manager' | 'employee' | 'owner' | null, // defaults to 'manager' on signup; null after
-                               // DELETE /api/team/[userId] detaches a user from their company (see "Team &
-                               // Invites" below) — a null role never grants access on its own, every route
-                               // gates on companyId first. 'owner' (see "Locations" below) is a strict
+  role: 'manager' | 'employee' | 'owner' | 'developer' | null, // defaults to 'manager' on signup; null
+                               // after DELETE /api/team/[userId] detaches a user from their company (see
+                               // "Team & Invites" below) — a null role never grants access on its own, every
+                               // route gates on companyId first. 'owner' (see "Locations" below) is a strict
                                // superset of 'manager' — sees/administers every Location under the company,
                                // not just one — and is never assigned through any in-app flow, only by hand
-                               // in MongoDB, same as a company's very first manager.
+                               // in MongoDB, same as a company's very first manager. 'developer' is a strict
+                               // superset of 'owner' again (see docs/features/nfc.md's "Provisioning") —
+                               // internal-use only, gates the NFC tag registry's Provision Tag action, also
+                               // hand-set in MongoDB only, never assignable through any in-app flow.
   companyJoinedAt,             // Date | null — set at Invite redemption alongside companyId/role; null for
                                // anyone attached by hand in MongoDB. Distinct from account-creation createdAt
                                // so re-joining a *different* company later reflects current tenure there.
@@ -362,12 +365,12 @@ collections server-side on every read.
                      //   checked to save, distinct from a single yes/no boolean answer
   projectedMinutes,  // default time budget; a placement's own projectedMinutes overrides it
   nfcTagUid,         // raw hardware UID of a bound physical NFC tag, scanned in-app; null = no
-                     //   binding. Completing this task then requires a matching "Scan NFC"
-                     //   instead of a plain Save — see docs/features/nfc.md's "In-app
-                     //   scan-to-complete binding". Distinct from the separate NfcTag
-                     //   collection used for tap-to-trigger. Binding lives here, one layer
-                     //   above any single placement, so every list a task is placed in
-                     //   shares the same tag.
+                     //   binding. Must be a UID already `claimed` in the NfcTag registry (see
+                     //   below) for this same company+location before it can be bound here.
+                     //   Completing this task then requires a matching "Scan NFC" instead of a
+                     //   plain Save — see docs/features/nfc.md's "In-app scan-to-complete
+                     //   binding". Binding lives here, one layer above any single placement, so
+                     //   every list a task is placed in shares the same tag.
   instructionSteps,  // up to 3 manager-authored { description, imageUrl } steps showing what the
                      //   finished result should look like — see
                      //   docs/features/task-completion-instructions.md. Same layer as formFields.
@@ -573,8 +576,8 @@ restaurant-specific; gyms and hotels are expected customers too.
   `companyId` only — they're the company's shared configuration, not any
   individual's or any one location's.
 - **Ownership-level, location-owned** collections (`TaskList`, `Task`,
-  `TaskDefinition`, `NfcTag`, `PendingNfcLink`, `InventoryItemType`,
-  `InventoryGroup`) scope by `companyId` *and* `locationId` — see
+  `TaskDefinition`, `InventoryItemType`, `InventoryGroup`) scope by
+  `companyId` *and* `locationId` — see
   "Locations" below. This was tightened from a company-wide scope to a
   per-location one specifically because `TaskDefinition.nfcTagUid`/
   `instructionSteps`/`requiresPhoto` (and, in the same later pass,
@@ -584,6 +587,12 @@ restaurant-specific; gyms and hotels are expected customers too.
   `InventoryItemType`s as read-only *example* data, but adding one to their
   own list/catalog always clones a brand-new, same-location document — see
   "Task Lists" below and `docs/features/inventory.md`'s "Location scoping".
+- `NfcTag` has its own distinct scoping model, a registry rather than
+  straightforward location-ownership: `companyId`/`locationId` are `null`
+  until a customer manager *claims* a provisioned UID (`status: 'claimed'`
+  fixes both fields permanently), so a row's tenant scope is assigned at
+  claim time, not at creation — see `docs/features/nfc.md`'s "The tag
+  registry".
 - **Activity-level** collections (`TaskLog`, `TaskListSession`,
   `InventoryLog`) scope by `companyId` *and* `locationId`, and stamp a
   `performedByUserId`/`loggedByUserId` as an attribute, not part of the
@@ -870,10 +879,10 @@ stamped from the inviting manager's `locationId`, or picked explicitly by
 an owner). `TaskLog`/`TaskListSession`/`InventoryLog`/`MissedListAlert` all
 gained a `locationId` field and their lookup/uniqueness indexes were
 updated to include it, so two locations never collide into one location's
-data. `TaskList`/`Task`/`TaskDefinition`/`NfcTag`/`PendingNfcLink` went
-further and became location-OWNED outright, not just location-scoped
-activity — each store manages its own independent task lists, saved-task
-catalog, and NFC bindings, with cross-location catalog browsing as
+data. `TaskList`/`Task`/`TaskDefinition` went further and became
+location-OWNED outright, not just location-scoped activity — each store
+manages its own independent task lists, saved-task catalog, and NFC
+bindings, with cross-location catalog browsing as
 read-only example data only (see "Task Lists" above). `InventoryItemType`/
 `InventoryGroup` later got this exact same treatment (see
 `docs/features/inventory.md`'s "Location scoping") — each store now manages
@@ -927,7 +936,10 @@ is in `docs/features/locations.md`.
 - [x] Standalone To-Dos — see docs/features/todos.md
 - [x] Live Activity (iOS Lock Screen timer) — see docs/features/live-activity.md
 - [x] Manager-created/renamed/deleted task lists + list-level day-of-week scheduling — see "Task Lists" above
-- [x] NFC tap-to-trigger tasks (Universal Links) — see docs/features/nfc.md
+- [x] NFC tap-to-trigger tasks (Universal Links) — built, then later removed
+      entirely and replaced by the tag registry+claim model (see the NFC
+      Tag Registry entry further below) — see docs/features/nfc.md's
+      "History: Tap-to-trigger (removed)"
 - [x] In-app NFC scan-to-complete task binding (distinct from the above) — see docs/features/nfc.md
 - [x] Team tab + invite-token-only company joining, manager role-switching/removal — see "Team & Invites" above and docs/features/team-invites.md
 - [x] Multi-target NFC binding (a tag can back more than one task/item type, with FAB-scan disambiguation) — see docs/features/nfc.md's "Multi-target binding"
@@ -1060,6 +1072,32 @@ is in `docs/features/locations.md`.
       status-only text on console, both editing and creating, since a
       browser has no scanner. See
       docs/features/unified-task-create-edit.md
+- [x] NFC Tag Registry + Claim (tap-to-trigger removed) — replaced
+      tap-to-trigger entirely with a registry-and-claim model built on the
+      raw hardware UID scan-to-complete binding already used: a UID must be
+      `provisioned` by us (`POST /api/admin/nfc-tags/provision`,
+      `models/NfcTag.ts`'s new registry shape) and `claimed` by a customer
+      manager for their own company+location (`POST /api/nfc-tags/claim`,
+      defaults to the claiming manager's own active location) before it can
+      be bound to a `TaskDefinition`/`InventoryItemType` — closes the hole
+      where any NFC tag, from anywhere, could be scanned and bound with no
+      check it was ever a real Ch'rps tag. Binding itself
+      (`lib/task-definitions.ts`'s `bindNfcTag`/`lib/inventory.ts`'s
+      `bindInventoryNfcTag`) is unchanged in shape (still many-to-one, a tag
+      can back more than one task/item type) but now gates on
+      `lib/nfc-tags.ts`'s `requireClaimedTag` first; a rejected bind
+      (`409 { reason: "unclaimed" }`) surfaces a "Claim & Retry" action
+      inline in "Scan to Link" rather than a dead end. A new `developer`
+      `User.role` tier (a strict superset of `owner`, hand-set in MongoDB
+      only, same precedent as `owner` itself) gates a mobile-only
+      "Provision Tag" screen (`/nfc/provision`,
+      `components/ProvisionNfcTagView.tsx`) reached from a Profile card —
+      provisioning needs a native NFC scan, which the desktop Admin Console
+      can't do. `NfcTag.lastUsedAt`/`lastUsedByUserId` are stamped on every
+      real verified scan (task completion or inventory log), answering "do
+      we lose tags"/"when was this last seen" from the admin side. See
+      docs/features/nfc.md's "The tag registry" and "History: Tap-to-trigger
+      (removed)".
 
 Personal-habit-tracker features from before the restaurant pivot — the
 timer-based Countdown/Stopwatch/Checkbox item types and the Sunday "Routine
@@ -1177,9 +1215,10 @@ table is a quick reference, not authoritative.
 - To-Dos: BUILT — standalone quick-capture list, shown on the Today view
 - Live Activity: BUILT — iOS Lock Screen timer (see `docs/features/live-activity.md`); its Lock Screen button opens the app rather than completing a task directly (see the doc's "Open App button" section)
 - Manager task-list management: BUILT — create/rename/schedule/delete, see "Task Lists" above
-- NFC tap-to-trigger: BUILT — physical tags linked to a task (manager-only), triggered via Universal Links only by any company user, see `docs/features/nfc.md`
-- NFC scan-to-complete binding: BUILT — manager scans a physical tag's raw UID onto a task from Manage Task List; completing that task then requires a matching in-app "Scan NFC" instead of a plain Save, see `docs/features/nfc.md`
-- Multi-target NFC binding: BUILT — a tag can back more than one task and/or Inventory item type at once; the FAB's blind scan disambiguates with a picker when a scan resolves to more than one, see `docs/features/nfc.md`'s "Multi-target binding"
+- NFC tap-to-trigger: REMOVED — replaced entirely by the tag registry+claim model below; see `docs/features/nfc.md`'s "History: Tap-to-trigger (removed)"
+- NFC Tag Registry + Claim: BUILT — a UID must be `provisioned` (developer-only, `/nfc/provision`) and `claimed` by a customer manager for their own company+location (`POST /api/nfc-tags/claim`, defaults to the claiming manager's own active location) before it can be bound to anything; a rejected bind surfaces "Claim & Retry" inline rather than a dead end, see `docs/features/nfc.md`'s "The tag registry"
+- NFC scan-to-complete binding: BUILT — manager scans a physical, *claimed* tag's raw UID onto a task from Manage Task List; completing that task then requires a matching in-app "Scan NFC" instead of a plain Save, see `docs/features/nfc.md`
+- Multi-target NFC binding: BUILT — a claimed tag can back more than one task and/or Inventory item type at once; the FAB's blind scan disambiguates with a picker when a scan resolves to more than one, see `docs/features/nfc.md`'s "Multi-target binding"
 - Offline support: BUILT — native SQLite cache mirrors task lists/tasks/definitions/today's logs, task-log mutations (start/complete/miss) queue locally and sync on reconnect, and in-app NFC scan-to-complete resolves against the local cache when offline; a cold app launch/full reload while offline is a known, documented gap (server-URL Capacitor mode), see `docs/features/offline.md`
 - FAB button (center bottom nav): resumes the active timer when one exists; otherwise scans an NFC tag and opens whichever task or Inventory item it's bound to, disambiguating first if it's bound to more than one (`components/BottomNav.tsx`, see `docs/features/nfc.md`)
 - Team & Invites: BUILT — Team tab roster (everyone) + manager-only invite-link generation/revocation and role-switching/removal, see "Team & Invites" above and `docs/features/team-invites.md`
@@ -1193,7 +1232,7 @@ table is a quick reference, not authoritative.
 - Unified Task Create/Edit (mobile + console): BUILT — every task creation path (mobile `AddTaskSheet.tsx`'s "Create custom task," console `TaskCatalogPane.tsx`'s "+ New catalog task") now also exposes NFC/Instructions/Require Photo/Linked Inventory: once the core fields save, the same sheet/card moves into a phase-2 view (`components/task-panels/CreatedTaskPanels.tsx`) with those four panels scoped to the new `TaskDefinition`, instead of closing right away — quick-adding a template/existing/cloned task still closes immediately, unaffected. Also backfilled console's `TaskListDetailPane.tsx`/`TaskCatalogPane.tsx` **editing** rows with the same Instructions/Require Photo/Linked Inventory panels mobile's edit surface has (a gap `unified-task-edit-surface.md` left open, being mobile-only) — NFC stays status-only text on console throughout, editing and creating alike. See `docs/features/unified-task-create-edit.md`
 - Notifications: BUILT — two independent shift-window alerts: "start-time reminders" fire at a list's exact startTime via its own per-list QStash schedule (managers+employees), "missed" fires 30min past the window's end via a shared QStash sweep every 5min (managers only, tasks still outstanding); device registration via `@capacitor/push-notifications` open to any company user, `Company.timezone`/`notificationsEnabled` drive both, see "Notifications" above and `docs/features/notifications.md`
 - Notification Targeting by Job Tag: BUILT — `TaskList.notifyTags` (Console Task Management's `NotifyTagsPicker`, showing each tag's current `userCount`) narrows a list's start-time reminder to teammates carrying a matching job tag; empty stays the default "notify everyone." `Company.missedAlertIncludeOwner` (mobile Company Settings) toggles whether the owner is included in the missed-list escalation, which stays role-based and untouched by tags. Task-list *visibility* by job tag is a separate, still-unbuilt piece, see `docs/features/notification-job-tag-targeting.md`
-- Locations: BUILT — `Location` model, new `owner` role tier, invite/team location assignment, Location CRUD API, locationId-scoping across TaskLog/TaskListSession/InventoryLog/MissedListAlert, and an owner-facing location switcher on Tasks/Team/Reports/Inventory (merged directly into `components/Header.tsx`'s title area as of `docs/features/header-location-switcher.md` — no separate row under the header anymore) and `/console/tasks`/`/console/reports`/`/console/inventory` (still the standalone `components/LocationSwitcher.tsx` there, untouched by that merge); migration script at `scripts/backfill-locations.mjs`. Job tags now have a catalog + assignment UI (Admin Console's Team page — see `docs/features/admin-console.md`'s "Job Tags catalog") and a first targeting consumer: a `TaskList.notifyTags` field narrows that list's start-time reminder audience by job tag, set from the Console's Task Management page — see `docs/features/notification-job-tag-targeting.md`. The separate, still-deferred piece is task-list *visibility* by job tag (which employees can see/act on a list at all, as opposed to who gets pushed a reminder about it) — that remains not built. The location-scoped task catalog fix (`TaskList`/`Task`/`TaskDefinition`/`NfcTag`/`PendingNfcLink` all became location-owned, see "Locations" and "Task Lists" above) also closed the previously-NOT-built per-location split of the start-time-reminder cron as a side effect — each location's own list now has its own independent QStash schedule by construction; migration script at `scripts/backfill-task-catalog-locations.mjs`. `InventoryItemType`/`InventoryGroup` later got the equivalent split too — each location now manages its own independent Inventory catalog + NFC bindings, with the same cross-location example-data browsing/clone for item types — see `docs/features/inventory.md`'s "Location scoping"; migration script at `scripts/backfill-inventory-locations.mjs`
+- Locations: BUILT — `Location` model, new `owner` role tier, invite/team location assignment, Location CRUD API, locationId-scoping across TaskLog/TaskListSession/InventoryLog/MissedListAlert, and an owner-facing location switcher on Tasks/Team/Reports/Inventory (merged directly into `components/Header.tsx`'s title area as of `docs/features/header-location-switcher.md` — no separate row under the header anymore) and `/console/tasks`/`/console/reports`/`/console/inventory` (still the standalone `components/LocationSwitcher.tsx` there, untouched by that merge); migration script at `scripts/backfill-locations.mjs`. Job tags now have a catalog + assignment UI (Admin Console's Team page — see `docs/features/admin-console.md`'s "Job Tags catalog") and a first targeting consumer: a `TaskList.notifyTags` field narrows that list's start-time reminder audience by job tag, set from the Console's Task Management page — see `docs/features/notification-job-tag-targeting.md`. The separate, still-deferred piece is task-list *visibility* by job tag (which employees can see/act on a list at all, as opposed to who gets pushed a reminder about it) — that remains not built. The location-scoped task catalog fix (`TaskList`/`Task`/`TaskDefinition` all became location-owned, see "Locations" and "Task Lists" above) also closed the previously-NOT-built per-location split of the start-time-reminder cron as a side effect — each location's own list now has its own independent QStash schedule by construction; migration script at `scripts/backfill-task-catalog-locations.mjs`. `InventoryItemType`/`InventoryGroup` later got the equivalent split too — each location now manages its own independent Inventory catalog + NFC bindings, with the same cross-location example-data browsing/clone for item types — see `docs/features/inventory.md`'s "Location scoping"; migration script at `scripts/backfill-inventory-locations.mjs`
 - Admin Console: BUILT — desktop-first `/console` section (`app/(console)/console/**`, gated manager-or-above in its `layout.tsx`, blocked from the native iOS shell): a Rollup Dashboard (`GET /api/reports/rollup`) as `/console`'s own homepage, giving an owner a cross-location snapshot (completion rate, tasks logged, missed lists, below-par items, active employees) that has no mobile equivalent (Locations CRUD, the console's original Phase 1a page, was removed entirely; Rollup moved off its own `/console/rollup` route to become the homepage in its place), a company-wide Team & Access table + invite panel + a small owner-only Locations panel (create/rename/archive — Locations CRUD's return, embedded here rather than as its own page/nav item this time) + Job Tags catalog (create/rename/archive tags, per-teammate toggle assignment), Task & Task List Management (`/console/tasks`, manager-or-above) — a two-pane task-list/task editor reusing mobile's exact APIs and field-editing building blocks, NFC status-only (no scan action), plus a Task Catalog pane for editing/creating/deleting a saved task independent of any list placement — a Reports page (`/console/reports`, manager-or-above) — desktop-shaped stat strip/leaderboard table/task-list grid/Logs table/Inventory card grid, all fed by mobile's exact `GET /api/reports`/`/api/reports/leaderboard`/`/api/reports/inventory`/`GET /api/task-logs/history` responses (new presentational layouts, reused pure math/types from `components/reports/shared.ts`) — and an Inventory Management page (`/console/inventory`, manager-or-above) — grouped item-type table with always-visible log-a-count input + expandable history per row, plus a persistent Manage Groups panel below it; no NFC anywhere (an item with `nfcRequiredToLog` set from mobile 409s here with console-specific error copy, not mobile's "use Save via NFC"). Team & Access and the Rollup Dashboard homepage stay owner-only, each self-gating now that the blanket layout check loosened; Task Management, Reports, and Inventory are the three manager-and-up pages. Reached via a manager-or-above card on the Profile page (`components/ProfileView.tsx`) — login itself still always lands on Tasks, same as every other role — see `docs/features/admin-console.md`, `docs/features/console-task-management.md`, `docs/features/console-reports.md`, and `docs/features/console-inventory.md`
 
 - Account Deletion: BUILT — Profile's "Delete Account" row (`employee`/`manager` only) scrubs PII off the caller's own `User` document, detaches them from their company/location, deletes their `PushToken`s and OAuth account link, and invalidates their session (`DELETE /api/account`, `lib/auth.ts`'s jwt callback); `owner` sees a static contact-support message instead of a button, see `docs/features/account-deletion.md`

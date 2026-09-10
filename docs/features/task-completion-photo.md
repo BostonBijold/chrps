@@ -32,10 +32,10 @@ photoUrl?: string | null  // default null; the Blob URL of the completion photo,
 
 - `POST /api/task-logs`'s quick-complete/back-entry `"done"` branch
 - `PATCH /api/task-logs`'s manual/back-entry `"done"` branch (only for a log *newly becoming* done — an already-done log's pure time-edit is exempt, same as the NFC check)
-- `completeInProgressLog` (the timer/form completion path both routes above route into, and `lib/task-trigger.ts`'s tap-to-trigger completion)
-- `startImmediateLog` (`lib/task-trigger.ts`'s immediate-done path for a non-timer task type)
+- `completeInProgressLog` (the timer/form completion path both routes above route into)
+- `startImmediateLog` (the immediate-done path for a non-timer task type)
 
-One consequence worth calling out explicitly, same as the pre-existing NFC-bound-task behavior: **a `requiresPhoto` task can never be completed via a tap-to-trigger Universal Link** (`app/nfc/[tagCode]/page.tsx`) — that path has no capture UI, so it always fails `assertPhotoProvided` and now shows a "Photo required — open it in the app to complete it" screen, mirroring the existing "Scan required" screen for an NFC-bound task hit the same way.
+(This section used to also call out that a `requiresPhoto` task could never be completed via a tap-to-trigger Universal Link tap, since that path had no capture UI — moot now that tap-to-trigger has been removed entirely, see `docs/features/nfc.md`'s "History: Tap-to-trigger (removed)".)
 
 `formData` today is stored as sent with *no validation* against the task's `formFields` shape — `photoUrl` is the deliberate exception to that convention, precisely because the point of this feature is a manager being able to trust the photo actually exists.
 

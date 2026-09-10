@@ -173,8 +173,9 @@ to get subtly wrong with a hand-rolled local patch.
   one deliberate capability gap versus mobile, called out in the UI itself
   rather than left as a silent missing feature — it holds even after the
   edit-parity backfill below, since a browser still has no scanner. The
-  tap-to-trigger `nfcTagCode` system stays **not shown at all** here —
-  genuinely out of scope, unaffected on mobile.
+  tap-to-trigger `nfcTagCode` system this note used to also mention has
+  since been removed entirely (see `docs/features/nfc.md`'s "History:
+  Tap-to-trigger (removed)") — nothing left to show or not show.
 - **Instructions, Require Photo, Linked Inventory** — originally not shown
   here either (out of this pane's first-pass scope), these three were
   later backfilled by

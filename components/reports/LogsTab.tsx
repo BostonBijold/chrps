@@ -71,7 +71,7 @@ function fmtMins(mins: number) {
 // sees every employee's logs by default; employee always sees only their
 // own (enforced server-side, not just hidden UI — see
 // app/api/task-logs/history/route.ts). See docs/features/reports.md.
-export default function LogsTab({ role }: { role: "manager" | "employee" | "owner" }) {
+export default function LogsTab({ role }: { role: "manager" | "employee" | "owner" | "developer" }) {
   const initialWindow = trailingWindow(14);
   const [startDate, setStartDate] = useState(initialWindow.startDate);
   const [endDate, setEndDate] = useState(initialWindow.endDate);

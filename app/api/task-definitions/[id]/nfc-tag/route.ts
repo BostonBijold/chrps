@@ -3,6 +3,7 @@ import { connectDB } from "@/lib/mongoose";
 import { bindNfcTag, unbindNfcTag } from "@/lib/task-definitions";
 import { resolveSessionUser, isManagerOrAbove, pickActiveLocationId } from "@/lib/session";
 import { validateLocationId } from "@/lib/locations";
+import { NfcTagNotClaimedError } from "@/lib/nfc-tags";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +36,15 @@ export async function POST(
 
   await connectDB();
 
-  const bound = await bindNfcTag(companyId, locationId, params.id, uid);
+  let bound;
+  try {
+    bound = await bindNfcTag(companyId, locationId, params.id, uid);
+  } catch (err) {
+    if (err instanceof NfcTagNotClaimedError) {
+      return NextResponse.json({ error: err.message, reason: "unclaimed" }, { status: 409 });
+    }
+    throw err;
+  }
   if (!bound) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   return NextResponse.json({ nfcTagUid: bound.definition.nfcTagUid, alsoBoundTo: bound.alsoBoundTo });

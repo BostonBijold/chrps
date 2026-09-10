@@ -6,7 +6,6 @@ import TaskLog from "@/models/TaskLog";
 import User from "@/models/User";
 import type { LogState } from "@/models/TaskLog";
 import type { CompletionState } from "@/models/TaskListSession";
-import { resolveTask } from "@/lib/task-definitions";
 
 // List-level session bookkeeping, layered on top of the per-task TaskLog
 // writes in lib/task-log-actions.ts. TaskLog stays the source of truth for
@@ -24,12 +23,9 @@ import { resolveTask } from "@/lib/task-definitions";
 // complete one of its tasks (see models/TaskLog.ts and
 // models/TaskListSession.ts for the reasoning).
 
-// Raw "this list's active tasks + that date's logs for them" fetch — shared
-// by isTaskListFullyResolved below and by findNextTaskInList (used by
-// lib/task-trigger.ts's triggerTask() Case 2 auto-advance, called from the
-// NFC Universal Link tap — see docs/features/nfc.md), so there's exactly
-// one query shape for "what does this list look like today," not a third
-// reimplementation of it.
+// Raw "this list's active tasks + that date's logs for them" fetch — used
+// by isTaskListFullyResolved below, so there's exactly one query shape for
+// "what does this list look like today."
 async function fetchTaskListTasksAndLogs(companyId: string, locationId: string | null, taskListId: string, date: string) {
   const tasks = await Task.find({ taskListId, companyId, isActive: true })
     .sort({ order: 1 })
@@ -43,18 +39,6 @@ async function fetchTaskListTasksAndLogs(companyId: string, locationId: string |
     taskId: { $in: tasks.map((t) => t._id) },
   }).lean();
   return { tasks, logs };
-}
-
-// First task (by order) in a single task list with no log at all for date.
-// Used by the external trigger-task endpoint's "advance to next task in the
-// list" step (Case 2). Resolved (joined with its TaskDefinition) since
-// every caller immediately needs .taskType to decide how to start it.
-export async function findNextTaskInList(companyId: string, locationId: string | null, taskListId: string, date: string) {
-  const { tasks, logs } = await fetchTaskListTasksAndLogs(companyId, locationId, taskListId, date);
-  if (tasks.length === 0) return null;
-  const loggedIds = new Set(logs.map((l) => l.taskId.toString()));
-  const next = tasks.find((t) => !loggedIds.has(t._id.toString()));
-  return next ? resolveTask(next) : null;
 }
 
 // True once every active task in the list has a terminal (done/missed)

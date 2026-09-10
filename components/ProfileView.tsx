@@ -3,7 +3,7 @@
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { signOut } from "next-auth/react";
-import { ChevronRight, Monitor } from "lucide-react";
+import { ChevronRight, Monitor, Nfc } from "lucide-react";
 import Header from "@/components/Header";
 
 const SUPPORT_EMAIL = "contact@usechrps.com";
@@ -14,10 +14,19 @@ interface Props {
   skipAuth: boolean;
   isManager?: boolean;
   isOwner?: boolean;
+  isDeveloper?: boolean;
   hasPassword?: boolean;
 }
 
-export default function ProfileView({ name, email, skipAuth, isManager = false, isOwner = false, hasPassword = false }: Props) {
+export default function ProfileView({
+  name,
+  email,
+  skipAuth,
+  isManager = false,
+  isOwner = false,
+  isDeveloper = false,
+  hasPassword = false,
+}: Props) {
   const [passwordSet, setPasswordSet] = useState(hasPassword);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -187,6 +196,27 @@ export default function ProfileView({ name, email, skipAuth, isManager = false, 
                       ? "Locations, team & access, task lists, and the cross-location rollup — best on a computer"
                       : "Manage task lists and tasks — best on a computer"}
                   </p>
+                </div>
+              </div>
+              <ChevronRight size={16} className="text-dim flex-shrink-0" />
+            </Link>
+          )}
+
+          {/* Developer-only: provisioning fresh NFC tags into the registry
+              before they ship to a customer — see docs/features/nfc.md's
+              "Provisioning". "developer" is never assignable through any
+              in-app flow (hand-set in MongoDB, same as "owner"), so this
+              card is invisible to every customer manager/owner. */}
+          {isDeveloper && (
+            <Link
+              href="/nfc/provision"
+              className="flex items-center justify-between bg-card rounded-card border border-border p-5 hover:bg-card-hover transition-colors"
+            >
+              <div className="flex items-center gap-3">
+                <Nfc size={18} className="text-olive flex-shrink-0" />
+                <div>
+                  <p className="font-body text-sm text-text">Provision Tag</p>
+                  <p className="font-mono text-[10px] text-dim mt-0.5">Scan a fresh tag into the registry</p>
                 </div>
               </div>
               <ChevronRight size={16} className="text-dim flex-shrink-0" />

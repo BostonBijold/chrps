@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { connectDB } from "@/lib/mongoose";
 import User from "@/models/User";
-import { isManagerOrAbove, isOwner } from "@/lib/roles";
+import { isManagerOrAbove, isOwner, isDeveloper } from "@/lib/roles";
 import type { UserRole } from "@/lib/roles";
 
 export type { UserRole };
@@ -9,7 +9,7 @@ export type { UserRole };
 // from here — the actual definitions live in lib/roles.ts, which has no
 // server-only imports, so client components import from there directly
 // instead of pulling @/lib/auth/mongoose into the browser bundle.
-export { isManagerOrAbove, isOwner };
+export { isManagerOrAbove, isOwner, isDeveloper };
 
 export interface SessionUser {
   userId: string;
@@ -96,6 +96,6 @@ export async function resolveSessionUser(): Promise<SessionUser | null> {
 // callers that accept a raw query param must still validate it belongs to
 // the company before trusting it further.
 export function pickActiveLocationId(sessionUser: SessionUser, requestedLocationId: string | null): string | null {
-  if (sessionUser.role !== "owner") return sessionUser.locationId;
+  if (!isOwner(sessionUser.role)) return sessionUser.locationId;
   return requestedLocationId || sessionUser.activeLocationId || sessionUser.locationId;
 }

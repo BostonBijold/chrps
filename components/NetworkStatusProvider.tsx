@@ -5,10 +5,10 @@ import { Capacitor } from "@capacitor/core";
 import { getPendingQueueCount } from "@/lib/offline-db";
 
 // Native-only online/offline context — see docs/features/offline.md.
-// Mirrors components/UniversalLinkHandler.tsx's shape (guard first, dynamic
-// import of the native-only module, listener cleanup) but answers a
-// different question than Capacitor.isNativePlatform() itself: online vs.
-// offline, not native vs. web.
+// Same shape as any other native-only listener in this codebase (guard
+// first, dynamic import of the native-only module, listener cleanup) but
+// answers a different question than Capacitor.isNativePlatform() itself:
+// online vs. offline, not native vs. web.
 //
 // Deliberately does NOT own pull-sync/queue-flush triggering itself (the
 // original design sketch had it registering an app-resume listener and

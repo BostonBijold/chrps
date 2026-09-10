@@ -18,7 +18,7 @@ import { isManagerOrAbove } from "@/lib/roles";
 // userRole is optional here (see the Task List Locking note below), so
 // every call site guards the undefined case before deferring to the shared
 // role-tier check.
-function canManage(userRole: "manager" | "employee" | "owner" | undefined) {
+function canManage(userRole: "manager" | "employee" | "owner" | "developer" | undefined) {
   return !!userRole && isManagerOrAbove(userRole);
 }
 
@@ -49,7 +49,7 @@ interface Props {
   // Task List Locking — see docs/features/task-lists.md. All optional so the
   // anytime-list call site (no session concept there) doesn't need them.
   currentUserId?: string;
-  userRole?: "manager" | "employee" | "owner";
+  userRole?: "manager" | "employee" | "owner" | "developer";
   sessionLock?: SessionLockInfo | null; // who currently holds this list's open session, if anyone
   onUnlockSession?: () => void; // manager-only — clears the lock so someone else can pick it up
 }

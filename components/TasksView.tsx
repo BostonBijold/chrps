@@ -68,7 +68,7 @@ interface Props {
   today: string;
   userName: string;
   userId: string;
-  userRole: "manager" | "employee" | "owner";
+  userRole: "manager" | "employee" | "owner" | "developer";
   companyId: string; // scopes the offline SQLite cache/queue — see docs/features/offline.md
   // The location this page's data is scoped to (already resolved server-
   // side via pickActiveLocationId) — passed through only so the header's

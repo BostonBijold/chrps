@@ -2,201 +2,446 @@
 
 # NFC Features
 
-Two independent NFC systems live in this codebase — don't conflate them (see the comparison table in [In-app scan-to-complete binding](#in-app-scan-to-complete-binding)):
+Ch'rps uses physical NFC tags for two things, both keyed off the tag's own
+raw hardware UID and gated by a single registry:
 
-1. **Tap-to-trigger** (this section, through [Trigger flow](#trigger-flow)) — physical NFC tags, pre-manufactured with a generic URL and handed out at a restaurant, that a manager then links to one of the company's tasks inside the app.
-2. **In-app scan-to-complete binding** (its own section below) — a raw tag UID bound directly to a task, read in-app, gating that task's completion. Also powers the FAB's "scan to open" shortcut.
+1. **The tag registry** (this section) — before a UID can be bound to
+   anything, it must be `provisioned` by us and `claimed` by the customer.
+   This is what closes the hole where any NFC tag, from anywhere, could be
+   scanned and bound to a task with no check it was ever a real Ch'rps tag.
+2. **In-app scan-to-complete binding** (its own section below) — a claimed
+   UID bound directly to a `TaskDefinition`/`InventoryItemType`, read
+   in-app, gating that target's completion/logging. Also powers the FAB's
+   "scan to open" shortcut.
 
-**Tap-to-trigger has exactly one path now: Universal Links.** Tapping the tag opens `/nfc/<tagCode>` directly in the native app (not a browser) — zero setup beyond linking the tag once in-app, works for any tag, but a tap always surfaces iOS's own unskippable confirmation prompt (see [Native setup](#native-setup) below) and needs the phone unlocked with the app reachable. There used to be a second, faster path — a per-tag Shortcut + NFC Automation combo that triggered silently with the phone locked — removed entirely along with the rest of the external API/Shortcuts surface; see [History: Shortcuts-driven silent triggers](#history-shortcuts-driven-silent-triggers-removed) below for why.
+There used to be a third system, **tap-to-trigger** (a separate `tagCode`/
+Universal-Link mechanism) — removed entirely, see
+[History: Tap-to-trigger (removed)](#history-tap-to-trigger-removed) below.
 
-## Why company-scoped, not user-scoped
+## The tag registry
 
-Unlike the personal-habit-tracker app this was originally built for, Ch'rps's tasks are shared restaurant configuration — any employee on shift can complete any task (`TaskLog` is keyed by `companyId+taskId+date`, not per-user). So an `NfcTag` belongs to the **company**, not to whichever person set it up:
+`models/NfcTag.ts` is a closed-loop registry keyed by the tag's own raw
+hardware UID (lowercase hex — the same value scan-to-complete binding
+already uses, not an app-generated code):
 
-- **Linking a tag is manager-only** (arming a pending link, claiming a cold tap, generating a silent trigger, unlinking) — configuration, gated the same way as Task List management (`role !== "manager" → 403`).
-- **Triggering an already-linked tag is open to any signed-in user of that company** — same "any employee on shift" philosophy as the rest of the app. Whoever's session fired it (the in-app tap) becomes `performedByUserId` on the resulting `TaskLog`.
-- `claimedByUserId` on `NfcTag` is attribution only (who set it up), not an access restriction.
+```js
+{
+  uid,                 // unique index — the registry key
+  status,               // 'unclaimed' | 'claimed' | 'retired'
+  companyId,             // string | null — null until claimed
+  locationId,             // string | null — null until claimed. Same
+                         //   "plain String, not an ObjectId ref" convention
+                         //   as every other location-owned collection, see
+                         //   CLAUDE.md's Multi-Tenancy section
+  claimedByUserId,
+  claimedAt,
+  label,                 // string | null — inert in v1, see "Deferred" below
+  imageUrl,               // string | null — inert in v1, see "Deferred" below
+  lastUsedAt,             // Date | null — stamped on every real verified match
+  lastUsedByUserId,
+}
+```
 
-**Also location-scoped, not just company-scoped.** Both NFC systems now
-carry a `locationId` — `NfcTag`/`PendingNfcLink` (tap-to-trigger) got a new
-`locationId` field, stamped from the linked `Task`'s own resolved location
-at claim/arm time; `TaskDefinition.nfcTagUid` (scan-to-complete) became
-location-owned automatically once `TaskDefinition` itself did (see
-CLAUDE.md's "Locations" section and [task-lists.md](task-lists.md)'s
-"Company Task Catalog" section). A physical tag is, after all, an address
-at one specific store — a tag bound to Location A's fridge no longer
-resolves at Location B, even for an identically-named task, which was a
-real bug before this was fixed (`GET /api/tasks/by-nfc-uid`'s match queries
-now filter by `locationId`, not just `companyId`).
+A tag is single-company, single-location — many `TaskDefinition`s and/or
+`InventoryItemType`s can still share one claimed UID (that's unchanged from
+before this rework, see "Multi-target binding" below; the registry only
+gates *whether* a UID can be bound at all, not how many things it can back
+once it is).
 
-## Data model
+Two workflows, cleanly separated (`lib/nfc-tags.ts`):
 
-- `models/NfcTag.ts` — `{ tagCode (unique), companyId | null, taskId | null, taskListId | null, claimedByUserId | null, claimedAt | null }`. A separate collection from `Task` (not a field on it) so one task can have multiple tags pointing at it — e.g. a tag by the walk-in fridge and one by the prep line, both logging the same "Walk-in Fridge Temp" task. `tagCode` is generated ahead of time, before any company owns the tag — see [Provisioning](#provisioning).
-- `models/PendingNfcLink.ts` — `{ userId (unique), companyId, taskId, armedAt }`. One per user — supports the "arm, then tap" linking flow below. Treated as stale and ignored if `armedAt` is more than ~5 minutes old at read time (checked inline in `app/nfc/[tagCode]/page.tsx`) — no TTL index, just hygiene.
+### Provisioning
 
-## Linking flow — "arm, then tap"
+Us, before a tag ships to a customer. No writing to the tag itself — the
+UID is factory-burned and read-only, this app only ever reads it. Just a
+scan + registry insert: `POST /api/admin/nfc-tags/provision`, body
+`{ uid }`, creates `{ uid, status: 'unclaimed' }`. Rejects (`409`) if the
+UID already exists in the registry in any state.
 
-**The "Link a Physical Tag" button that starts this flow is no longer in the UI** — see [Manage Task List UI](#manage-task-list-ui). The mechanism below still exists and still works (the API routes are unchanged), it's just no longer reachable by tapping a button in Manage Task List; kept here for reference and for any caller that still hits `POST /api/nfc-tags` directly.
+Gated on a fourth `User.role` tier, **`developer`** — a strict superset of
+`owner` (see `lib/roles.ts`'s `isDeveloper`), never assignable through any
+in-app flow, hand-set in MongoDB the same way `owner` already is (see
+CLAUDE.md's Data Models section). Reached from a "Provision Tag" card on
+Profile, shown only when `isDeveloper(role)` — invisible to every customer
+manager/owner — which opens `/nfc/provision`
+(`components/ProvisionNfcTagView.tsx`): a plain "Scan to Provision" button
+reusing `lib/native/nfc-scan.ts`'s `scanNfcTag()`, with a running list of
+what's been provisioned this session (not persisted/fetched — just a
+visible confirmation trail while tapping through a batch of tags by hand).
 
-No native NFC scanning code is used for linking, only for the everyday trigger (both of which are actually the same Universal Link mechanism — reading is never done in-app). Manager-only throughout:
+Deliberately manual, one tag at a time — no batch tooling, confirmed fine
+at current provisioning volume. The route itself isn't company-scoped at
+all: a provisioned tag has no `companyId` yet, it's just a registry row
+waiting to be claimed.
 
-1. In Manage Task List (`components/TaskListEditView.tsx`'s per-task inline edit panel), a manager taps **Link a Physical Tag** → `POST /api/nfc-tags` upserts a `PendingNfcLink` for that task.
-2. The manager physically taps an unclaimed tag against the phone → Universal Links opens `/nfc/<tagCode>` directly in-app.
-3. `app/nfc/[tagCode]/page.tsx` finds a fresh `PendingNfcLink` for the signed-in user, claims the tag (sets `companyId`/`taskId`/`taskListId`/`claimedByUserId`/`claimedAt`), deletes the pending link, and renders `components/NfcTagLinkedSetup.tsx` — a plain confirmation now (it used to also walk through building a Shortcut here — see [History](#history-shortcuts-driven-silent-triggers-removed) below).
+### Claiming
 
-If a tag is tapped cold (unclaimed, nothing armed) by a manager, the page instead renders a picker of the company's active tasks (`components/NfcClaimTagPicker.tsx`), posting to `POST /api/nfc-tags/[tagCode]` to claim on selection — on success this also renders `NfcTagLinkedSetup` inline, entirely client-side (no page reload), rather than falling through to the trigger flow below. A non-manager who taps a cold tag sees a plain "ask a manager to link it" message.
+The customer, once they have the physical tag in hand. A manager scans it
+and it becomes theirs: locked to one `companyId` + one `locationId`.
+`POST /api/nfc-tags/claim`, body `{ uid }` — manager-or-above, same gate as
+every other NFC-linking route (`lib/session.ts`'s `isManagerOrAbove`).
+Defaults to the claiming manager's own active location
+(`pickActiveLocationId`, same resolution every other manager-write route
+uses) — claiming never takes an explicit `locationId` in the request body,
+only the existing `?locationId=` query param an owner's location switcher
+can already set on any write route.
 
-## Trigger flow
+- **UID not found in the registry** → `404`, "Not a recognized Ch'rps
+  tag."
+- **UID already `claimed` by a *different* company or location** → `409`,
+  a generic "This tag is already linked to another company." — matches the
+  old tap-to-trigger system's non-disclosure wording, never reveals which
+  company.
+- **UID `retired`** → same generic rejection as above.
+- **UID already `claimed` by *this exact* company + location** →
+  idempotent success (a second manager scanning the same tag, or a retry).
+- **UID `unclaimed`** → claims it: sets `status: 'claimed'`, `companyId`,
+  `locationId`, `claimedByUserId`, `claimedAt`.
 
-Tapping an already-claimed tag opens the same page; since `tag.companyId` now matches the signed-in user's company, it calls `triggerTask()` (`lib/task-trigger.ts`) directly, as a plain library function — not over HTTP, this was the one first-party caller left once the API-key-authenticated `trigger-task`/`nfc/[tagCode]` external routes were removed (see [History](#history-shortcuts-driven-silent-triggers-removed) below). If that call left the *tapped* task itself in a terminal `done` state — either it's a mark-and-done type (checkbox, always immediate) or it was the already-running timer this exact tap just completed — the page renders `components/NfcDoneScreen.tsx`: a static full-screen confirmation reusing `TaskCard`'s own "done" badge visual language. If instead the tap just *started* a timer (or completed a *different* task as a Case 3 jump side effect — see below), the tapped task isn't "done" yet, so the page falls through to a plain `redirect("/tasks")` where the running timer is visible instead.
+**No separate "Claim Tag" screen in v1** — claiming happens inline, as a
+recovery step inside "Scan to Link" (see "Claim & Retry" in "In-app
+scan-to-complete binding" below), not as its own entry point. `label`/
+`imageUrl` on the model exist so a later tag-management pass can add one
+without a migration, but nothing sets or reads them yet — deliberately left
+inert for v1.
 
-If the tag belongs to a different company, the page shows a generic "already linked to another company" message without revealing which task/company.
+### The actual gate
 
-### `triggerTask()`'s three-case dispatch
+`lib/nfc-tags.ts`'s `requireClaimedTag(companyId, locationId, uid)` is
+called by both `lib/task-definitions.ts`'s `bindNfcTag` and
+`lib/inventory.ts`'s `bindInventoryNfcTag` **before** either ever writes a
+UID onto a `TaskDefinition`/`InventoryItemType`. A UID must be `claimed` by
+the binder's own exact `companyId` + `locationId` or the bind throws
+`NfcTagNotClaimedError`, turned into a `409` with
+`{ error, reason: "unclaimed" }` by
+`app/api/task-definitions/[id]/nfc-tag`, `app/api/tasks/[id]/nfc-tag`, and
+`app/api/inventory-item-types/[id]/nfc-tag`'s `POST` handlers. A single
+message covers every rejection reason (not found, unclaimed, or claimed by
+someone else) — same non-disclosure precedent as the claim route above; the
+manager-facing fix is identical either way: claim it for this location
+first.
 
-Which case applies is determined by looking up this specific person's single active (`in_progress`) log, if any, and comparing its `taskId` to the tapped one — bidirectional: whether this starts or completes a task is decided entirely by current server state, never by a param the caller sends:
+### Usage stamping
 
-- **Case 1 — no active log exists anywhere for this person.** Starts the tapped task: `standard`/`stopwatch` tasks → `startInProgressLog` (a real timer, `sessionTaskListId` anchored if the tag was linked with one); `checkbox`/`form` (anything with no timer, per `isTimerTask`) → `startImmediateLog` writes a terminal `done` log immediately, `actualMinutes: 0` — it never passes through `in_progress` at all.
-- **Case 2 — the tapped task IS the currently active one.** Completes it via `completeInProgressLog`. If the tag's task belongs to a list, resolves the next not-yet-logged task in that list via `findNextTaskInList` and starts it per Case 1's rules.
-- **Case 3 — a different task is active.** Completes whatever *was* active, then starts the tapped task per Case 1's rules — this is the jump case, landing on whichever task was tapped, not the next one in sequence.
-
-> ⚠️ **Known gap for `form` tasks, unresolved**: `form` is the app's primary (and effectively only) creatable task type, but it isn't a timer task — Case 1/3 above instant-completes it via `startImmediateLog` with `formData: null`. There's no way for a tap (no in-app UI at the moment of the tap) to supply field readings, so a temperature check "done" this way records no temperature, silently, no error shown. This is the identical bug class that made the Live Activity's old Done button unworkable (see [`live-activity.md`](live-activity.md#open-app-button)) — that surface was fixed by replacing its button with a link that opens the app instead. **This one wasn't fixed** — Universal Links still tap straight into `triggerTask()` with no such redirect, so tapping a tag linked to a form task still silently records an empty check today. Flagging as a known, accepted limitation, not a bug that slipped through unnoticed.
-
-## History: Shortcuts-driven silent triggers (removed)
-
-Kept for institutional memory — none of this describes current behavior; there is no faster/silent NFC path anymore, only the Universal Link tap described above.
-
-Universal Links' unskippable OS confirmation prompt is a hard platform constraint on any Universal-Link-driven NFC tap, not something this app's build could suppress — so the fast, silent, phone-locked everyday path used to instead go through the Shortcuts app, which iOS lets an NFC Automation fire without asking. Each physical tag got its own tiny single-action Shortcut (`Get Contents of URL`, no runtime resolution) baked with that tag's exact trigger URL — `` `${origin}/api/external/nfc/<tagCode>?apiKey=<key>` `` — paired with an NFC Automation that ran it silently, phone locked, no confirmation card. `components/NfcTagLinkedSetup.tsx` used to fetch the user's API key and display that URL plus setup instructions right after a tag was linked; it's a plain confirmation now.
-
-Also removed alongside it: **"Generate Silent Trigger"** (`POST /api/nfc-tags/generate`, minted a "virtual" `NfcTag` claimed with no physical tap involved, meant to be triggered purely through its Shortcut) — its entire purpose depended on the now-deleted Shortcuts-only trigger route, so a virtual tag could never be triggered by anything once that route was gone; deleted rather than left orphaned. The "Setup Info" toggle on an already-linked task's row (Manage Task List) is gone too, since there's no setup info left to show.
-
-**Why this was removed, not just deprecated**: the underlying trigger dispatch (`triggerTask()`'s three-case logic — see above) instant-completes any `form`-type task with no data captured, and this app's tasks are now almost entirely `form`-type. A silently-firing Shortcut made that worse, not better — it encouraged relying on a trigger path that was quietly recording empty checks with no human ever seeing a screen to notice. Removing the whole API-key/Shortcuts surface was a deliberate simplification, not a partial fix — see `docs/project-structure.md`'s note on the remaining, identical gap in Universal Links.
-
-**Why not an in-app NFC listener instead of Shortcuts, back when this was being designed**: reading the tag directly from within this app's own code (Core NFC) was considered and ruled out for a *silent, phone-locked* trigger — a Core NFC reader session cannot survive the app backgrounding or the screen locking (torn down immediately), and even foregrounded, iOS caps a single session at 60 seconds. There's no way to keep a listener armed silently the way a Shortcuts Automation could. That constraint doesn't apply to the in-app scan-to-complete feature below, which is a deliberate foreground action, not a background listener.
-
-That constraint is specific to *silent/background* triggering — it doesn't rule out an in-app scan for a deliberate, foreground, user-initiated action, which is exactly what the completion-verification feature below uses.
+Every real, matched scan that actually verifies a task completion
+(`lib/task-log-actions.ts`'s `assertNfcVerified`) or an inventory log
+(`app/api/inventory-logs/route.ts`, right where `verifiedNfcUid` is
+computed) stamps `NfcTag.lastUsedAt`/`lastUsedByUserId` via
+`stampNfcTagUsage`. Cheap, denormalized, best-effort — never blocks or
+fails the completion it's confirming, and silently no-ops for a UID that
+somehow isn't registered. This is what answers "when was this tag last
+actually seen" from the admin side, without a separate audit table.
 
 ## In-app scan-to-complete binding
 
-A second, unrelated NFC concept, added later and deliberately minimal — do not conflate it with the tap-to-trigger system above:
+Unchanged in shape from before the registry — do not conflate with the
+registry above, which only gates *whether* a bind is allowed, not how
+binding/completion themselves work:
 
-| | Tap-to-trigger (above) | Scan-to-complete binding (this section) |
-|---|---|---|
-| Identifies a tag by | `tagCode` written into a URL on the tag's NDEF content | the tag's own raw hardware UID — nothing is written to the tag |
-| Stored | `models/NfcTag.ts`, a separate collection (one task placement ↔ many tags) | `TaskDefinition.nfcTagUid` (one saved task ↔ one **or more** tags is not the shape — it's the reverse: one tag ↔ one or more saved tasks/targets, see "Multi-target binding" below, and [task-lists.md](task-lists.md)'s "Company Task Catalog" section) |
-| Reads the tag | never in-app — Universal Links (OS-level) | in-app, via `NFCTagReaderSession` (`ios/App/App/NfcScanPlugin.swift`) |
-| Purpose | starting/advancing/completing a task from a tap, anywhere, any time | *gating* a form task's completion on proving the right physical tag is present |
-| Who can trigger it | any signed-in company user | same — but only after a manager has bound a tag in Manage Task List |
+- **Identifies a tag by** the tag's own raw hardware UID — nothing is
+  written to the tag.
+- **Stored** on `TaskDefinition.nfcTagUid` / `InventoryItemType.nfcTagUid`
+  — one saved task/item ↔ one **or more** tags is not the shape; it's the
+  reverse, one tag ↔ one or more saved tasks/targets, see "Multi-target
+  binding" below.
+- **Reads the tag** in-app, via `NFCTagReaderSession`
+  (`ios/App/App/NfcScanPlugin.swift`).
+- **Purpose**: gating a form task's completion (or an opted-in inventory
+  item's count-logging) on proving the right physical, *claimed* tag is
+  present.
+- **Who can trigger it**: any signed-in company user — but only after a
+  manager has both claimed the tag (see "Claiming" above) and bound it in
+  Manage Task List / the Task Catalog / Manage Inventory.
 
-**Binding a tag** (manager-only, in a shared "Scan-to-Complete Tag" panel — `components/task-panels/NfcBindingPanel.tsx`, backed by `lib/client/use-task-definition-panel.ts`'s `useTaskDefinitionPanel` hook, see [`unified-task-edit-surface.md`](unified-task-edit-surface.md) — rendered both inline in `components/TaskListEditView.tsx`'s `SortableRow`, separate from the "NFC Tag" panel above, and in the Task Catalog's `components/ManageTaskDetailSheet.tsx`): tapping **Scan to Link** calls `lib/native/nfc-scan.ts`'s `scanNfcTag()`, which opens `NfcScanPlugin`'s native `NFCTagReaderSession` sheet. On a successful read, the lowercase-hex UID is POSTed to `POST /api/task-definitions/[id]/nfc-tag`, addressed directly by the task's `definitionId` (both entry points now call the same definitionId-scoped route, rather than a placement-keyed one resolving it server-side), so the binding is shared by every list this saved task is placed in, not just the one the manager happened to bind it from. **Unbind** (`DELETE /api/task-definitions/[id]/nfc-tag`) clears it back to `null` the same way — see "Multi-target binding" below. Both routes are manager-gated the same way as the `/api/nfc-tags` routes above.
+**Binding a tag** (manager-only, in a shared "Scan-to-Complete Tag" panel —
+`components/task-panels/NfcBindingPanel.tsx`, backed by
+`lib/client/use-task-definition-panel.ts`'s `useTaskDefinitionPanel` hook,
+see [`unified-task-edit-surface.md`](unified-task-edit-surface.md) —
+rendered both inline in `components/TaskListEditView.tsx`'s `SortableRow`
+and in the Task Catalog's `components/ManageTaskDetailSheet.tsx`; Inventory
+has its own inline, unhooked equivalent in
+`components/ManageInventoryDetailSheet.tsx`): tapping **Scan to Link**
+calls `lib/native/nfc-scan.ts`'s `scanNfcTag()`, which opens
+`NfcScanPlugin`'s native `NFCTagReaderSession` sheet. On a successful read,
+the lowercase-hex UID is POSTed to the target's own `nfc-tag` route, which
+now checks the registry first (see "The actual gate" above) before writing
+anything.
 
-**One tag, more than one placement**: since the binding lives on the `TaskDefinition` and the same definition can be placed in more than one list (the "Company Task Catalog" design), `GET /api/tasks/by-nfc-uid` (the FAB's "scan to open" shortcut, below) picks among several active placements *for the same definition* via `lib/task-definitions.ts`'s `resolveMostRelevantPlacement` — see [task-lists.md](task-lists.md)'s "Company Task Catalog" section for exactly how it decides. This is distinct from — and resolved before — the multi-*target* disambiguation described next, which is about the same UID meaning more than one different saved task, and/or an `InventoryItemType` (see `docs/features/inventory.md`) — a genuinely different thing, not another placement of the same one.
+### Claim & Retry
+
+The manager-facing recovery path when a scanned tag hasn't been claimed
+yet — lives entirely inside "Scan to Link," no separate screen. Both
+`use-task-definition-panel.ts`'s `handleScanToLink` and
+`ManageInventoryDetailSheet.tsx`'s own copy of the same logic:
+
+1. Scan a tag, POST the bind.
+2. If the response is `409 { reason: "unclaimed" }`, `NfcBindingPanel`
+   shows a **"Claim this tag for your location"** button instead of a
+   dead-end error (`unclaimedUid`/`claiming` state, `onClaimAndLink`
+   handler).
+3. Tapping it calls `lib/client/claim-nfc-tag.ts`'s `claimNfcTag(uid)` —
+   `POST /api/nfc-tags/claim` — then, on success, automatically retries the
+   exact same bind with the same UID. No second scan needed.
+4. If the claim itself fails (not recognized, or claimed by another
+   company), that specific message replaces the button — a genuine dead
+   end, matching the claim route's own non-disclosure behavior.
+
+**One tag, more than one placement**: since the binding lives on the
+`TaskDefinition` and the same definition can be placed in more than one
+list (the "Company Task Catalog" design), `GET /api/tasks/by-nfc-uid` (the
+FAB's "scan to open" shortcut, below) picks among several active
+placements *for the same definition* via `lib/task-definitions.ts`'s
+`resolveMostRelevantPlacement` — see
+[task-lists.md](task-lists.md)'s "Company Task Catalog" section for exactly
+how it decides. This is distinct from — and resolved before — the
+multi-*target* disambiguation described next, which is about the same UID
+meaning more than one different saved task, and/or an `InventoryItemType`
+(see `docs/features/inventory.md`) — a genuinely different thing, not
+another placement of the same one.
 
 ### Multi-target binding
 
-A physical tag's UID is no longer required to resolve to exactly one `TaskDefinition`. Binding is a plain field set (`TaskDefinition.nfcTagUid` / `InventoryItemType.nfcTagUid`) with **no uniqueness enforcement** — `bindNfcTag` (`lib/task-definitions.ts`) and `bindInventoryNfcTag` (`lib/inventory.ts`) each just set the UID on the target being bound; neither clears that UID off any other target first. This is what lets the same physical tag (e.g. the one stuck to the walk-in freezer door) back more than one thing a person might scan it for — a temperature-log task AND an Inventory item type (`docs/features/inventory.md`), simultaneously.
+A physical tag's UID is not required to resolve to exactly one
+`TaskDefinition`. Binding is a plain field set (`TaskDefinition.nfcTagUid`
+/ `InventoryItemType.nfcTagUid`) with **no uniqueness enforcement** —
+`bindNfcTag` (`lib/task-definitions.ts`) and `bindInventoryNfcTag`
+(`lib/inventory.ts`) each just set the UID on the target being bound, once
+the registry gate above passes; neither clears that UID off any other
+target first. This is what lets the same claimed physical tag (e.g. the
+one stuck to the walk-in freezer door) back more than one thing a person
+might scan it for — a temperature-log task AND an Inventory item type
+(`docs/features/inventory.md`), simultaneously.
 
-- **The same UID CAN bind to more than one `TaskDefinition`, and/or more than one `InventoryItemType`.** Nothing prevents it, deliberately — this is the whole point of the feature. This also means the same UID can, as an accepted side effect, bind twice within the same target type with no special relationship (e.g. two unrelated tasks both happening to claim "the walk-in door" tag, or two item types like "Meat Inventory Count" and "Ice Packs Inventory" sharing one freezer tag) — not the primary scenario this feature was built for, but not blocked either, since blocking it would need to reintroduce exactly the kind of uniqueness check this change removes.
-- **Binding never fails because the UID is "already used."** `POST /api/tasks/[id]/nfc-tag` and `POST /api/task-definitions/[id]/nfc-tag` return `{ nfcTagUid, alsoBoundTo: Array<{ name: string; locationName: string | null }> }` (`POST /api/inventory-item-types/[id]/nfc-tag` still returns the older `alsoBoundTo: string[]` shape — `InventoryItemType` stays company-wide, unaffected by the task-catalog location fix) — `alsoBoundTo` lists any other active target (`TaskDefinition` OR `InventoryItemType`, checked across BOTH collections regardless of which one is being bound) currently sharing this UID, shown once, right after a successful bind (`components/TaskListEditView.tsx` / `components/ManageTasksView.tsx` / `components/ManageInventoryDetailSheet.tsx`, "Also bound to: …") so a manager isn't surprised the tag is doing double duty. **This collision check is deliberately still COMPANY-WIDE, not location-filtered**, even though the bind itself is now location-scoped — seeing "this UID is also used at your other store" is exactly the useful signal for a manager who scanned the wrong physical tag; each `TaskDefinition` match carries its own `locationName` so the UI can say which store. This is shown at bind time only — it isn't persisted or re-fetched on a later page load, so reopening an already-bound row's panel won't re-show it.
-- **Unbinding only ever manages the panel's own binding.** "Unbind" on one task's row (or one Inventory item's "Location Tag" panel) clears that one document's `nfcTagUid` only — it has no effect on any other `TaskDefinition` or `InventoryItemType` sharing the same UID. There's no "manage every binding for this tag" view; each row is only ever aware of its own binding.
-- **Resolution fans out, then disambiguates.** `GET /api/tasks/by-nfc-uid` (see "FAB 'scan to open' shortcut" below) is the one place a scanned UID's ambiguity is actually resolved — every other scan in the app already knows what it's looking for (a specific task's own `nfcTagUid` checked by `TaskFormScreen.tsx`, or a specific Inventory item's own `nfcTagUid` checked by `InventoryItemDetailView.tsx`'s "Save via NFC") and stays exactly as unambiguous as before this change.
-- **Inventory (`docs/features/inventory.md`)** is the second bindable target type, resolved by the same route the same way (`InventoryItemType.find({ companyId, nfcTagUid, isActive: true })` alongside the `TaskDefinition.find` below, combined into one option list when both match) — its own binding UI follows the identical unambiguous single-target pattern as an item's own screen checking its own bound UID, and never touches disambiguation. By default, binding an `InventoryItemType` doesn't gate anything the way a bound `TaskDefinition` always does — but a manager can opt a specific item into that same behavior via its `nfcRequiredToLog` flag, at which point it *does* gate (`assertInventoryNfcVerified`, mirroring `assertNfcVerified`) — see that doc's "NFC binding" and "NFC enforcement" sections.
-- **Task ↔ Inventory Linking** (`docs/features/inventory.md`'s section of the same name) is what actually makes the common case — a task and a linked `InventoryItemType` sharing one physical tag — pay off: a single scan that verifies the task's own completion also verifies any linked item bound to that identical UID, no second scan. This is pure client-side comparison against data both already have (the task's own `nfcTagUid` and each link's `InventoryItemType.nfcTagUid`) — it doesn't add a third bindable target type or change anything in this section.
+- **The same UID CAN bind to more than one `TaskDefinition`, and/or more
+  than one `InventoryItemType`.** Nothing prevents it, deliberately — this
+  is the whole point of the feature, unchanged by the registry gate (which
+  only checks who *claimed* the tag, never how many things it's bound to).
+- **Binding never fails because the UID is "already used" — only because
+  it isn't claimed.** `POST /api/tasks/[id]/nfc-tag` and
+  `POST /api/task-definitions/[id]/nfc-tag` return
+  `{ nfcTagUid, alsoBoundTo: Array<{ name: string; locationName: string | null }> }`
+  (`POST /api/inventory-item-types/[id]/nfc-tag` still returns the older
+  `alsoBoundTo: string[]` shape — `InventoryItemType` stays company-wide,
+  unaffected by the task-catalog location fix) — `alsoBoundTo` lists any
+  other active target (`TaskDefinition` OR `InventoryItemType`, checked
+  across BOTH collections regardless of which one is being bound)
+  currently sharing this UID, shown once, right after a successful bind
+  so a manager isn't surprised the tag is doing double duty. **This
+  collision check is deliberately still COMPANY-WIDE, not
+  location-filtered**, even though the bind itself is now location-scoped
+  — seeing "this UID is also used at your other store" is exactly the
+  useful signal for a manager who scanned the wrong physical tag; each
+  `TaskDefinition` match carries its own `locationName` so the UI can say
+  which store. Shown at bind time only — not persisted or re-fetched on a
+  later page load.
+- **Unbinding only ever manages the panel's own binding.** "Unbind" on one
+  task's row (or one Inventory item's "Location Tag" panel) clears that one
+  document's `nfcTagUid` only — it has no effect on any other
+  `TaskDefinition` or `InventoryItemType` sharing the same UID, and no
+  effect on the registry claim itself (the tag stays `claimed` by the
+  company/location either way).
+- **Resolution fans out, then disambiguates.** `GET /api/tasks/by-nfc-uid`
+  (see "FAB 'scan to open' shortcut" below) is the one place a scanned
+  UID's ambiguity is actually resolved — every other scan in the app
+  already knows what it's looking for (a specific task's own `nfcTagUid`
+  checked by `TaskFormScreen.tsx`, or a specific Inventory item's own
+  `nfcTagUid` checked by `InventoryItemDetailView.tsx`'s "Save via NFC")
+  and stays exactly as unambiguous as before.
+- **Inventory** is the second bindable target type, resolved by the same
+  route the same way (`InventoryItemType.find({ companyId, nfcTagUid, isActive: true })`
+  alongside the `TaskDefinition.find` below, combined into one option list
+  when both match). By default, binding an `InventoryItemType` doesn't gate
+  anything the way a bound `TaskDefinition` always does — but a manager can
+  opt a specific item into that same behavior via its `nfcRequiredToLog`
+  flag, at which point it *does* gate (`assertInventoryNfcVerified`,
+  mirroring `assertNfcVerified`) — see that doc's "NFC binding" and "NFC
+  enforcement" sections.
+- **Task ↔ Inventory Linking** (`docs/features/inventory.md`'s section of
+  the same name) is what makes the common case — a task and a linked
+  `InventoryItemType` sharing one physical tag — pay off: a single scan
+  that verifies the task's own completion also verifies any linked item
+  bound to that identical UID, no second scan.
 
-**Completing a bound task**: the task still opens through the normal fill-in flow (`components/TaskFormScreen.tsx` — timer/form fields exactly as for any other task). Only the final step changes: with `item.nfcTagUid` set, the primary button reads **Scan NFC** instead of **Save**. Tapping it validates the form fields first (same as today), then opens the same native scan sheet; the read UID must case-insensitively match `item.nfcTagUid` or the task is *not* marked done — an inline error is shown and the manager/employee can retry or back out via "Missed it". A task with no bound tag is completely unaffected — its Save button behaves exactly as before. `components/TaskListSessionView.tsx`'s guided walkthrough needs no separate handling: it already delegates every form task to this same `TaskFormScreen` component.
+**Completing a bound task**: the task still opens through the normal
+fill-in flow (`components/TaskFormScreen.tsx` — timer/form fields exactly
+as for any other task). Only the final step changes: with `item.nfcTagUid`
+set, the primary button reads **Scan NFC** instead of **Save**. Tapping it
+validates the form fields first, then opens the same native scan sheet;
+the read UID must case-insensitively match `item.nfcTagUid` or the task is
+*not* marked done — an inline error is shown and the employee can retry or
+back out via "Missed it".
 
-**Save chirp**: once either NFC-verified completion path in `TaskFormScreen.tsx` actually saves (a fresh "Scan NFC" tap, or the FAB's pre-verified `alreadyVerified` path), it plays a short confirmation sound via `lib/notification-sound.ts`'s `playNotificationSound()` — `public/sounds/chirp.mp3` or `public/sounds/malechirp.mp3`, picked by the company's `notificationSound` field (`"standard" | "male"`, `models/Company.ts`). A manager sets this per-company from Profile → Company Settings (`components/CompanySettingsView.tsx`, `app/api/company/settings/route.ts` — `GET` open to any company user so every device knows which file to play, `PATCH` manager-only). Purely a client-side nicety (`Audio.play()`, swallowed if blocked) — never blocks or reflects the save itself, and a plain (non-NFC-bound) task's Save never plays it. On iOS this plays through WKWebView, which without an explicit audio session would take over the session and pause the user's own music the same way an app switching to active playback would; `AppDelegate.swift` sets `.ambient`/`.mixWithOthers` at launch specifically so this chirp behaves like a real notification sound instead — audible over other audio, never pausing it.
+**Save chirp**: once either NFC-verified completion path in
+`TaskFormScreen.tsx` actually saves (a fresh "Scan NFC" tap, or the FAB's
+pre-verified `alreadyVerified` path), it plays a short confirmation sound
+via `lib/notification-sound.ts`'s `playNotificationSound()`.
 
-**Why this doesn't hit the 60-second/backgrounding limits above:** this session only ever runs for the few seconds between the user tapping "Scan NFC" (or "Scan to Link") and holding the phone to the tag, with the app foregrounded the whole time by construction — it is never expected to survive backgrounding or stay armed unattended.
+**Enforcement is server-side, not just the button in
+`TaskFormScreen.tsx`.** Every write path that can set a `TaskLog` to `done`
+calls `assertNfcVerified(taskId, verifiedNfcUid, performedByUserId)`
+(`lib/task-log-actions.ts`) before it happens, throwing
+`NfcTagRequiredError` (caught and turned into a `409`) when the placement's
+`TaskDefinition` has an `nfcTagUid` bound (resolved via `taskId`'s
+`definitionId`) and no matching UID was supplied — and, when it *does*
+match, stamps `NfcTag.lastUsedAt` via `stampNfcTagUsage` (see "Usage
+stamping" above):
 
-**Enforcement is server-side, not just the button in `TaskFormScreen.tsx`.** Every write path that can set a `TaskLog` to `done` calls `assertNfcVerified(taskId, verifiedNfcUid)` (`lib/task-log-actions.ts`) before it happens, throwing `NfcTagRequiredError` (caught and turned into a `409` with a clear message everywhere it can be reached) when the placement's `TaskDefinition` has an `nfcTagUid` bound (resolved via `taskId`'s `definitionId`) and no matching UID was supplied:
+- `completeInProgressLog` / `startImmediateLog` — the shared low-level
+  completion helpers used by `PATCH /api/task-logs` (the in-app
+  timer/form Save path — the *only* caller that can ever supply a matching
+  `verifiedNfcUid`, threaded from `TaskFormScreen.tsx`'s scan result all
+  the way through `TasksView.tsx`/`TaskListSessionView.tsx`).
+- `POST /api/task-logs`'s terminal branch and `PATCH`'s manual-time-edit
+  branch — the quick-complete/back-entry "Done" buttons in `TaskCard.tsx`
+  (also disabled/relabeled client-side for a bound task, so the tap
+  doesn't even reach the server) — blocked the same way, **except** the
+  manual-time-edit branch skips the check when the log was *already*
+  `done`: that path doubles as "Edit time" on an already-verified
+  completion, not a new completion claim.
+- `completeStrayInProgressLogs` — auto-closes a *different*, abandoned
+  in-progress timer when a person starts something else. For a bound task
+  this never happened via a scan, so it's recorded honestly as `missed`
+  instead of silently `done`.
 
-- `completeInProgressLog` / `startImmediateLog` — the shared low-level completion helpers used by `PATCH /api/task-logs` (the in-app timer/form Save path — the *only* caller that can ever supply a matching `verifiedNfcUid`, threaded from `TaskFormScreen.tsx`'s scan result all the way through `TasksView.tsx`/`TaskListSessionView.tsx`) and by `lib/task-trigger.ts`'s `triggerTask`/`completeActiveTask` (tap-to-trigger and the external API generally — this is exactly the problem that made the Live Activity's old "Done" button unworkable and get replaced with a plain open-the-app button instead, see [`live-activity.md`](live-activity.md#open-app-button) — none of these callers have ever scanned anything, so they're unconditionally blocked for a bound task).
-- `POST /api/task-logs`'s terminal branch and `PATCH`'s manual-time-edit branch — the quick-complete/back-entry "Done" buttons in `TaskCard.tsx` (also disabled/relabeled client-side for a bound task, so the tap doesn't even reach the server; `TaskRow.tsx` has no such buttons at all for a shift-window task — see [task-lists.md](task-lists.md)'s "Task list locking" section) — blocked the same way, **except** the manual-time-edit branch skips the check when the log was *already* `done`: that path doubles as "Edit time" on an already-verified completion, not a new completion claim, so adjusting a timestamp after the fact doesn't require re-scanning.
-- `completeStrayInProgressLogs` — auto-closes a *different*, abandoned in-progress timer when a person starts something else. For a bound task this never happened via a scan, so it's recorded honestly as `missed` instead of silently `done`.
+A caller that can't supply a verified UID (back-entry) gets a clean
+rejection rather than being able to complete a bound task at all — the only
+way to complete one is `TaskFormScreen.tsx`'s Scan NFC step.
 
-A caller that can't supply a verified UID (tap-to-trigger, back-entry) gets a clean rejection rather than being able to complete a bound task at all — the only way to complete one is `TaskFormScreen.tsx`'s Scan NFC step.
+**FAB "scan to open" shortcut** (`components/BottomNav.tsx`): when nothing
+is currently running, the FAB shows an NFC icon instead of resuming a
+timer. Tapping it calls `scanNfcTag()` directly (no task screen open yet),
+then resolves the read UID via
+`GET /api/tasks/by-nfc-uid?uid=<uid>&date=<localDate>&nowMinutes=<n>` —
+open to any signed-in company user, not manager-gated.
 
-**FAB "scan to open" shortcut** (`components/BottomNav.tsx`): when nothing is currently running, the FAB shows an NFC icon instead of resuming a timer. Tapping it calls `scanNfcTag()` directly (no task screen open yet), then resolves the read UID via `GET /api/tasks/by-nfc-uid?uid=<uid>&date=<localDate>&nowMinutes=<n>` — open to any signed-in company user, not manager-gated, same "any employee on shift" philosophy as triggering an already-linked tap-to-trigger tag.
+**Disambiguation** (see "Multi-target binding" above): the route first
+looks up every active `TaskDefinition` AND every active `InventoryItemType`
+whose `nfcTagUid` matches the scanned UID, combines both lists, and
+branches on the total count:
 
-**Disambiguation — the one place a scan's ambiguity is actually resolved** (see "Multi-target binding" above): the route first looks up every active `TaskDefinition` AND every active `InventoryItemType` whose `nfcTagUid` matches the scanned UID, combines both lists, and branches on the total count:
+- **Zero matches** → `404`, "not recognized."
+- **Exactly one match** → a `TaskDefinition` match resolves to a single
+  `taskId` via `resolveMostRelevantPlacement`, then calls
+  `lib/task-list-session-actions.ts`'s `resolveFabScanTarget` to decide
+  what to do next. An `InventoryItemType` match returns
+  `{ mode: "inventory", itemTypeId }` directly.
+- **More than one match** →
+  `{ mode: "disambiguate", options: [{ targetType, targetId, name }, …] }`,
+  sorted by name, mixing both target types freely. Tapping an option
+  re-calls the same route with `targetType`/`targetId` added — reusing the
+  same already-scanned UID, no second scan.
 
-- **Zero matches** → `404`, same "not recognized" outcome as before this feature — the transient pill shown by the "doesn't resolve to anything at all" paragraph below.
-- **Exactly one match** → a `TaskDefinition` match resolves to a single `taskId` via `resolveMostRelevantPlacement` (picking among that definition's own placements, per "One tag, more than one placement" above), then calls `lib/task-list-session-actions.ts`'s `resolveFabScanTarget` to decide what to do next, returning one of the four task response modes below. An `InventoryItemType` match instead returns `{ mode: "inventory", itemTypeId }` directly — no further resolution step, since an append-only inventory count has no session/lock/already-logged state to check (see `docs/features/inventory.md`'s "NFC binding"). `BottomNav.tsx` navigates to `/inventory/<itemTypeId>?verifiedNfcUid=<uid>` for that mode.
-- **More than one match** → `{ mode: "disambiguate", options: [{ targetType: "task" | "inventory", targetId, name }, …] }`, sorted by name, mixing both target types freely. `BottomNav.tsx` renders a bottom-sheet picker (same visual pattern as `TeamMemberActionSheet.tsx`) listing every match by name instead of navigating. Tapping an option re-calls the same `GET /api/tasks/by-nfc-uid`, now with `targetType=<task|inventory>&targetId=<id>` added — this **reuses the same already-scanned UID**, no second scan — which skips straight to the single-match resolution above for that one target, defensively re-checking the UID still matches it first. Whichever mode comes back is handled identically either way; the disambiguation step only decides *which* target feeds into that same resolution, not how the result is used. Canceling the picker (backdrop tap or the close button) just discards the scan — no navigation, same as any other "didn't resolve to something openable" outcome.
+**A physical tag identifies exactly one task, permanently** — a scan never
+opens, redirects to, or advances into a different task.
+`resolveFabScanTarget` resolves the task's list type (shift-window vs.
+anytime) and its `TaskLog` for today, then decides between four response
+modes: `already-logged`, `anytime`, `session`, `locked` — see the route's
+own implementation and `TasksView.tsx`'s FAB-navigation effect for the
+full detail on each; unchanged by this rework.
 
-**A physical tag identifies exactly one task, permanently — it never opens, redirects to, or advances into a different task.** (Multi-target binding doesn't change this — it's still exactly one task *per disambiguated target*; disambiguation just decides which target the scan meant before this guarantee applies. The same statement holds for an Inventory item — a scan opens exactly the item type disambiguation resolved to, never a different one.) `resolveFabScanTarget` first resolves the task's list type (shift-window vs. anytime) and its `TaskLog` for today, if any, then decides between four response modes:
+**This scan pre-satisfies that task's own Scan NFC step** — two equivalent
+ways to finish a bound task, one scan either way (scan on the way in via
+the FAB, or scan on the way out via TaskFormScreen's own Scan NFC button).
+`preVerified` state (keyed by `taskId`, never leaks onto a different task)
+is single-use per open — reopening a task later always requires proving
+the tag again.
 
-- **`{ mode: "already-logged", taskId, state }`** — the scanned task already has a *terminal* log today (`done` or `missed`), or is `in_progress`/`paused` on an **anytime** task (no session/lock concept applies there). Rescanning is never a way to reopen or "continue" it — only a status check. `BottomNav.tsx` shows a state-specific message ("Already started…", "Already completed for today.", etc.) in the same transient pill slot other scan outcomes use, with **no navigation at all**.
-- **`{ mode: "anytime", taskId }`** — the task is untouched today and its list has no `startTime`, so nothing about session state applies. `BottomNav.tsx` navigates to `/tasks?openTaskId=<id>&verifiedNfcUid=<uid>&date=<localDate>`, and `TasksView.tsx`'s "Handle URL params passed from FAB navigation" effect picks up `autoOpenTaskId` there and opens that task exactly like tapping "Start task" on it directly — `setTimerItem`, no separate code path.
-- **`{ mode: "session", taskId, taskListId }`** — the task belongs to a shift-window list whose session is either unclaimed or already the scanning user's own, and the task itself is either untouched today or already `in_progress`/`paused` inside that open session (a same-tag rescan mid-session — see below). `BottomNav.tsx` navigates to `/tasks?openSessionTaskId=<id>&openSessionListId=<listId>&verifiedNfcUid=<uid>&date=<localDate>` instead. **This opens `TaskListSessionView`'s guided free-jump walkthrough**, not a standalone screen: `TasksView.tsx`'s effect resolves `autoOpenSessionTaskId`'s index within that list's *visible-today* task array (the same filtered array the view itself renders, so the index lines up) and calls `setActiveSession({ taskList, startIndex })` — mechanically identical to tapping "Start Tasks" and then tapping straight to that one row. `TaskListSessionView`'s own per-task effect (unchanged) does the actual `POST { taskId, date, state: "in_progress", sessionTaskListId, sessionNav: true }` on mount, which is what makes `ensureOpenSession`/`switchActiveLog` start or join the list's session server-side — no separate session-creation call needed, and resuming an already-`in_progress`/`paused` task picks its banked time back up rather than restarting the clock. Once inside, the session's existing free-jump navigation (tap any row) works exactly as it does when opened manually — nothing about landing here via a scan restricts it to that one task, it's just where the user is dropped off. **Rescanning the same tag while its own task is mid-session inside that open session jumps back to the same task the same way — never a second start, never a duplicate.**
-- **`{ mode: "locked", taskId, taskListId, lockedByName }`** — the task's list already has an open session held by someone else — whether the task itself is still untouched or already `in_progress`/`paused` under that other person. `resolveFabScanTarget` checks this via the existing `getOpenSessionLocks` before answering, since the one-person-at-a-time session lock is otherwise enforced only in the UI (`TaskListCard`'s button), not at the database-write level — a scan needed its own explicit check to avoid silently barging into someone else's active session. `BottomNav.tsx` shows `"In progress by <name> — try again once they finish."` with **no navigation at all** — a scan never fights an active lock, regardless of whether it's a fresh scan or a rescan.
+**Native requirements**: `ios/App/App/App.entitlements`'s
+`com.apple.developer.nfc.readersession.formats` entitlement (`TAG` only —
+`NDEF`/`PACE` were dropped after an App Store Connect upload started
+failing with error 90778; the app only ever opens `NFCTagReaderSession` for
+raw-UID scanning, never `NFCNDEFReaderSession`), an
+`NFCReaderUsageDescription` string in `Info.plist`, and the "Near Field
+Communication Tag Reading" capability added once in Xcode's Signing &
+Capabilities. Physical-device only (the Simulator has no NFC radio).
 
-A tag that doesn't resolve to anything at all (unbound, wrong company, or scan failed/cancelled) still shows the same transient pill, not an error page — the FAB stays usable either way.
-
-**Why this effect's dependency array matters:** since the FAB lives on the Tasks page itself, tapping it while already on `/tasks` makes `BottomNav.tsx` call `router.replace(url)` to that *same* route with new search params — which streams new props into the already-mounted `TasksView` instance rather than remounting it (see `docs/features/timer.md`'s "non-mount-only effect" note, which documents the identical constraint for `autoResumeTimer`'s own separate effect). The FAB-navigation effect above must list `autoOpenTaskId`/`autoStartNext`/`autoAddTask`/`autoOpenSessionTaskId`/`autoOpenSessionListId` in its dependency array for exactly this reason — an empty or incomplete dependency array here would only ever fire on a fresh mount (arriving at `/tasks` from some other page) or on the params present when it was last written, which is not how the FAB is actually used in practice. This was fixed on 2026-08-29 after the FAB scan-to-open shortcut was found to silently do nothing when tapped from the Tasks page.
-
-**Which shift-window list a scan auto-starts, when the same saved task is placed in more than one list**: unchanged from before — resolved upstream of `resolveFabScanTarget`, by `GET /api/tasks/by-nfc-uid` calling `lib/task-definitions.ts`'s `resolveMostRelevantPlacement` first (skip any placement already resolved today, then rank the rest by closest `abs(nowMinutes - list.startTime)`, tie-broken by list `order`). `resolveFabScanTarget` only ever decides what to do with the *one* placement that function already picked.
-
-**This scan pre-satisfies that task's own Scan NFC step — two equivalent ways to finish a bound task, one scan either way**, and `"anytime"` and `"session"` modes share the identical verification mechanism even though they land in different screens (`TaskFormScreen`/`TimerScreen` standalone vs. that same `TaskFormScreen` embedded inside `TaskListSessionView`'s form-task step):
-- *Scan on the way in:* FAB → scan → task opens → fill in fields → **Save** completes it immediately, no second scan.
-- *Scan on the way out:* open the task normally (tap it in the list) → fill in fields → **Scan NFC** scans at the end, as before.
-
-Mechanically: the FAB's URL carries `verifiedNfcUid` in both modes, which `TasksView.tsx` stores as `preVerified: { taskId, uid }` — keyed by taskId, not just a bare uid, so it can never leak onto a *different* task opened some other way (tapping a task directly, resuming, session navigation all leave it `null`). For the `"anytime"` path, `TaskFormScreen.tsx` receives it directly as `preVerifiedNfcUid`; for the `"session"` path, `TasksView.tsx` instead passes `preVerifiedTaskId`/`preVerifiedNfcUid` down to `TaskListSessionView`, which only forwards it to its embedded `TaskFormScreen` when the *current* task in the session matches `preVerifiedTaskId` — so jumping to any other row in that free-jump session never inherits it. Either way, when it matches `item.nfcTagUid`, `alreadyVerified` is true, the button just reads **Save**, its subtitle reads "Tag verified — Save to complete", and `handleSave` calls `onComplete(values, actualMinutes, preVerifiedNfcUid)` directly — no new `scanNfcTag()` call, but the server's `assertNfcVerified` check still runs and still requires that exact UID, same as the real-scan path. `preVerified` is cleared on completing, missing, or closing that task's screen (or finishing/closing the session), so it's single-use per open — reopening a task later (any path) always requires proving the tag again.
-
-This `preVerified` state machine is specific to `TasksView.tsx`'s standalone-task/session flows. Inventory's equivalent is simpler, not a same-shaped sibling: `app/(app)/inventory/[itemTypeId]/page.tsx` reads `verifiedNfcUid` straight off the URL once and passes it to `InventoryItemDetailView.tsx` as a plain `preVerifiedNfcUid` prop — there's no shared multi-item state to guard against leaking, since the FAB always does a full navigation to a fresh page mount for Inventory (never a same-page prop swap the way `/tasks` gets via `router.replace`), so there's nothing left over to clear. See `docs/features/inventory.md`'s "NFC binding" section.
-
-**Native requirements**, separate from the Associated Domains capability the tap-to-trigger flow needs: `ios/App/App/App.entitlements`'s `com.apple.developer.nfc.readersession.formats` entitlement (`TAG` only — `NDEF`/`PACE` were dropped after an App Store Connect upload started failing with error 90778, "Invalid entitlement for core nfc framework... NDEF is disallowed"; Xcode used to auto-insert `NDEF` into this array but current SDKs reject it, and the app only ever opens `NFCTagReaderSession` for raw-UID scanning, never `NFCNDEFReaderSession`, so `TAG` alone is sufficient), an `NFCReaderUsageDescription` string in `Info.plist`, and the "Near Field Communication Tag Reading" capability added once in Xcode's Signing & Capabilities (adding the raw entitlement key by hand isn't enough on its own — Xcode's automatic signing has to register it against the App ID and refresh the provisioning profile actually installed on the device; a stale profile is invisible from the Xcode UI, only `codesign -d --entitlements :- App.app` and the embedded `.mobileprovision`'s own `Entitlements` dict tell the truth). Physical-device only (the Simulator has no NFC radio).
-
-**Do not add `.iso18092` (FeliCa) to `NfcScanPlugin.swift`'s polling options.** FeliCa requires a separate, restricted entitlement (`com.apple.developer.nfc.readersession.felica.systemcodes`) that Apple grants only on request — it is NOT included by standard NFC Tag Reading. Requesting it anyway fails the *entire* session with `NFCError` code 2 ("Missing required entitlement"), even when `com.apple.developer.nfc.readersession.formats` is otherwise correctly signed and provisioned — this cost real debugging time before being traced to the polling options rather than anything about signing. `.iso14443`/`.iso15693` alone cover MiFare/NTAG/vicinity tags, which is what this feature is built for.
+**Do not add `.iso18092` (FeliCa) to `NfcScanPlugin.swift`'s polling
+options.** FeliCa requires a separate, restricted entitlement
+(`com.apple.developer.nfc.readersession.felica.systemcodes`) that Apple
+grants only on request — it is NOT included by standard NFC Tag Reading.
+Requesting it anyway fails the *entire* session with `NFCError` code 2
+("Missing required entitlement"). `.iso14443`/`.iso15693` alone cover
+MiFare/NTAG/vicinity tags, which is what this feature is built for.
 
 ### Scan to Find (Manage Tasks)
 
-A read-only sibling of the FAB's "scan to open" shortcut above, solving a different problem: a manager standing at the **Manage Tasks** screen (`/tasks/manage`, `components/ManageTasksView.tsx`) troubleshooting a specific physical tag has no way to know its raw UID by sight, so typing it into that screen's search box isn't a real option. The **Scan to Find** button next to that search box (`handleScanToFind`) calls the same `scanNfcTag()` used everywhere else, then matches the read UID client-side against the Company Task Catalog data the screen already has loaded (`GET /api/task-definitions`, which includes each definition's own `nfcTagUid`) — **no server round-trip**, unlike the FAB's `by-nfc-uid` lookup, since this screen already holds the whole catalog in memory.
+A read-only sibling of the FAB's "scan to open" shortcut above, solving a
+different problem: a manager standing at the **Manage Tasks** screen
+(`/tasks/manage`, `components/ManageTasksView.tsx`) troubleshooting a
+specific physical tag has no way to know its raw UID by sight, so typing it
+into that screen's search box isn't a real option. The **Scan to Find**
+button next to that search box (`handleScanToFind`) calls the same
+`scanNfcTag()` used everywhere else, then matches the read UID client-side
+against the Company Task Catalog data the screen already has loaded
+(`GET /api/task-definitions`, which includes each definition's own
+`nfcTagUid`) — no server round-trip.
 
-- **Zero matches** → an inline message ("No saved task in your catalog is bound to this tag."). Deliberately scoped to `TaskDefinition` only — an `InventoryItemType` bound to the same UID (see "Multi-target binding" above) isn't reported here, since Inventory item types aren't part of this screen's catalog at all; a manager looking for one uses Inventory's own screen instead.
-- **One match** → opens that definition's `ManageTaskDetailSheet` directly (via `openCatalogId`) and expands the Company Task Catalog section if it was collapsed, so the row is visible in context once the sheet is closed.
-- **More than one match** → since the same UID can legitimately back more than one saved task (see "Multi-target binding" above), a small tap-to-pick list of matching task names renders inline below the search bar; picking one opens that definition's detail sheet the same way the one-match case does.
-- Off-device (no native NFC hardware — a desktop/plain-web session) shows the same "Open the app on your phone to scan a tag." message the catalog's own "Scan to Link" button uses.
+- **Zero matches** → an inline message. Deliberately scoped to
+  `TaskDefinition` only — an `InventoryItemType` bound to the same UID
+  isn't reported here, a manager looking for one uses Inventory's own
+  screen instead.
+- **One match** → opens that definition's `ManageTaskDetailSheet` directly.
+- **More than one match** → a small tap-to-pick list of matching task
+  names renders inline below the search bar.
+- Off-device shows the same "Open the app on your phone to scan a tag."
+  message the catalog's own "Scan to Link" button uses.
 
-Unlike the FAB's shortcut, this never resolves a *placement*, starts a timer, or completes anything — it only locates a `TaskDefinition` in the catalog and opens its detail view. There's no dedicated API route for it; add one only if some other caller ever needs the same "find by UID" lookup server-side.
+Unlike the FAB's shortcut, this never resolves a *placement*, starts a
+timer, or completes anything — it only locates a `TaskDefinition` in the
+catalog and opens its detail view. There's no dedicated API route for it.
 
-## Manage Task List UI
+## History: Tap-to-trigger (removed)
 
-`components/TaskListEditView.tsx`'s `SortableRow` inline edit panel shows current link status per task (loaded server-side by `app/(app)/tasks/[taskListId]/edit/page.tsx`, which queries `NfcTag.find({ companyId, taskId: { $in: taskIds } })` alongside the tasks — no client round-trip).
+Kept for institutional memory — none of this describes current behavior.
+The old tap-to-trigger system used a separate `models/NfcTag.ts` shape
+(`tagCode` written into a URL on the tag's NDEF content, not the raw
+hardware UID), `models/PendingNfcLink.ts` (an "arm, then tap" linking
+flow), and Universal Links (`app/nfc/[tagCode]/page.tsx`,
+`app/.well-known/apple-app-site-association/route.ts`, the
+`com.apple.developer.associated-domains` entitlement,
+`components/UniversalLinkHandler.tsx`) to open the app directly and run
+`lib/task-trigger.ts`'s `triggerTask()` — starting/advancing/completing a
+task from a tap, anywhere, any time, with no scan required.
 
-**"Link a Physical Tag" and "Generate Silent Trigger" (the actions that created a NEW tap-to-trigger link) were removed from this UI** — [In-app scan-to-complete binding](#in-app-scan-to-complete-binding)'s "Scan to Link" is now the only way to link a tag from Manage Task List. This panel is now only rendered for a task that already has an `nfcTagCode` from before that removal — it shows "Linked · `<tagCode>`" plus "Unlink" (`DELETE /api/nfc-tags/[tagCode]`, clears the tag back to unclaimed), still manager-only. `POST /api/nfc-tags` (arm) is an otherwise-unreferenced-by-the-app-UI API route — left in place (not deleted) so an already-deployed physical tag someone still has queued up to tap-claim keeps working; only the creation entry point in the UI is gone. `POST /api/nfc-tags/generate` was deleted outright (see [History](#history-shortcuts-driven-silent-triggers-removed) above) rather than left orphaned, since nothing can trigger a tag it creates anymore. `app/nfc/[tagCode]/page.tsx`, `NfcClaimTagPicker.tsx`, and the rest of the trigger flow below are all unaffected by this — a cold tap on an unclaimed tag still falls through to that page's manager-only claim picker, it just can't be reached by tapping a button in Manage Task List anymore.
+**Why it was removed, not just deprecated:** the underlying flaw was
+structural, not fixable in place — tapping *any* NFC tag, including one
+never provisioned or sold by Ch'rps, could be walked through the app's own
+"claim a cold tag" picker (`components/NfcClaimTagPicker.tsx`) and bound to
+a task with zero verification it was ever a real Ch'rps tag. A generic,
+mass-produced blank NFC sticker from any hardware store could be claimed
+this way. `triggerTask()`'s dispatch logic also instant-completed any
+`form`-type task with no data captured on a tap — this app's tasks are now
+almost entirely `form`-type, so a tap silently recorded empty checks with
+no human ever seeing a screen to notice; see the now-superseded "Known gap
+for form tasks" this doc used to carry. Rebuilding the whole tag concept
+on the registry+claim model (this doc, top section) fixes both problems at
+once — a tag must be a real, provisioned Ch'rps tag before it can be bound
+to anything, and the only completion path left is the in-app scan-to-
+complete flow above, which always requires a real field-filled form
+first.
 
-A separate "Scan-to-Complete Tag" panel sits right below this one, for the unrelated feature described in [In-app scan-to-complete binding](#in-app-scan-to-complete-binding) — do not merge the two panels or their state.
+An earlier layer on top of tap-to-trigger — a per-tag Shortcuts/NFC
+Automation combo for *silent*, phone-locked triggering, plus the entire
+API-key-authenticated `/api/external/*` surface it depended on
+(`GET /api/external/nfc/[tagCode]`, `POST /api/external/trigger-task`,
+`start-timer`, `complete-active-task`, `GET /api/external/tasks`,
+`lib/api-key.ts`, `User.apiKey`, the native
+`ios/App/App/AppIntents/` Swift layer) — had already been removed before
+this rework, for the identical instant-complete-with-no-data reason; see
+`docs/project-structure.md`'s "iOS Native Shell" section.
 
-## Auth redirect preservation
-
-`/nfc/[tagCode]` isn't in `middleware.ts`'s `PUBLIC_PAGE_PATHS`, so a logged-out tap gets redirected to `/login?callbackUrl=/nfc/<tagCode>` — `app/login/page.tsx` already reads that param generically and passes it through as the sign-in destination.
-
-## Native setup
-
-- `app/.well-known/apple-app-site-association/route.ts` — a route handler (not a static `public/` file) so `Content-Type: application/json` is guaranteed. Scoped to `paths: ["/nfc/*"]` only, not the whole site. Also added to `middleware.ts`'s `PUBLIC_PAGE_PATHS` — Apple's CDN fetches this with no session cookie, so it must never redirect to `/login`.
-- `ios/App/App/App.entitlements` — `com.apple.developer.associated-domains: ["applinks:chrps.vercel.app"]`, wired into both Debug/Release via `CODE_SIGN_ENTITLEMENTS` in `ios/App/App.xcodeproj/project.pbxproj`.
-- `ios/App/App/SceneDelegate.swift` forwards `scene(_:continue:)` (the Universal Link continuation entry point) and `scene(_:openURLContexts:)` to `SceneDelegateProxy.shared` (from `@capacitor/app`) — but that proxy only *broadcasts a native notification*; it never touches the WebView itself. `components/UniversalLinkHandler.tsx` — mounted in `app/layout.tsx`, guarded by `Capacitor.isNativePlatform()` so it's a no-op on the plain web/PWA — listens for the resulting `appUrlOpen` JS event and does `window.location.href = <tapped path>` to actually load `/nfc/<tagCode>`. This needs both a web deploy and a native rebuild (the new plugin behavior has to be compiled into the app binary; a live-reloaded web deploy alone isn't enough).
-
-**Constraint:** Associated Domains requires a **paid** Apple Developer Program membership — free Personal Team accounts are blocked from this capability entirely. `ios/App/App.xcodeproj`'s `DEVELOPMENT_TEAM` (`X3DPK5Y29G`) and this AASA route's `appID` must be updated together if the app is ever re-signed under a different team, or Universal Links silently stop matching. Verify with `codesign -d --entitlements :- App.app`, not just a clean `xcodebuild` exit.
-
-**Domain permanence:** tags carry `chrps.vercel.app` baked into their URL permanently once written. If the production domain ever changes, previously-manufactured tags degrade to opening a webpage in Safari instead of the app directly (Universal Link matching happens on the tapped host before any redirect is followed) — still functional, just not the native-app-launch experience. `capacitor.config.ts`'s `server.url` must match this domain too, and so must `ios/App/RoutineActivity/RoutineActivityLiveActivity.swift`'s hardcoded Open App button URL (`ios/App/App/ChrpsAPI.swift` used to be the other place this was hardcoded — deleted along with the rest of the API-key/Shortcuts surface, see [History](#history-shortcuts-driven-silent-triggers-removed) above).
-
-**Apple's CDN cache lags the origin.** iOS doesn't fetch a domain's AASA file directly at tap time — it relies on `app-site-association.cdn-apple.com`'s own cached copy, fetched asynchronously and independent of the origin's own cache headers. If Universal Links ever need re-diagnosing, check both `curl https://chrps.vercel.app/.well-known/apple-app-site-association` and `curl https://app-site-association.cdn-apple.com/a/v1/chrps.vercel.app` — a mismatch between them means it's purely propagation lag (can take anywhere from minutes to ~24 hours per Apple's own guidance), not a bug. Once Apple's CDN is confirmed correct, the **device** may still need a fresh app reinstall (uninstall + install, not just relaunch) to re-run its own domain validation.
-
-**The OS confirmation prompt is not optional or app-controllable.** A background NFC tag read never silently opens the app — iOS always shows its own system confirmation (not our UI, not customizable in wording/icon/behavior) that the user must tap before anything happens. This is a deliberate platform security choice and applies to every app using NFC + Universal Links.
-
-## Provisioning
-
-`scripts/generate-nfc-tags.mjs` (one-off, manually run, not wired into app boot) bulk-generates unclaimed `NfcTag` rows and prints each one's full URL:
-
-```
-node --env-file=.env.local scripts/generate-nfc-tags.mjs [count]
-```
-
-Write each printed URL to a physical tag with an NFC writer app — this app never writes tags itself, only reads via Universal Links once tapped.
+**Left untouched, not cleaned up as part of this removal**:
+`ios/App/App/SceneDelegate.swift`'s `scene(_:continue:)`/
+`scene(_:openURLContexts:)` forwarding to `SceneDelegateProxy.shared` is
+now dead code (nothing on the JS side listens for the `appUrlOpen` event it
+broadcasts, since `UniversalLinkHandler.tsx` is deleted) but was left in
+place rather than edited — same caveat as the `RoutineActivity` Xcode
+target in CLAUDE.md's Vocabulary section: a native Xcode-target change
+needs Xcode itself to verify safely, unlike a text-only pass over the
+Next.js codebase.
 
 ## No more external API
 
-There used to be an entire API-key-authenticated `/api/external/*` surface here (`GET /api/external/nfc/[tagCode]`, `POST /api/external/trigger-task`, `start-timer`, `complete-active-task`, `GET /api/external/tasks`) backing Shortcuts/Siri and the NFC silent-trigger flow — all deleted, along with `lib/api-key.ts`, `User.apiKey`, the Profile page's API key display, and the native `ios/App/App/AppIntents/` Swift layer. `app/nfc/[tagCode]/page.tsx` (this document's whole Trigger flow section above) is the one first-party caller of `triggerTask()` left, calling it directly as a library function, never over HTTP.
+There used to be an entire API-key-authenticated `/api/external/*` surface
+here backing Shortcuts/Siri and the NFC silent-trigger flow — all deleted,
+see "History: Tap-to-trigger (removed)" above.

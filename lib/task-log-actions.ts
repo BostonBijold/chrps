@@ -5,13 +5,14 @@ import TaskDefinition from "@/models/TaskDefinition";
 import type { FormFieldValue } from "@/models/TaskDefinition";
 import TaskList from "@/models/TaskList";
 import { ensureOpenSession, incrementSessionPauseOrJump, recordSessionCompletion } from "@/lib/task-list-session-actions";
+import { stampNfcTagUsage } from "@/lib/nfc-tags";
 
-// Shared by app/api/task-logs (internal, session-authenticated) and
-// lib/task-trigger.ts's triggerTask() (called by the NFC Universal Link
-// tap, app/nfc/[tagCode]/page.tsx) so both paths behave identically —
-// starting a timer always goes through here. A now-deleted API-key-
-// authenticated external endpoint used to be a third caller, see
-// docs/project-structure.md's "iOS Native Shell" section.
+// Used by app/api/task-logs (internal, session-authenticated) — the only
+// caller left once tap-to-trigger (lib/task-trigger.ts's triggerTask(),
+// the NFC Universal Link tap) and the API-key-authenticated external
+// endpoint were both removed, see docs/features/nfc.md's "History:
+// Tap-to-trigger (removed)" and docs/project-structure.md's "iOS Native
+// Shell" section.
 
 // Thrown by assertNfcVerified below — every route that can reach a `done`
 // write must catch this and turn it into a clean 4xx rather than letting it
@@ -28,10 +29,10 @@ export class NfcTagRequiredError extends Error {
 // the caller already produced a matching scan. The ONLY caller that can
 // ever supply a matching verifiedNfcUid is components/TaskFormScreen.tsx's
 // Scan NFC flow, which threads the UID it just scanned through
-// PATCH /api/task-logs. Every other completion path — tap-to-trigger,
-// Shortcuts/external API, manual back-entry, the stray-timer auto-close
-// sweep — has no way to prove a scan happened, so it always calls this with
-// verifiedNfcUid omitted and is unconditionally blocked for a bound task.
+// PATCH /api/task-logs. Every other completion path — manual back-entry,
+// the stray-timer auto-close sweep — has no way to prove a scan happened,
+// so it always calls this with verifiedNfcUid omitted and is
+// unconditionally blocked for a bound task.
 // NFC binding lives on the TaskDefinition (the saved check), one layer
 // above any single list placement — see models/TaskDefinition.ts — so this
 // always resolves through the placement's definitionId rather than reading
@@ -43,12 +44,20 @@ export class NfcTagRequiredError extends Error {
 // locations both running the same shared-catalog task on the same day each
 // get their own log rather than colliding into one.
 
-export async function assertNfcVerified(taskId: string, verifiedNfcUid?: string | null) {
+export async function assertNfcVerified(taskId: string, verifiedNfcUid?: string | null, performedByUserId?: string) {
   const task = await Task.findById(taskId).select("definitionId").lean();
   if (!task) return;
   const definition = await TaskDefinition.findById(task.definitionId).select("nfcTagUid").lean();
   if (definition?.nfcTagUid && definition.nfcTagUid !== verifiedNfcUid) {
     throw new NfcTagRequiredError();
+  }
+  // A real, matched scan just verified this task's completion — stamp the
+  // registry so "when was this tag last actually seen" has an answer, see
+  // docs/features/nfc.md's "Provisioning"/lib/nfc-tags.ts's
+  // stampNfcTagUsage. Fire-and-forget-adjacent: awaited, but never blocks
+  // or fails the completion it's confirming.
+  if (definition?.nfcTagUid && verifiedNfcUid && performedByUserId) {
+    await stampNfcTagUsage(definition.nfcTagUid, performedByUserId);
   }
 }
 
@@ -67,10 +76,8 @@ export class PhotoRequiredError extends Error {
 // exactly, one layer up: requiresPhoto lives on TaskDefinition (the saved
 // check), not any one list placement, so this always resolves through the
 // placement's definitionId. Every completion path that can reach a `done`
-// write — the standalone timer/form screens, back-entry, tap-to-trigger —
-// calls this the same way it calls assertNfcVerified; a path with no photo-
-// capture UI (tap-to-trigger) simply always fails it for a requiresPhoto
-// task, same as it already does for an NFC-bound one.
+// write — the standalone timer/form screens, back-entry — calls this the
+// same way it calls assertNfcVerified.
 export async function assertPhotoProvided(taskId: string, photoUrl?: string | null) {
   const task = await Task.findById(taskId).select("definitionId").lean();
   if (!task) return;
@@ -373,7 +380,7 @@ export async function startImmediateLog(
   verifiedNfcUid: string | null = null,
   photoUrl: string | null = null
 ) {
-  await assertNfcVerified(taskId, verifiedNfcUid);
+  await assertNfcVerified(taskId, verifiedNfcUid, performedByUserId);
   await assertPhotoProvided(taskId, photoUrl);
   await completeStrayInProgressLogs(companyId, performedByUserId, taskId);
 
@@ -420,7 +427,7 @@ export async function completeInProgressLog(
   verifiedNfcUid: string | null = null,
   photoUrl: string | null = null
 ) {
-  await assertNfcVerified(taskId, verifiedNfcUid);
+  await assertNfcVerified(taskId, verifiedNfcUid, performedByUserId);
   await assertPhotoProvided(taskId, photoUrl);
   const existing = await TaskLog.findOne({ companyId, locationId, taskId, date }).lean();
   const startedAt = existing?.startedAt ? new Date(existing.startedAt) : null;

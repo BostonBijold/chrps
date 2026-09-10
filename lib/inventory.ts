@@ -6,6 +6,7 @@ import TaskDefinition from "@/models/TaskDefinition";
 import TaskInventoryLink from "@/models/TaskInventoryLink";
 import Task from "@/models/Task";
 import Location from "@/models/Location";
+import { requireClaimedTag } from "@/lib/nfc-tags";
 
 // Thrown by assertInventoryNfcVerified below — every route that can write
 // an InventoryLog for an item with nfcRequiredToLog must catch this and
@@ -50,8 +51,11 @@ export async function assertInventoryNfcVerified(itemTypeId: string, verifiedNfc
 // own locationName so the UI can say exactly where the collision is, since
 // a bare name is ambiguous once both are location-owned (two stores can
 // legitimately have an identically-named "Walk-in Freezer").
+// Gated on the tag registry — mirrors lib/task-definitions.ts's bindNfcTag
+// exactly, see docs/features/nfc.md's "Claiming".
 export async function bindInventoryNfcTag(companyId: string, locationId: string | null, itemTypeId: string, uid: string) {
   const normalizedUid = uid.toLowerCase();
+  await requireClaimedTag(companyId, locationId, normalizedUid);
   const itemType = await InventoryItemType.findOneAndUpdate(
     { _id: itemTypeId, companyId, locationId },
     { $set: { nfcTagUid: normalizedUid } },

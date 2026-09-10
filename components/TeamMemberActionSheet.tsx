@@ -4,7 +4,7 @@ import { useState } from "react";
 import { X } from "lucide-react";
 
 interface Props {
-  member: { _id: string; name: string; role: "manager" | "employee" | "owner" };
+  member: { _id: string; name: string; role: "manager" | "employee" | "owner" | "developer" };
   isLastManager: boolean;
   onChangeRole: (userId: string, role: "manager" | "employee") => Promise<void>;
   onRemove: (userId: string) => Promise<void>;

@@ -11,11 +11,8 @@ const AUTH_PAGE_PATHS = new Set(AUTH_PAGES);
 
 // Reachable with no session at all, but NOT redirected away from when
 // logged in — /privacy stays visible either way (e.g. linked from the
-// Profile page), and apple-app-site-association must be reachable with no
-// session since Apple's CDN fetches it directly to validate Universal
-// Links (see docs/features/nfc.md's "Native setup"), never carrying a
-// login cookie.
-const PUBLIC_PAGE_PATHS = new Set([...AUTH_PAGES, "/privacy", "/.well-known/apple-app-site-association"]);
+// Profile page).
+const PUBLIC_PAGE_PATHS = new Set([...AUTH_PAGES, "/privacy"]);
 
 export default auth((req) => {
   // Local dev escape hatch — lets you work without Google OAuth creds configured.

@@ -5,6 +5,7 @@ import InventoryItemType from "@/models/InventoryItemType";
 import InventoryLog from "@/models/InventoryLog";
 import User from "@/models/User";
 import { assertInventoryNfcVerified, InventoryNfcRequiredError } from "@/lib/inventory";
+import { stampNfcTagUsage } from "@/lib/nfc-tags";
 import { resolveSessionUser, pickActiveLocationId } from "@/lib/session";
 import { validateLocationId } from "@/lib/locations";
 
@@ -106,6 +107,10 @@ export async function POST(req: NextRequest) {
   }
 
   const verifiedNfcUid = claimedUid && itemType.nfcTagUid && claimedUid === itemType.nfcTagUid ? claimedUid : null;
+
+  // A real, matched scan just verified this count — stamp the registry, see
+  // lib/nfc-tags.ts's stampNfcTagUsage and models/NfcTag.ts's lastUsedAt.
+  if (verifiedNfcUid) await stampNfcTagUsage(verifiedNfcUid, userId);
 
   const log = await InventoryLog.create({
     companyId,

@@ -1,42 +1,63 @@
-import mongoose, { Schema, Document, model, models } from "mongoose";
+import { Schema, model, models } from "mongoose";
 
-// A physical NFC tag, pre-manufactured with a URL of the form
-// https://<domain>/nfc/<tagCode> written to it by an external NFC writer
-// app — this app never writes tags itself. tagCode is generated ahead of
-// time (see scripts/generate-nfc-tags.mjs) and exists as an unclaimed row
-// before any task owns it. A separate collection (not a field on Task) so
-// one task can have multiple tags pointing at it — e.g. a tag by the
-// walk-in and one by the prep line, both starting the same task.
+// The NFC tag registry — see docs/features/nfc.md's "Provisioning" and
+// "Claiming". Replaces the old tagCode/Universal-Link "tap-to-trigger"
+// NfcTag shape entirely (removed along with the rest of that system, see
+// the doc's "History: Tap-to-trigger (removed)" section) — this is a
+// closed-loop registry keyed by the tag's own raw hardware UID (the same
+// value already used by the in-app scan-to-complete binding,
+// TaskDefinition.nfcTagUid/InventoryItemType.nfcTagUid), not an
+// app-generated tagCode.
 //
-// Scoped by companyId, not a user: a tag belongs to the restaurant's shared
-// task configuration, same as Task/TaskList — any employee on shift can
-// trigger an already-linked tag (see lib/task-trigger.ts's triggerTask()),
-// matching the rest of the app's "any employee can complete any task"
-// model. claimedByUserId is attribution only (who set the tag up), not an
-// ownership/access restriction.
-export interface INfcTag extends Document {
-  tagCode: string;
+// A UID must exist here and be `claimed` by the binder's own company +
+// location before lib/task-definitions.ts's bindNfcTag / lib/inventory.ts's
+// bindInventoryNfcTag will let it be bound to anything — this is what
+// closes the hole where any NFC tag from anywhere could be scanned and
+// bound to a task with no check it was ever a real Ch'rps tag.
+export type NfcTagStatus = "unclaimed" | "claimed" | "retired";
+
+export interface INfcTag {
+  // Raw hardware UID, lowercase hex — the registry key. Factory-burned,
+  // read-only; this app never writes to a tag, only reads via
+  // NFCTagReaderSession (see lib/native/nfc-scan.ts).
+  uid: string;
+  status: NfcTagStatus;
+  // Plain String, not an ObjectId ref — same convention as every other
+  // location-owned collection's companyId (see CLAUDE.md's Multi-Tenancy
+  // section and models/Location.ts). null until claimed.
   companyId: string | null;
-  // Stamped from the claimed Task's own resolved locationId at claim time
-  // (never straight from the claiming user's session) — a physical tag is
-  // an address at one store, same reasoning as TaskDefinition.locationId.
-  // null while unclaimed, same lifecycle as companyId.
+  // A tag is single-company, single-location — many tasks/item types can
+  // still share one UID (TaskDefinition.nfcTagUid /
+  // InventoryItemType.nfcTagUid are many-to-one pointers at this uid,
+  // unchanged by this registry). null until claimed.
   locationId: string | null;
-  taskId: mongoose.Types.ObjectId | null;
-  taskListId: mongoose.Types.ObjectId | null;
   claimedByUserId: string | null;
   claimedAt: Date | null;
+  // Optional manager-given name/photo — fields exist so a later pass can
+  // build tag-management UI without a migration, but nothing sets or reads
+  // these yet (v1 scope explicitly left this inert).
+  label: string | null;
+  imageUrl: string | null;
+  // Stamped on every successful assertNfcVerified/assertInventoryNfcVerified
+  // match (task completion or inventory log) — see
+  // lib/task-log-actions.ts/lib/inventory.ts. Answers "do we lose tags" /
+  // "when was this last actually scanned" from the admin side, cheaply.
+  lastUsedAt: Date | null;
+  lastUsedByUserId: string | null;
 }
 
 const NfcTagSchema = new Schema<INfcTag>(
   {
-    tagCode: { type: String, required: true, unique: true, index: true },
+    uid: { type: String, required: true, unique: true, index: true },
+    status: { type: String, enum: ["unclaimed", "claimed", "retired"], default: "unclaimed" },
     companyId: { type: String, default: null, index: true },
     locationId: { type: String, default: null },
-    taskId: { type: Schema.Types.ObjectId, ref: "Task", default: null },
-    taskListId: { type: Schema.Types.ObjectId, ref: "TaskList", default: null },
     claimedByUserId: { type: String, default: null },
     claimedAt: { type: Date, default: null },
+    label: { type: String, default: null },
+    imageUrl: { type: String, default: null },
+    lastUsedAt: { type: Date, default: null },
+    lastUsedByUserId: { type: String, default: null },
   },
   { timestamps: true }
 );

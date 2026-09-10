@@ -19,8 +19,8 @@ interface Props {
 // Picker over the company's active InventoryItemTypes, for
 // TaskListEditView.tsx's "Linked Inventory" panel — see
 // docs/features/inventory.md's "Task ↔ Inventory Linking". Same modal
-// pattern as TeamMemberActionSheet.tsx / NfcClaimTagPicker.tsx. Already-
-// linked item types are excluded rather than shown disabled, since picking
+// pattern as TeamMemberActionSheet.tsx. Already-linked item types are
+// excluded rather than shown disabled, since picking
 // one to update `required` happens via the panel's own toggle, not here.
 export default function LinkInventoryItemSheet({ excludeItemTypeIds, busy, onPick, onClose }: Props) {
   const [itemTypes, setItemTypes] = useState<ItemType[] | null>(null);

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { scanNfcTag } from "@/lib/native/nfc-scan";
+import { claimNfcTag } from "@/lib/client/claim-nfc-tag";
 import { capturePhoto } from "@/lib/client/capture-image";
 import { uploadImageDirect, withUploadTimeout, MAX_UPLOAD_IMAGE_BYTES, ALLOWED_UPLOAD_IMAGE_TYPES } from "@/lib/client/upload-image";
 
@@ -43,9 +44,44 @@ export function useTaskDefinitionPanel(definitionId: string, initial: UseTaskDef
   // InventoryItemType match, or a pre-Locations row) — see
   // lib/task-definitions.ts's bindNfcTag.
   const [alsoBoundTo, setAlsoBoundTo] = useState<Array<{ name: string; locationName: string | null }>>([]);
+  // Set when a bind attempt comes back 409 { reason: "unclaimed" } — see
+  // docs/features/nfc.md's "Claiming". Surfaces a "Claim & Retry" action in
+  // NfcBindingPanel instead of a dead-end error; null the rest of the time.
+  const [unclaimedUid, setUnclaimedUid] = useState<string | null>(null);
+  const [claiming, setClaiming] = useState(false);
+
+  async function bindUid(uid: string): Promise<boolean> {
+    try {
+      const res = await fetch(`/api/task-definitions/${definitionId}/nfc-tag`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ uid }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        if (body.reason === "unclaimed") {
+          setUnclaimedUid(uid);
+        } else {
+          setUnclaimedUid(null);
+        }
+        setBindError(body.error || "Failed to bind tag");
+        return false;
+      }
+      const body = await res.json();
+      setNfcTagUid(uid);
+      setAlsoBoundTo(body.alsoBoundTo ?? []);
+      setUnclaimedUid(null);
+      return true;
+    } catch (err) {
+      setUnclaimedUid(null);
+      setBindError(err instanceof Error ? err.message : "Failed to bind tag");
+      return false;
+    }
+  }
 
   async function handleScanToLink() {
     setBindError(null);
+    setUnclaimedUid(null);
     if (!Capacitor.isNativePlatform()) {
       setBindError("Open the app on your phone to scan a tag.");
       return;
@@ -57,21 +93,25 @@ export function useTaskDefinitionPanel(definitionId: string, initial: UseTaskDef
       setBindError(result.status === "unsupported" ? "NFC isn't available on this device." : result.message);
       return;
     }
-    try {
-      const res = await fetch(`/api/task-definitions/${definitionId}/nfc-tag`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ uid: result.uid }),
-      });
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Failed to bind tag");
-      const body = await res.json();
-      setNfcTagUid(result.uid);
-      setAlsoBoundTo(body.alsoBoundTo ?? []);
-    } catch (err) {
-      setBindError(err instanceof Error ? err.message : "Failed to bind tag");
-    } finally {
-      setBindBusy(false);
+    await bindUid(result.uid);
+    setBindBusy(false);
+  }
+
+  // Claims unclaimedUid for this manager's own location, then retries the
+  // same bind — the recovery path for the "unclaimed" rejection above, see
+  // docs/features/nfc.md's "Claiming".
+  async function handleClaimAndLink() {
+    if (!unclaimedUid) return;
+    setClaiming(true);
+    setBindError(null);
+    const claimResult = await claimNfcTag(unclaimedUid);
+    if (!claimResult.ok) {
+      setBindError(claimResult.error);
+      setClaiming(false);
+      return;
     }
+    await bindUid(unclaimedUid);
+    setClaiming(false);
   }
 
   async function handleUnbindTag() {
@@ -211,8 +251,11 @@ export function useTaskDefinitionPanel(definitionId: string, initial: UseTaskDef
     bindBusy,
     bindError,
     alsoBoundTo,
+    unclaimedUid,
+    claiming,
     handleScanToLink,
     handleUnbindTag,
+    handleClaimAndLink,
 
     instructionSteps,
     stepsBusy,

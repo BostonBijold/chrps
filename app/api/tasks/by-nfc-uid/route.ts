@@ -14,8 +14,9 @@ export const dynamic = "force-dynamic";
 // "In-app scan-to-complete binding" and "Multi-target binding") to
 // whichever target(s) it's bound to, for the FAB's "scan to open" shortcut
 // (components/BottomNav.tsx). Open to any signed-in company user — same
-// "any employee on shift" philosophy as triggering an already-linked
-// tap-to-trigger tag; only binding a tag in the first place is manager-only.
+// "any employee on shift" philosophy as the rest of the app; only binding
+// (and claiming, see docs/features/nfc.md's "Claiming") a tag in the first
+// place is manager-only.
 // Kept at this URL (not renamed/moved) even though it now also resolves
 // InventoryItemType — Part 1's spec explicitly anticipated this route being
 // Inventory's "replacement/sibling," and there was no reason to churn every

@@ -6,7 +6,7 @@ import ReportsContent from "@/components/ReportsContent";
 
 interface Props {
   userName: string;
-  role: "manager" | "employee" | "owner";
+  role: "manager" | "employee" | "owner" | "developer";
   // Already resolved server-side via pickActiveLocationId — see
   // docs/features/locations.md's "Location switcher".
   activeLocationId: string | null;

@@ -61,12 +61,10 @@ attempted here.
   cache instead of the network.
 
 **Out of scope:**
-- **Tap-to-trigger via Universal Links** (`/nfc/<tagCode>`, see
-  [nfc.md](nfc.md)) still requires network — a full Next.js page navigation
-  resolved server-side, structurally the same "cold reload while offline"
-  problem as the known limitation above, just narrower. It's also the only
-  tap-to-trigger path left — the Shortcuts-driven silent-trigger flow that
-  used to exist alongside it was removed entirely, see nfc.md's history note.
+- (Tap-to-trigger via Universal Links used to be listed here as an
+  out-of-scope, network-required path — moot now that the whole system was
+  removed entirely, see [nfc.md](nfc.md)'s "History: Tap-to-trigger
+  (removed)".)
 - **Undo** and every manager-only action (linking/unlinking NFC tags,
   creating/editing task lists or definitions) — lower-frequency, config-
   style actions a person can reasonably be asked to retry once back online;
@@ -213,9 +211,8 @@ refreshPendingCount }` via context, but does **not** itself call
 cares about sync timing — owns two effects instead:
 - Fires `flushQueue()` then `pullSync(companyId, today)` on every
   offline→online transition (and once on mount if already online).
-- Registers its own `@capacitor/app` `'resume'` listener (same plugin
-  `UniversalLinkHandler.tsx` already uses for `'appUrlOpen'`) to do the
-  same flush-then-pull on app foreground.
+- Registers its own `@capacitor/app` `'resume'` listener to do the same
+  flush-then-pull on app foreground.
 
 ## Offline NFC resolution (in-app scan-to-complete)
 
@@ -269,8 +266,7 @@ drives `NetworkStatusProvider`'s `isOnline` state and, in turn,
 `components/OfflineBanner.tsx`'s persistent "Offline — changes will sync"
 / "Syncing N changes…" banner. `Network.getStatus()` on mount sets initial
 state before the first listener event fires. Both are native-only
-(`Capacitor.isNativePlatform()`-guarded, matching
-`components/UniversalLinkHandler.tsx`'s own guard shape) — on plain web/PWA
+(`Capacitor.isNativePlatform()`-guarded) — on plain web/PWA
 `isOnline` stays permanently `true` and every code path above behaves
 exactly as it did before this feature.
 

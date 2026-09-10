@@ -1,10 +1,10 @@
 import { registerPlugin } from "@capacitor/core";
 
 // Bridges to ios/App/App/NfcScanPlugin.swift — an explicit, foreground,
-// user-initiated NFC read (distinct from the tap-to-trigger Universal Link
-// flow in lib/task-trigger.ts, which never scans in-app — see
-// docs/features/nfc.md's "Why not an in-app NFC listener instead" and its
-// follow-up "In-app scan-to-complete binding" section). No-op-safe to call
+// user-initiated NFC read (the tap-to-trigger Universal Link system this
+// used to be distinguished from has since been removed entirely — see
+// docs/features/nfc.md's "History: Tap-to-trigger (removed)" and its
+// "In-app scan-to-complete binding" section). No-op-safe to call
 // on web/PWA: registerPlugin resolves to a stub there that rejects every
 // call, and lib/native/nfc-scan.ts additionally guards with
 // Capacitor.isNativePlatform() before ever calling it.

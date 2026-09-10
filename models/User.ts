@@ -26,7 +26,12 @@ const UserSchema = new Schema(
     // companyId, not just one. `owner` is never the invite-redemption
     // default (Invite.role stays "employee" | "manager") — it's assigned by
     // hand in MongoDB, same as a company's very first manager.
-    role: { type: String, enum: ["manager", "employee", "owner", null], default: "manager" },
+    // A fourth tier, "developer" (see docs/features/nfc.md's
+    // "Provisioning"), is a strict superset of "owner" again — internal-use
+    // only, gates the NFC tag registry's Provision Tag action, and is never
+    // assignable through any in-app flow either, hand-set in MongoDB the
+    // same way "owner" already is.
+    role: { type: String, enum: ["manager", "employee", "owner", "developer", null], default: "manager" },
     // Set alongside companyId/role at invite redemption (see
     // app/invite/[token]/page.tsx and docs/features/team-invites.md) —
     // distinct from the adapter-owned account-creation timestamp, so

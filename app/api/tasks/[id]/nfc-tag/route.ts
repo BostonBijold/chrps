@@ -4,6 +4,7 @@ import Task from "@/models/Task";
 import { bindNfcTag, unbindNfcTag } from "@/lib/task-definitions";
 import { resolveSessionUser, isManagerOrAbove, pickActiveLocationId } from "@/lib/session";
 import { validateLocationId } from "@/lib/locations";
+import { NfcTagNotClaimedError } from "@/lib/nfc-tags";
 
 export const dynamic = "force-dynamic";
 
@@ -41,7 +42,15 @@ export async function POST(
   const task = await Task.findOne({ _id: params.id, companyId, locationId }).select("definitionId").lean();
   if (!task) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const bound = await bindNfcTag(companyId, locationId, task.definitionId.toString(), uid);
+  let bound;
+  try {
+    bound = await bindNfcTag(companyId, locationId, task.definitionId.toString(), uid);
+  } catch (err) {
+    if (err instanceof NfcTagNotClaimedError) {
+      return NextResponse.json({ error: err.message, reason: "unclaimed" }, { status: 409 });
+    }
+    throw err;
+  }
   if (!bound) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   return NextResponse.json({ nfcTagUid: bound.definition.nfcTagUid, alsoBoundTo: bound.alsoBoundTo });
