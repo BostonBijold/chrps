@@ -18,10 +18,12 @@ interface Props {
 // docs/features/team-invites.md.
 export default function TeamMemberActionSheet({ member, isLastManager, onChangeRole, onRemove, onClose }: Props) {
   const [busy, setBusy] = useState(false);
-  // Owner assignment is manual-only (see docs/features/locations.md) — this
-  // sheet only ever toggles between manager/employee, so an owner's role is
-  // never touchable here at all, same treatment as the last-manager guard.
-  const isOwnerRow = member.role === "owner";
+  // Owner assignment is manual-only (see docs/features/locations.md), same
+  // for `developer` (a strict superset of owner again, see
+  // docs/features/nfc.md's "Provisioning") — this sheet only ever toggles
+  // between manager/employee, so neither role is touchable here at all,
+  // same treatment as the last-manager guard.
+  const isOwnerRow = member.role === "owner" || member.role === "developer";
   const guardBlocks = isOwnerRow || (member.role === "manager" && isLastManager);
   const nextRole = member.role === "manager" ? "employee" : "manager";
 
@@ -72,7 +74,7 @@ export default function TeamMemberActionSheet({ member, isLastManager, onChangeR
             {guardBlocks && (
               <p className="px-3 pt-1 font-mono text-[10px] text-dim">
                 {isOwnerRow
-                  ? `${member.name} is an owner — owner role changes aren't made from this screen.`
+                  ? `${member.name} is an ${member.role} — role changes for that tier aren't made from this screen.`
                   : `${member.name} is the last manager — promote someone else first.`}
               </p>
             )}

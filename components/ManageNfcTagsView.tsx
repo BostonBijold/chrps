@@ -6,10 +6,18 @@ import { ChevronLeft, Nfc, Search } from "lucide-react";
 import Header from "@/components/Header";
 import { formatRelativeTime } from "@/lib/format-relative-time";
 import ManageChrpDetailSheet, { type ChrpTag } from "@/components/ManageChrpDetailSheet";
+import { isOwner } from "@/lib/roles";
 
 interface Props {
   userName: string;
   skipAuth: boolean;
+  // Location-switcher merge (see docs/features/header-location-switcher.md)
+  // — mirrors components/ManageTasksView.tsx's identical props exactly, so
+  // an owner at a multi-location company can switch which store's Ch'rps
+  // they're viewing directly from this screen, same as Manage Tasks.
+  userRole: "manager" | "employee" | "owner" | "developer";
+  activeLocationId: string | null;
+  locationId: string | null;
 }
 
 // Manager-only "Manage Ch'rps" screen — every physical NFC tag ("Ch'rp",
@@ -21,18 +29,26 @@ interface Props {
 // screen has nothing to CREATE (a Ch'rp is claimed by binding it to a task
 // or item elsewhere — see docs/features/nfc.md's "Claiming" — not from
 // here), so there's no "+ Add" affordance, just the list itself.
-export default function ManageNfcTagsView({ userName, skipAuth }: Props) {
+export default function ManageNfcTagsView({ userName, skipAuth, userRole, activeLocationId, locationId }: Props) {
   const router = useRouter();
   const [tags, setTags] = useState<ChrpTag[] | null>(null);
   const [openUid, setOpenUid] = useState<string | null>(null);
   const [search, setSearch] = useState("");
 
-  useEffect(() => {
+  // Named (not inline) so the header's location switcher can re-trigger it
+  // on a switch — see the onLocationChanged wiring below. GET /api/nfc-tags
+  // itself needs no locationId param: it re-resolves the acting location
+  // fresh from the session on every call (pickActiveLocationId), and the
+  // switcher above already persisted the new selection server-side
+  // (PATCH /api/session/active-location) before this fires.
+  const fetchTags = () => {
     fetch("/api/nfc-tags")
       .then((r) => (r.ok ? r.json() : []))
       .then(setTags)
       .catch(() => setTags([]));
-  }, []);
+  };
+
+  useEffect(fetchTags, []);
 
   const q = search.trim().toLowerCase();
 
@@ -84,7 +100,11 @@ export default function ManageNfcTagsView({ userName, skipAuth }: Props) {
   return (
     <div className="min-h-dvh bg-bg">
       <div className="mx-auto max-w-mobile px-4 pb-28">
-        <Header userName={userName} skipAuth={skipAuth} />
+        <Header
+          userName={userName}
+          skipAuth={skipAuth}
+          location={{ isOwner: isOwner(userRole), activeLocationId, locationId, onLocationChanged: fetchTags }}
+        />
 
         <div className="mt-4 mb-5 flex items-center gap-2">
           <button

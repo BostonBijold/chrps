@@ -70,6 +70,7 @@ export async function GET(req: NextRequest) {
       uid: t.uid,
       status: t.status,
       label: t.label ?? null,
+      imageUrl: t.imageUrl ?? null,
       claimedAt: t.claimedAt ? t.claimedAt.toISOString() : null,
       claimedByName: t.claimedByUserId ? nameById.get(t.claimedByUserId) ?? "Unknown" : null,
       lastUsedAt: t.lastUsedAt ? t.lastUsedAt.toISOString() : null,

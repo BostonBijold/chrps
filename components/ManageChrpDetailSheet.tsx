@@ -1,13 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { X, Nfc, Package, ClipboardCheck, Archive, RotateCcw } from "lucide-react";
+import { X, Nfc, Package, ClipboardCheck, Archive, RotateCcw, Camera as CameraIcon } from "lucide-react";
 import { formatRelativeTime } from "@/lib/format-relative-time";
+import { capturePhoto } from "@/lib/client/capture-image";
+import { uploadImageDirect, withUploadTimeout, MAX_UPLOAD_IMAGE_BYTES, ALLOWED_UPLOAD_IMAGE_TYPES } from "@/lib/client/upload-image";
 
 export interface ChrpTag {
   uid: string;
   status: "claimed" | "retired";
   label: string | null;
+  imageUrl: string | null;
   claimedAt: string | null;
   claimedByName: string | null;
   lastUsedAt: string | null;
@@ -44,7 +47,7 @@ export default function ManageChrpDetailSheet({ tag, onSaved, onClose }: Props) 
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Failed to save");
       const updated = await res.json();
-      onSaved({ ...tag, label: updated.label ?? null, status: updated.status });
+      onSaved({ ...tag, label: updated.label ?? null, status: updated.status, imageUrl: updated.imageUrl ?? null });
       return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save");
@@ -64,6 +67,67 @@ export default function ManageChrpDetailSheet({ tag, onSaved, onClose }: Props) 
     await patch({ status: next });
     setSaving(false);
     setConfirmingRetire(false);
+  }
+
+  // Photo — NfcTag.imageUrl, previously inert (see docs/features/nfc.md's
+  // "Labeling"). Reuses the same capturePhoto()/uploadImageDirect()
+  // plumbing built for instruction-step/completion photos, but auto-saves
+  // straight to this tag on upload (no separate "Save" step, matching this
+  // sheet's other actions — Scan to Link/Retire also commit immediately).
+  const [capturing, setCapturing] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const photoBusy = capturing || uploadingPhoto;
+
+  async function handleCapturePhoto() {
+    setPhotoError(null);
+    setCapturing(true);
+    const result = await capturePhoto();
+    setCapturing(false);
+
+    if (result.status === "denied") {
+      setPhotoError("Camera access is off for Ch'rps — enable it in Settings to add a photo.");
+      return;
+    }
+    if (result.status === "error") {
+      setPhotoError(result.message);
+      return;
+    }
+    if (result.status !== "ok") return; // "cancelled" — no error, stay as-is
+
+    const { file } = result;
+    if (!ALLOWED_UPLOAD_IMAGE_TYPES.includes(file.type)) {
+      setPhotoError(`"${file.type || "unknown"}" isn't a supported image type — use JPEG, PNG, or WEBP.`);
+      return;
+    }
+    if (file.size > MAX_UPLOAD_IMAGE_BYTES) {
+      setPhotoError(`That photo is ${(file.size / 1024 / 1024).toFixed(1)}MB — must be 8MB or smaller.`);
+      return;
+    }
+
+    setUploadingPhoto(true);
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "-");
+    const pathname = `chrp-photos/${tag.uid}-${Date.now()}-${safeName}`;
+    try {
+      const url = await withUploadTimeout(
+        uploadImageDirect(file, pathname),
+        30000,
+        "Upload timed out — check your connection and try again."
+      );
+      await patch({ imageUrl: url });
+    } catch (err) {
+      setPhotoError(err instanceof Error ? err.message : "Failed to upload photo");
+    } finally {
+      setUploadingPhoto(false);
+    }
+  }
+
+  async function handleRemovePhoto() {
+    setPhotoError(null);
+    setUploadingPhoto(true);
+    await patch({ imageUrl: null });
+    setUploadingPhoto(false);
   }
 
   return (
@@ -99,6 +163,57 @@ export default function ManageChrpDetailSheet({ tag, onSaved, onClose }: Props) 
                 </p>
               </div>
             )}
+
+            <div className="space-y-1.5">
+              <p className="font-mono text-[10px] text-dim uppercase tracking-widest">Photo</p>
+              {tag.imageUrl ? (
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setLightboxOpen(true)}
+                    aria-label="View photo larger"
+                    className="flex-shrink-0"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={tag.imageUrl}
+                      alt=""
+                      className="w-16 h-16 object-cover rounded-card border border-border"
+                    />
+                  </button>
+                  <div className="flex-1 flex flex-col gap-1.5">
+                    <button
+                      type="button"
+                      onClick={handleCapturePhoto}
+                      disabled={photoBusy}
+                      className="flex items-center justify-center gap-1.5 border border-olive/30 bg-olive/10 text-olive font-mono text-xs px-3 py-2 rounded-card disabled:opacity-40"
+                    >
+                      <CameraIcon size={13} strokeWidth={1.75} />
+                      {capturing ? "Opening camera…" : uploadingPhoto ? "Uploading…" : "Retake"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleRemovePhoto}
+                      disabled={photoBusy}
+                      className="font-mono text-[11px] text-dim hover:text-burgundy-light disabled:opacity-40"
+                    >
+                      Remove photo
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleCapturePhoto}
+                  disabled={photoBusy}
+                  className="w-full flex items-center justify-center gap-2 border border-dashed border-border-light text-muted font-mono text-xs py-3 rounded-card hover:border-olive/40 hover:text-olive transition-colors disabled:opacity-40"
+                >
+                  <CameraIcon size={14} strokeWidth={1.75} />
+                  {capturing ? "Opening camera…" : uploadingPhoto ? "Uploading…" : "Add a Photo"}
+                </button>
+              )}
+              {photoError && <p className="font-mono text-[11px] text-burgundy-light">{photoError}</p>}
+            </div>
 
             <div className="space-y-1.5">
               <label className="font-mono text-[10px] text-dim uppercase tracking-widest">Label</label>
@@ -207,6 +322,29 @@ export default function ManageChrpDetailSheet({ tag, onSaved, onClose }: Props) 
           </div>
         </div>
       </div>
+
+      {lightboxOpen && tag.imageUrl && (
+        <div
+          className="fixed inset-0 z-[60] bg-black/90 flex items-center justify-center p-4"
+          onClick={() => setLightboxOpen(false)}
+        >
+          <button
+            type="button"
+            onClick={() => setLightboxOpen(false)}
+            aria-label="Close"
+            className="absolute top-4 right-4 text-white/80 hover:text-white min-h-[44px] min-w-[44px] flex items-center justify-center"
+          >
+            <X size={22} />
+          </button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={tag.imageUrl}
+            alt=""
+            className="max-w-full max-h-full object-contain rounded-card"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </>
   );
 }

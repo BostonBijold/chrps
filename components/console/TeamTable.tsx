@@ -55,7 +55,8 @@ export default function TeamTable({ team, locations, jobTags, currentUserId, onC
   // server-side.
   const hasOwner = team?.some((m) => m.role === "owner") ?? false;
 
-  const guardBlocks = (m: Member) => m.role === "owner" || (m.role === "manager" && managerCount <= 1 && !hasOwner);
+  const guardBlocks = (m: Member) =>
+    m.role === "owner" || m.role === "developer" || (m.role === "manager" && managerCount <= 1 && !hasOwner);
 
   const run = async (id: string, fn: () => Promise<void>) => {
     setBusyId(id);
@@ -105,14 +106,18 @@ export default function TeamTable({ team, locations, jobTags, currentUserId, onC
                   <td className="px-4 py-3">
                     <span
                       className={`font-mono text-[10px] uppercase tracking-widest px-2 py-1 rounded-pill ${
-                        m.role === "owner" ? "bg-gold/10 text-gold" : m.role === "manager" ? "bg-olive/10 text-olive" : "bg-card-hover text-muted"
+                        m.role === "owner" || m.role === "developer"
+                          ? "bg-gold/10 text-gold"
+                          : m.role === "manager"
+                            ? "bg-olive/10 text-olive"
+                            : "bg-card-hover text-muted"
                       }`}
                     >
                       {m.role}
                     </span>
                   </td>
                   <td className="px-4 py-3">
-                    {m.role === "owner" ? (
+                    {m.role === "owner" || m.role === "developer" ? (
                       <span className="font-body text-xs text-dim">All locations</span>
                     ) : (
                       <select

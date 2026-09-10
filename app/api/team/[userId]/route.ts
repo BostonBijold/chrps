@@ -79,10 +79,12 @@ export async function PATCH(req: Request, { params }: { params: { userId: string
     }
   }
 
-  // An owner is a strict superset of manager (see docs/features/locations.md)
-  // and can't be created or changed through this employee/manager-only
-  // toggle — only an owner may touch a fellow owner's role at all.
-  if (target.role === "owner" && sessionRole !== "owner") {
+  // An owner is a strict superset of manager (see docs/features/locations.md),
+  // and `developer` a strict superset of owner again (see
+  // docs/features/nfc.md's "Provisioning") — neither can be created or
+  // changed through this employee/manager-only toggle, and only an owner
+  // (or developer) may touch a fellow owner/developer's role at all.
+  if ((target.role === "owner" || target.role === "developer") && !isOwner(sessionRole)) {
     return NextResponse.json({ error: "Owners only" }, { status: 403 });
   }
 
@@ -128,7 +130,7 @@ export async function DELETE(req: Request, { params }: { params: { userId: strin
   const target = await User.findOne({ _id: params.userId, companyId }, "role").lean<{ role?: string }>();
   if (!target) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  if (target.role === "owner" && sessionRole !== "owner") {
+  if ((target.role === "owner" || target.role === "developer") && !isOwner(sessionRole)) {
     return NextResponse.json({ error: "Owners only" }, { status: 403 });
   }
 

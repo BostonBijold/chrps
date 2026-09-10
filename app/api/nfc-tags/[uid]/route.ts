@@ -8,12 +8,16 @@ export const dynamic = "force-dynamic";
 
 const MAX_LABEL_LENGTH = 60;
 
-// PATCH /api/nfc-tags/[uid] — "Manage Ch'rps" edit actions: label and
-// status (`claimed` <-> `retired`). Manager-or-above, and scoped to a tag
-// actually claimed by THIS company+location — the query filter below is
-// the whole guard, so this can never touch a tag belonging to a different
-// company/location or one that's still unclaimed. See
-// docs/features/nfc.md's "Manage Ch'rps" and "Retiring a tag".
+// PATCH /api/nfc-tags/[uid] — "Manage Ch'rps" edit actions: label, photo
+// (`imageUrl`), and status (`claimed` <-> `retired`). Manager-or-above, and
+// scoped to a tag actually claimed by THIS company+location — the query
+// filter below is the whole guard, so this can never touch a tag
+// belonging to a different company/location or one that's still
+// unclaimed. See docs/features/nfc.md's "Manage Ch'rps" and "Retiring a
+// tag". The image itself is uploaded client-side straight to Vercel Blob
+// first (POST /api/blob/upload, same direct-upload flow instruction steps
+// and completion photos already use) — this route just records the
+// resulting URL, same division of labor as those.
 export async function PATCH(req: NextRequest, { params }: { params: { uid: string } }) {
   const sessionUser = await resolveSessionUser();
   if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -25,11 +29,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { uid: strin
   const locationId = pickActiveLocationId(sessionUser, requestedLocationId);
 
   const body = await req.json();
-  const updates: { label?: string | null; status?: "claimed" | "retired" } = {};
+  const updates: { label?: string | null; imageUrl?: string | null; status?: "claimed" | "retired" } = {};
   if (typeof body.label === "string") {
     updates.label = body.label.trim().slice(0, MAX_LABEL_LENGTH) || null;
   } else if (body.label === null) {
     updates.label = null;
+  }
+  if (typeof body.imageUrl === "string" || body.imageUrl === null) {
+    updates.imageUrl = body.imageUrl;
   }
   if (body.status === "claimed" || body.status === "retired") {
     updates.status = body.status;
@@ -47,5 +54,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { uid: strin
   ).lean();
   if (!tag) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  return NextResponse.json({ uid: tag.uid, status: tag.status, label: tag.label ?? null });
+  return NextResponse.json({
+    uid: tag.uid,
+    status: tag.status,
+    label: tag.label ?? null,
+    imageUrl: tag.imageUrl ?? null,
+  });
 }

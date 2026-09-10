@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Header from "@/components/Header";
 import ReportsContent from "@/components/ReportsContent";
+import { isOwner } from "@/lib/roles";
 
 interface Props {
   userName: string;
@@ -33,7 +34,7 @@ export default function ReportsView({ userName, role, activeLocationId, location
           userName={userName}
           skipAuth={skipAuth}
           location={{
-            isOwner: role === "owner",
+            isOwner: isOwner(role),
             activeLocationId,
             locationId,
             onLocationChanged: () => setRefreshTick((t) => t + 1),

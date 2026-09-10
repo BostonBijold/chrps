@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
-import { resolveSessionUser, isManagerOrAbove } from "@/lib/session";
+import { resolveSessionUser, isManagerOrAbove, pickActiveLocationId } from "@/lib/session";
 import ManageNfcTagsView from "@/components/ManageNfcTagsView";
 
 export const dynamic = "force-dynamic";
@@ -18,11 +18,28 @@ export default async function ManageNfcTagsPage() {
 
   const sessionUser = await resolveSessionUser();
   if (!sessionUser) redirect("/login");
-  const { companyId } = sessionUser;
+  const { companyId, role } = sessionUser;
   if (!companyId) redirect("/tasks");
-  if (!isManagerOrAbove(sessionUser.role)) redirect("/tasks");
+  if (!isManagerOrAbove(role)) redirect("/tasks");
+
+  // Same as app/(app)/tasks/manage/page.tsx — an owner's switcher
+  // selection (or their own default if unset), a manager/employee's own
+  // fixed location. Threaded down so the header can render an owner's
+  // interactive location switcher (see components/Header.tsx's
+  // LocationContext) — without this, an owner at a multi-location company
+  // could view Ch'rps but never switch which store's they were looking at
+  // from this screen.
+  const activeLocationId = pickActiveLocationId(sessionUser, null);
 
   const userName = session?.user?.name ?? "Developer";
 
-  return <ManageNfcTagsView userName={userName} skipAuth={skipAuth} />;
+  return (
+    <ManageNfcTagsView
+      userName={userName}
+      skipAuth={skipAuth}
+      userRole={role}
+      activeLocationId={activeLocationId}
+      locationId={sessionUser.locationId}
+    />
+  );
 }

@@ -1107,15 +1107,37 @@ is in `docs/features/locations.md`.
       (`TaskDefinition`/`InventoryItemType` names sharing its UID),
       claimed/last-used attribution, split into Active/Retired sections.
       `PATCH /api/nfc-tags/[uid]` (scoped to a tag this exact
-      company+location already claimed) drives two actions: **Label**
+      company+location already claimed) drives three actions: **Label**
       (`NfcTag.label`, previously inert, now a free-text 60-char name shown
-      instead of the raw UID) and **Retire/Reactivate** — retiring isn't
-      just a display flag, it actually blocks the tag: `assertNfcVerified`/
+      instead of the raw UID), **Photo** (`NfcTag.imageUrl`, also
+      previously inert — a manager photographs the tag's physical
+      location, same direct-to-Blob upload plumbing as instruction-step/
+      completion photos, auto-saves on upload with no separate confirm
+      step; the detail sheet shows a thumbnail that opens a full-screen
+      lightbox on tap, list rows stay thumbnail-free by design), and
+      **Retire/Reactivate** — retiring isn't just a display flag, it
+      actually blocks the tag: `assertNfcVerified`/
       `assertInventoryNfcVerified` both now reject a matched UID whose
       registry row is `status: 'retired'`, same as a genuinely wrong scan,
       even though the `TaskDefinition`/`InventoryItemType` binding itself
       is left untouched (so reactivating instantly restores function, no
       re-binding). See docs/features/nfc.md's "Manage Ch'rps".
+- [x] `developer`/owner UI parity fix — `lib/roles.ts`'s `isOwner()` had
+      counted `developer` as a strict superset of `owner` since the tag
+      registry work above, but several client components still gated their
+      own `location={{ isOwner: ... }}` construction (the header's
+      location-switcher prop, see docs/features/header-location-switcher.md)
+      on a literal `role === "owner"` string comparison instead of calling
+      that helper — `ReportsView.tsx`, `TasksView.tsx`, `ManageTasksView.tsx`,
+      `ManageNfcTagsView.tsx` all fixed to call `isOwner(role)`. Also
+      extended `app/api/team/[userId]`'s "only an owner may touch a fellow
+      owner" gates, `app/api/account`'s self-delete block,
+      `TeamMemberActionSheet.tsx`'s `isOwnerRow`, and console
+      `TeamTable.tsx`'s row-guard/badge/location-cell to treat a
+      `developer` row the same as an `owner` row throughout. (Pages that
+      already passed a boolean `isOwner` prop computed server-side via the
+      shared helper — Inventory, Team — were unaffected, since they never
+      had this bug.)
 
 Personal-habit-tracker features from before the restaurant pivot — the
 timer-based Countdown/Stopwatch/Checkbox item types and the Sunday "Routine
@@ -1235,7 +1257,7 @@ table is a quick reference, not authoritative.
 - Manager task-list management: BUILT — create/rename/schedule/delete, see "Task Lists" above
 - NFC tap-to-trigger: REMOVED — replaced entirely by the tag registry+claim model below; see `docs/features/nfc.md`'s "History: Tap-to-trigger (removed)"
 - NFC Tag Registry + Claim: BUILT — a UID must be `provisioned` (developer-only, `/nfc/provision`) before a customer can ever bind it; claiming happens automatically, with no separate step, the first time a manager binds ("Scan to Link") a fresh tag for their own company+location — a UID already claimed by a different company still rejects the bind (404/409, non-disclosure wording), see `docs/features/nfc.md`'s "The tag registry"
-- Manage Ch'rps: BUILT — a third manager-only "Manage" screen (`/nfc/manage`) listing every claimed tag for this location with what it's bound to, claimed/last-used attribution, a free-text label, and Retire/Reactivate (retiring actually blocks the tag from completing tasks/logging inventory, not just a display flag), see `docs/features/nfc.md`'s "Manage Ch'rps"
+- Manage Ch'rps: BUILT — a third manager-only "Manage" screen (`/nfc/manage`) listing every claimed tag for this location with what it's bound to, claimed/last-used attribution, a free-text label, a photo (thumbnail in the detail sheet, tap for a full-screen lightbox), and Retire/Reactivate (retiring actually blocks the tag from completing tasks/logging inventory, not just a display flag), see `docs/features/nfc.md`'s "Manage Ch'rps"
 - NFC scan-to-complete binding: BUILT — manager scans a physical, *claimed* tag's raw UID onto a task from Manage Task List; completing that task then requires a matching in-app "Scan NFC" instead of a plain Save, see `docs/features/nfc.md`
 - Multi-target NFC binding: BUILT — a claimed tag can back more than one task and/or Inventory item type at once; the FAB's blind scan disambiguates with a picker when a scan resolves to more than one, see `docs/features/nfc.md`'s "Multi-target binding"
 - Offline support: BUILT — native SQLite cache mirrors task lists/tasks/definitions/today's logs, task-log mutations (start/complete/miss) queue locally and sync on reconnect, and in-app NFC scan-to-complete resolves against the local cache when offline; a cold app launch/full reload while offline is a known, documented gap (server-URL Capacitor mode), see `docs/features/offline.md`

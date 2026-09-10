@@ -18,7 +18,7 @@ import FABTodoSheet from "@/components/FABTodoSheet";
 import type { LogState } from "@/models/TaskLog";
 import type { FormFieldDef, FormFieldValue } from "@/models/TaskDefinition";
 import { isTaskVisibleOn } from "@/lib/task-visibility";
-import { isManagerOrAbove } from "@/lib/roles";
+import { isManagerOrAbove, isOwner } from "@/lib/roles";
 import { useTodoActions } from "@/lib/useTodoActions";
 import { emitTaskLogChanged, TASK_LOG_CHANGED_EVENT } from "@/lib/task-log-events";
 import { startRoutineActivity, endRoutineActivity } from "@/lib/native/routine-activity";
@@ -1111,7 +1111,7 @@ export default function TasksView({
         <Header
           userName={userName}
           skipAuth={skipAuth}
-          location={{ isOwner: userRole === "owner", activeLocationId, locationId }}
+          location={{ isOwner: isOwner(userRole), activeLocationId, locationId }}
         />
 
         <>

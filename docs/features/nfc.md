@@ -399,6 +399,19 @@ a Ch'rp is claimed by binding it to a task or item elsewhere (see
 "Claiming" above), not from this screen — so it's list-and-edit only, no
 "+ Add".
 
+`app/(app)/nfc/manage/page.tsx` resolves `activeLocationId` via
+`pickActiveLocationId(sessionUser, null)` (same as
+`app/(app)/tasks/manage/page.tsx`) and passes `userRole`/`activeLocationId`/
+`locationId` down so `components/Header.tsx` renders its interactive
+location switcher here too, matching Manage Tasks — an owner at a
+multi-location company can switch which store's Ch'rps they're viewing
+directly from this screen, not just from Tasks/Team/Reports/Inventory.
+`fetchTags` (this screen's `GET /api/nfc-tags` call, factored out of the
+mount effect specifically so it can be reused) is passed as
+`onLocationChanged`, since this screen's data comes from a client-side
+fetch rather than server props — `router.refresh()` alone (which the
+switcher always calls too) wouldn't re-run it.
+
 **`GET /api/nfc-tags`** — manager-or-above, company+location-scoped (same
 `pickActiveLocationId` resolution as every other manager-write route, so
 an owner's header switcher narrows this too). Returns every tag with
@@ -419,10 +432,39 @@ by label or raw UID. Tapping a row opens `components/ManageChrpDetailSheet.tsx`.
 ### Labeling
 
 `NfcTag.label` (previously inert, see the "Deferred" note in "The tag
-registry" above) is now editable here — free text, 60 chars, trimmed empty
+registry" above) is editable here — free text, 60 chars, trimmed empty
 back to `null`. Purely cosmetic: shown instead of the raw UID in this list
 and the detail sheet's header, never read by any bind/verify logic.
-`imageUrl` stays inert — no photo-upload UI added in this pass.
+
+### Photo
+
+`NfcTag.imageUrl` (also previously inert) is editable from the detail
+sheet too — a manager can photograph the tag's actual physical location
+(the walk-in door it's stuck to, say), so a teammate scanning the list
+later can visually confirm it's the right one. Same direct-to-Blob upload
+plumbing as instruction-step/completion photos
+(`lib/client/capture-image.ts`'s `capturePhoto()`,
+`lib/client/upload-image.ts`'s `uploadImageDirect()`,
+`POST /api/blob/upload`), stored under a `chrp-photos/<uid>-<timestamp>-<name>`
+pathname. Unlike the label (which has its own "Save" button, so a typed-
+but-unsaved edit can be abandoned), a captured photo auto-saves straight
+to `PATCH /api/nfc-tags/[uid]` the moment the upload finishes — no
+separate confirm step, matching this sheet's other actions (Retire/
+Reactivate also commit immediately).
+
+**Thumbnail + lightbox**: the detail sheet shows a small (64×64) thumbnail
+once a photo exists, with "Retake"/"Remove photo" beside it; tapping the
+thumbnail opens a full-screen overlay (`components/ManageChrpDetailSheet.tsx`'s
+own inline lightbox, `z-[60]`, above the sheet's own `z-50`) showing the
+photo at its natural size against a dark backdrop — tap anywhere (or the
+✕) to close. No photo yet shows a dashed "Add a Photo" button instead,
+same visual language as `TaskPhotoCaptureButton.tsx`'s empty state. The
+list view (`components/ManageNfcTagsView.tsx`) does NOT show thumbnails
+per row — only the detail sheet does, by design, to keep the list itself
+lightweight/scannable.
+
+Purely cosmetic, same as the label — never read by any bind/verify logic,
+just a visual aid for whoever opens this screen.
 
 ### Retiring a tag
 

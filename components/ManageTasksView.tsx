@@ -14,6 +14,7 @@ import LinkInventoryItemSheet from "@/components/LinkInventoryItemSheet";
 import { scanNfcTag } from "@/lib/native/nfc-scan";
 import { useTaskDefinitionPanel } from "@/lib/client/use-task-definition-panel";
 import { useInventoryLinks } from "@/lib/client/use-inventory-links";
+import { isOwner } from "@/lib/roles";
 import type { FormFieldDef } from "@/models/TaskDefinition";
 
 // Sections default to collapsed once they pass this many items — keeps the
@@ -457,7 +458,7 @@ export default function ManageTasksView({ userName, skipAuth, taskLists, standal
         <Header
           userName={userName}
           skipAuth={skipAuth}
-          location={{ isOwner: userRole === "owner", activeLocationId, locationId }}
+          location={{ isOwner: isOwner(userRole), activeLocationId, locationId }}
         />
 
         <div className="mt-4 mb-5 flex items-center gap-2">

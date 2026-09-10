@@ -4,7 +4,7 @@ import { connectDB } from "@/lib/mongoose";
 import clientPromise from "@/lib/mongodb-client";
 import User from "@/models/User";
 import PushToken from "@/models/PushToken";
-import { resolveSessionUser } from "@/lib/session";
+import { resolveSessionUser, isOwner } from "@/lib/session";
 import { signOut } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
@@ -23,8 +23,11 @@ export async function DELETE() {
   // The owner is the billing contact and, in a single-owner company, the
   // only account that can administer every location — scrubbing that User
   // doesn't touch Stripe or hand off administration to anyone. Routed to a
-  // human instead of a self-service path.
-  if (sessionUser.role === "owner") {
+  // human instead of a self-service path. `developer` (a strict superset
+  // of owner, see docs/features/nfc.md's "Provisioning") is blocked the
+  // same way — an internal, hand-managed account, never meant to be
+  // self-deleted through this flow either.
+  if (isOwner(sessionUser.role)) {
     return NextResponse.json(
       { error: "Owners can't self-delete — contact contact@usechrps.com" },
       { status: 403 }
