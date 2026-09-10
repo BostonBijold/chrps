@@ -11,6 +11,15 @@ import { scanNfcTag } from "@/lib/native/nfc-scan";
 import { playNotificationSound, type NotificationSound } from "@/lib/notification-sound";
 import { formatRelativeTime } from "@/lib/format-relative-time";
 
+function formatLogTimestamp(iso: string) {
+  return new Date(iso).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 interface ItemType {
   _id: string;
   name: string;
@@ -355,7 +364,7 @@ export default function InventoryItemDetailView({
                   {log.count}{item.unit && <span className="text-dim ml-1">{item.unit}</span>}
                 </p>
                 <p className="font-mono text-[10px] text-dim mt-0.5">
-                  {log.loggedByName} · {formatRelativeTime(log.loggedAt)}
+                  {log.loggedByName} · {formatLogTimestamp(log.loggedAt)}
                 </p>
               </div>
               {log.verifiedNfcUid && (
