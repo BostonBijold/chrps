@@ -113,9 +113,9 @@ UID onto a `TaskDefinition`/`InventoryItemType`:
 (`pickActiveLocationId`, same resolution every other manager-write route
 uses) — claiming never takes an explicit `locationId` param; an owner can
 still narrow it with the existing `?locationId=` their header switcher
-already sets on any write route. `label`/`imageUrl` on the model exist so
-a later tag-management pass can add one without a migration, but nothing
-sets or reads them yet — deliberately left inert for v1.
+already sets on any write route. `label` is editable from "Manage Ch'rps"
+below (see that section's "Labeling"); `imageUrl` stays inert — no
+photo-upload UI built for it yet.
 
 **Why folded into bind instead of its own step**: an earlier version of
 this design had a standalone `POST /api/nfc-tags/claim` route and a
@@ -382,6 +382,82 @@ against the Company Task Catalog data the screen already has loaded
 Unlike the FAB's shortcut, this never resolves a *placement*, starts a
 timer, or completes anything — it only locates a `TaskDefinition` in the
 catalog and opens its detail view. There's no dedicated API route for it.
+
+## Manage Ch'rps
+
+**"Ch'rp" is this app's product-facing name for a physical NFC tag** (a nod
+to the completion "Save chirp" sound above) — introduced specifically for
+this screen's copy. Internal code keeps `NfcTag`/"tag" naming throughout
+(the model, the routes, every variable); only user-facing text says
+"Ch'rp(s)".
+
+A manager-only read/edit screen over the tag registry — `/nfc/manage`
+(`components/ManageNfcTagsView.tsx`), reached from a "Manage Ch'rps" card
+on Profile, a third "Manage" entry point alongside `/tasks/manage` and
+`/inventory/manage`. Unlike those two, there's nothing to *create* here —
+a Ch'rp is claimed by binding it to a task or item elsewhere (see
+"Claiming" above), not from this screen — so it's list-and-edit only, no
+"+ Add".
+
+**`GET /api/nfc-tags`** — manager-or-above, company+location-scoped (same
+`pickActiveLocationId` resolution as every other manager-write route, so
+an owner's header switcher narrows this too). Returns every tag with
+status `claimed` OR `retired` for this location (an `unclaimed` tag isn't
+this company's to see — it belongs to no one yet), each joined with:
+
+- **`boundTo`** — every active `TaskDefinition`/`InventoryItemType` at this
+  location currently sharing the UID (see "Multi-target binding" above),
+  by name. Empty means claimed but not yet bound to anything.
+- **`claimedAt`/`claimedByName`**, **`lastUsedAt`/`lastUsedByName`** —
+  straight off the registry row, user ids resolved to display names in one
+  batched `User.find` (same pattern as every other name-join in this app,
+  e.g. `GET /api/inventory-item-types`'s `lastLoggedByName`).
+
+The view splits results into **Active**/**Retired** sections, searchable
+by label or raw UID. Tapping a row opens `components/ManageChrpDetailSheet.tsx`.
+
+### Labeling
+
+`NfcTag.label` (previously inert, see the "Deferred" note in "The tag
+registry" above) is now editable here — free text, 60 chars, trimmed empty
+back to `null`. Purely cosmetic: shown instead of the raw UID in this list
+and the detail sheet's header, never read by any bind/verify logic.
+`imageUrl` stays inert — no photo-upload UI added in this pass.
+
+### Retiring a tag
+
+**`PATCH /api/nfc-tags/[uid]`** — manager-or-above, and scoped to a tag
+this exact company+location already has claimed (the query filter
+`{ uid, companyId, locationId, status: { $in: ["claimed", "retired"] } }`
+is the whole guard — this can never touch another company's tag or an
+unclaimed one). Body `{ label? }` and/or `{ status: "claimed" | "retired" }`
+— the detail sheet's "Retire"/"Reactivate" button flips `status` only,
+label saves independently.
+
+**Retiring isn't just a display flag — it actually disables the tag**, per
+the model's own "soft-disable slot (lost tag, decommissioned)" intent:
+
+- `lib/task-log-actions.ts`'s `assertNfcVerified` and `lib/inventory.ts`'s
+  `assertInventoryNfcVerified` both now look up the registry row for a
+  matched UID and reject (same `NfcTagRequiredError`/
+  `InventoryNfcRequiredError` as a genuinely wrong scan) if its `status`
+  is `retired` — even though the UID still matches
+  `TaskDefinition.nfcTagUid`/`InventoryItemType.nfcTagUid` exactly. A
+  retired tag can no longer complete a bound task or satisfy
+  `nfcRequiredToLog`, full stop, until a manager reactivates it.
+- This is a small extra lookup only on the already-rare "a real scan just
+  matched" path (every ordinary, unbound-task `assertNfcVerified` call
+  still returns immediately with no registry query at all) — negligible
+  overhead.
+- **Deliberately does NOT unbind** `TaskDefinition.nfcTagUid`/
+  `InventoryItemType.nfcTagUid` — the binding stays exactly as it was, so
+  reactivating (finding the tag, or a working replacement with the same
+  UID re-provisioned — physically impossible for a real tag, but the
+  registry doesn't know that) instantly restores function with no
+  re-binding step.
+- Reactivating (`status: "claimed"`) is a plain status flip back — no
+  re-verification of anything, since the row already belongs to this
+  company+location and never stopped.
 
 ## History: Tap-to-trigger (removed)
 

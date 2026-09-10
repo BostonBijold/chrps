@@ -1098,6 +1098,24 @@ is in `docs/features/locations.md`.
       we lose tags"/"when was this last seen" from the admin side. See
       docs/features/nfc.md's "The tag registry" and "History: Tap-to-trigger
       (removed)".
+- [x] Manage Ch'rps — a third manager-only "Manage" screen (`/nfc/manage`,
+      `components/ManageNfcTagsView.tsx`), reached from a Profile card
+      alongside Manage Tasks/Manage Inventory. "Ch'rp" is this app's
+      product-facing name for a physical NFC tag; internal code keeps
+      `NfcTag`/"tag" naming. Lists every tag claimed for this location
+      (`GET /api/nfc-tags`), each joined with what it's bound to
+      (`TaskDefinition`/`InventoryItemType` names sharing its UID),
+      claimed/last-used attribution, split into Active/Retired sections.
+      `PATCH /api/nfc-tags/[uid]` (scoped to a tag this exact
+      company+location already claimed) drives two actions: **Label**
+      (`NfcTag.label`, previously inert, now a free-text 60-char name shown
+      instead of the raw UID) and **Retire/Reactivate** — retiring isn't
+      just a display flag, it actually blocks the tag: `assertNfcVerified`/
+      `assertInventoryNfcVerified` both now reject a matched UID whose
+      registry row is `status: 'retired'`, same as a genuinely wrong scan,
+      even though the `TaskDefinition`/`InventoryItemType` binding itself
+      is left untouched (so reactivating instantly restores function, no
+      re-binding). See docs/features/nfc.md's "Manage Ch'rps".
 
 Personal-habit-tracker features from before the restaurant pivot — the
 timer-based Countdown/Stopwatch/Checkbox item types and the Sunday "Routine
@@ -1217,6 +1235,7 @@ table is a quick reference, not authoritative.
 - Manager task-list management: BUILT — create/rename/schedule/delete, see "Task Lists" above
 - NFC tap-to-trigger: REMOVED — replaced entirely by the tag registry+claim model below; see `docs/features/nfc.md`'s "History: Tap-to-trigger (removed)"
 - NFC Tag Registry + Claim: BUILT — a UID must be `provisioned` (developer-only, `/nfc/provision`) before a customer can ever bind it; claiming happens automatically, with no separate step, the first time a manager binds ("Scan to Link") a fresh tag for their own company+location — a UID already claimed by a different company still rejects the bind (404/409, non-disclosure wording), see `docs/features/nfc.md`'s "The tag registry"
+- Manage Ch'rps: BUILT — a third manager-only "Manage" screen (`/nfc/manage`) listing every claimed tag for this location with what it's bound to, claimed/last-used attribution, a free-text label, and Retire/Reactivate (retiring actually blocks the tag from completing tasks/logging inventory, not just a display flag), see `docs/features/nfc.md`'s "Manage Ch'rps"
 - NFC scan-to-complete binding: BUILT — manager scans a physical, *claimed* tag's raw UID onto a task from Manage Task List; completing that task then requires a matching in-app "Scan NFC" instead of a plain Save, see `docs/features/nfc.md`
 - Multi-target NFC binding: BUILT — a claimed tag can back more than one task and/or Inventory item type at once; the FAB's blind scan disambiguates with a picker when a scan resolves to more than one, see `docs/features/nfc.md`'s "Multi-target binding"
 - Offline support: BUILT — native SQLite cache mirrors task lists/tasks/definitions/today's logs, task-log mutations (start/complete/miss) queue locally and sync on reconnect, and in-app NFC scan-to-complete resolves against the local cache when offline; a cold app launch/full reload while offline is a known, documented gap (server-URL Capacitor mode), see `docs/features/offline.md`

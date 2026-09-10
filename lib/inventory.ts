@@ -6,6 +6,7 @@ import TaskDefinition from "@/models/TaskDefinition";
 import TaskInventoryLink from "@/models/TaskInventoryLink";
 import Task from "@/models/Task";
 import Location from "@/models/Location";
+import NfcTag from "@/models/NfcTag";
 import { claimNfcTag } from "@/lib/nfc-tags";
 
 // Thrown by assertInventoryNfcVerified below — every route that can write
@@ -27,7 +28,14 @@ export class InventoryNfcRequiredError extends Error {
 export async function assertInventoryNfcVerified(itemTypeId: string, verifiedNfcUid?: string | null) {
   const itemType = await InventoryItemType.findById(itemTypeId).select("nfcTagUid nfcRequiredToLog").lean();
   if (!itemType) return;
-  if (itemType.nfcRequiredToLog && (!itemType.nfcTagUid || itemType.nfcTagUid !== verifiedNfcUid)) {
+  if (!itemType.nfcRequiredToLog) return;
+  if (!itemType.nfcTagUid || itemType.nfcTagUid !== verifiedNfcUid) {
+    throw new InventoryNfcRequiredError();
+  }
+  // Mirrors lib/task-log-actions.ts's assertNfcVerified's own retired
+  // check — see docs/features/nfc.md's "Retiring a tag".
+  const registryTag = await NfcTag.findOne({ uid: itemType.nfcTagUid }).select("status").lean();
+  if (registryTag?.status === "retired") {
     throw new InventoryNfcRequiredError();
   }
 }

@@ -5,6 +5,7 @@ import TaskDefinition from "@/models/TaskDefinition";
 import type { FormFieldValue } from "@/models/TaskDefinition";
 import TaskList from "@/models/TaskList";
 import { ensureOpenSession, incrementSessionPauseOrJump, recordSessionCompletion } from "@/lib/task-list-session-actions";
+import NfcTag from "@/models/NfcTag";
 import { stampNfcTagUsage } from "@/lib/nfc-tags";
 
 // Used by app/api/task-logs (internal, session-authenticated) — the only
@@ -48,15 +49,24 @@ export async function assertNfcVerified(taskId: string, verifiedNfcUid?: string 
   const task = await Task.findById(taskId).select("definitionId").lean();
   if (!task) return;
   const definition = await TaskDefinition.findById(task.definitionId).select("nfcTagUid").lean();
-  if (definition?.nfcTagUid && definition.nfcTagUid !== verifiedNfcUid) {
+  if (!definition?.nfcTagUid) return;
+  if (definition.nfcTagUid !== verifiedNfcUid) {
     throw new NfcTagRequiredError();
   }
-  // A real, matched scan just verified this task's completion — stamp the
-  // registry so "when was this tag last actually seen" has an answer, see
-  // docs/features/nfc.md's "Provisioning"/lib/nfc-tags.ts's
-  // stampNfcTagUsage. Fire-and-forget-adjacent: awaited, but never blocks
-  // or fails the completion it's confirming.
-  if (definition?.nfcTagUid && verifiedNfcUid && performedByUserId) {
+  // A matched UID must also still be an active claim, not `retired` — see
+  // docs/features/nfc.md's "Retiring a tag". A lost/decommissioned tag
+  // can't complete tasks anymore even though it's still bound; the manager
+  // has to reactivate it first (Manage Ch'rps) or bind a different tag.
+  const registryTag = await NfcTag.findOne({ uid: definition.nfcTagUid }).select("status").lean();
+  if (registryTag?.status === "retired") {
+    throw new NfcTagRequiredError();
+  }
+  // A real, matched, active scan just verified this task's completion —
+  // stamp the registry so "when was this tag last actually seen" has an
+  // answer, see lib/nfc-tags.ts's stampNfcTagUsage. Fire-and-forget-
+  // adjacent: awaited, but never blocks or fails the completion it's
+  // confirming.
+  if (performedByUserId) {
     await stampNfcTagUsage(definition.nfcTagUid, performedByUserId);
   }
 }

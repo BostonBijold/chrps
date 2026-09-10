@@ -256,6 +256,24 @@ export default function ProfileView({
             </Link>
           )}
 
+          {/* Manager-only: every claimed physical NFC tag ("Ch'rp") for this
+              location — label, what it's bound to, and Retire/Reactivate —
+              see components/ManageNfcTagsView.tsx and docs/features/nfc.md's
+              "Manage Ch'rps". A third "Manage" entry point alongside Manage
+              Tasks/Manage Inventory above. */}
+          {isManager && (
+            <Link
+              href="/nfc/manage"
+              className="flex items-center justify-between bg-card rounded-card border border-border p-5 hover:bg-card-hover transition-colors"
+            >
+              <div>
+                <p className="font-body text-sm text-text">Manage Ch&apos;rps</p>
+                <p className="font-mono text-[10px] text-dim mt-0.5">Every claimed NFC tag — labels, bindings, retire</p>
+              </div>
+              <ChevronRight size={16} className="text-dim flex-shrink-0" />
+            </Link>
+          )}
+
           {/* Manager-only: which chirp plays on this company's devices for
               an NFC scan-to-complete save — see components/CompanySettingsView.tsx. */}
           {isManager && (
