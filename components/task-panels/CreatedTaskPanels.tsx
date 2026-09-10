@@ -75,11 +75,8 @@ export default function CreatedTaskPanels({
             busy: panel.bindBusy,
             error: panel.bindError,
             alsoBoundTo: panel.alsoBoundTo,
-            unclaimedUid: panel.unclaimedUid,
-            claiming: panel.claiming,
             onScanToLink: panel.handleScanToLink,
             onUnbind: panel.handleUnbindTag,
-            onClaimAndLink: panel.handleClaimAndLink,
           }}
         />
       ) : (

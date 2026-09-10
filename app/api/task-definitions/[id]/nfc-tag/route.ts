@@ -3,7 +3,7 @@ import { connectDB } from "@/lib/mongoose";
 import { bindNfcTag, unbindNfcTag } from "@/lib/task-definitions";
 import { resolveSessionUser, isManagerOrAbove, pickActiveLocationId } from "@/lib/session";
 import { validateLocationId } from "@/lib/locations";
-import { NfcTagNotClaimedError } from "@/lib/nfc-tags";
+import { NfcTagNotRecognizedError, NfcTagClaimedElsewhereError } from "@/lib/nfc-tags";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +23,7 @@ export async function POST(
 ) {
   const sessionUser = await resolveSessionUser();
   if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const { companyId, role } = sessionUser;
+  const { companyId, role, userId } = sessionUser;
   if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
   if (!isManagerOrAbove(role)) return NextResponse.json({ error: "Managers only" }, { status: 403 });
   const requestedLocationId = await validateLocationId(companyId, req.nextUrl.searchParams.get("locationId"));
@@ -38,10 +38,13 @@ export async function POST(
 
   let bound;
   try {
-    bound = await bindNfcTag(companyId, locationId, params.id, uid);
+    bound = await bindNfcTag(companyId, locationId, userId, params.id, uid);
   } catch (err) {
-    if (err instanceof NfcTagNotClaimedError) {
-      return NextResponse.json({ error: err.message, reason: "unclaimed" }, { status: 409 });
+    if (err instanceof NfcTagNotRecognizedError) {
+      return NextResponse.json({ error: err.message }, { status: 404 });
+    }
+    if (err instanceof NfcTagClaimedElsewhereError) {
+      return NextResponse.json({ error: err.message }, { status: 409 });
     }
     throw err;
   }

@@ -5,7 +5,7 @@ import TaskList from "@/models/TaskList";
 import TaskLog from "@/models/TaskLog";
 import InventoryItemType from "@/models/InventoryItemType";
 import Location from "@/models/Location";
-import { requireClaimedTag } from "@/lib/nfc-tags";
+import { claimNfcTag } from "@/lib/nfc-tags";
 import type { TaskType, FormFieldDef, InstructionStep } from "@/models/TaskDefinition";
 import { pickMostRelevantPlacement } from "./placement-resolution";
 export { pickMostRelevantPlacement } from "./placement-resolution";
@@ -115,14 +115,24 @@ export async function resolveTask<T extends LeanTaskLike>(task: T): Promise<T & 
 // own locationName so the UI can say exactly where the collision is, since
 // a bare name is ambiguous once definitions are location-owned (two stores
 // can legitimately have an identically-named "Walk-in Fridge Temp").
-// Gated on the tag registry — see docs/features/nfc.md's "Claiming": a UID
-// must be `claimed` by this exact companyId+locationId before it can be
-// written onto a TaskDefinition. Throws NfcTagNotClaimedError (caught by
-// the route and turned into a 409) rather than silently binding an
-// unregistered/unclaimed tag, which was the hole this registry closes.
-export async function bindNfcTag(companyId: string, locationId: string | null, definitionId: string, uid: string) {
+// Gated on the tag registry — see docs/features/nfc.md's "Claiming". The
+// first thing this does is claimNfcTag: a fresh, never-claimed UID is
+// silently claimed for this companyId+locationId right here, so a
+// manager's first "Scan to Link" both claims AND binds a tag in one step —
+// no separate claim UI. A UID already claimed by a DIFFERENT company (or
+// never provisioned at all) still throws (NfcTagClaimedElsewhereError /
+// NfcTagNotRecognizedError, caught by the route and turned into a clean
+// 4xx) rather than silently binding an unregistered tag, which was the
+// hole this registry closes.
+export async function bindNfcTag(
+  companyId: string,
+  locationId: string | null,
+  userId: string,
+  definitionId: string,
+  uid: string
+) {
   const normalizedUid = uid.toLowerCase();
-  await requireClaimedTag(companyId, locationId, normalizedUid);
+  await claimNfcTag(companyId, locationId, userId, normalizedUid);
   const definition = await TaskDefinition.findOneAndUpdate(
     { _id: definitionId, companyId, locationId },
     { $set: { nfcTagUid: normalizedUid } },

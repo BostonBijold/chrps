@@ -1,13 +1,14 @@
 import NfcTag from "@/models/NfcTag";
 
 // The NFC tag registry — see docs/features/nfc.md's "Provisioning" and
-// "Claiming". Two workflows, cleanly separated:
+// "Claiming". Two workflows:
 //   - provisionNfcTag: us, before a tag ships (POST /api/admin/nfc-tags/provision)
-//   - claimNfcTag: the customer, once they have the physical tag
-//     (POST /api/nfc-tags/claim)
-// requireClaimedTag is the actual gate — lib/task-definitions.ts's
-// bindNfcTag and lib/inventory.ts's bindInventoryNfcTag both call it before
-// writing a UID onto a TaskDefinition/InventoryItemType.
+//   - claimNfcTag: the customer — called directly by lib/task-definitions.ts's
+//     bindNfcTag and lib/inventory.ts's bindInventoryNfcTag as the first thing
+//     either does, so a manager's first "Scan to Link" on a fresh tag claims
+//     it for their own company/location AND binds it in one step, no
+//     separate claim UI/action at all. Idempotent, so a tag already claimed
+//     by this same company/location just passes through.
 
 export class NfcTagAlreadyProvisionedError extends Error {
   constructor() {
@@ -33,15 +34,6 @@ export class NfcTagClaimedElsewhereError extends Error {
   }
 }
 
-// Thrown by requireClaimedTag below — distinct message from the above so a
-// manager knows to claim first rather than just retrying the scan.
-export class NfcTagNotClaimedError extends Error {
-  constructor() {
-    super("This tag hasn't been claimed for your location yet — claim it first.");
-    this.name = "NfcTagNotClaimedError";
-  }
-}
-
 function normalize(uid: string) {
   return uid.toLowerCase();
 }
@@ -57,9 +49,10 @@ export async function provisionNfcTag(uid: string) {
   return NfcTag.create({ uid: normalized, status: "unclaimed" });
 }
 
-// POST /api/nfc-tags/claim — manager-or-above, company+location-scoped.
-// Idempotent when the tag is already claimed by this exact company +
-// location (a second manager scanning the same tag, or a retry).
+// Called at the top of bindNfcTag/bindInventoryNfcTag — manager-or-above,
+// company+location-scoped, same as those. Idempotent when the tag is
+// already claimed by this exact company + location (a second manager
+// binding the same tag to a different task, or a retry).
 export async function claimNfcTag(companyId: string, locationId: string | null, userId: string, uid: string) {
   const normalized = normalize(uid);
   const tag = await NfcTag.findOne({ uid: normalized });
@@ -78,20 +71,6 @@ export async function claimNfcTag(companyId: string, locationId: string | null, 
   tag.claimedAt = new Date();
   await tag.save();
   return tag;
-}
-
-// The actual gate — called by bindNfcTag/bindInventoryNfcTag before either
-// ever writes a UID onto a TaskDefinition/InventoryItemType. A single
-// message covers every rejection reason (not found, unclaimed, or claimed
-// by a different company/location) — same non-disclosure precedent as
-// NfcTagClaimedElsewhereError above, and the manager-facing fix is
-// identical either way: claim it for this location first.
-export async function requireClaimedTag(companyId: string, locationId: string | null, uid: string) {
-  const normalized = normalize(uid);
-  const tag = await NfcTag.findOne({ uid: normalized }).lean();
-  if (!tag || tag.status !== "claimed" || tag.companyId !== companyId || tag.locationId !== locationId) {
-    throw new NfcTagNotClaimedError();
-  }
 }
 
 // Stamped on every successful assertNfcVerified/assertInventoryNfcVerified

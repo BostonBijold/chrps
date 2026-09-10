@@ -1076,18 +1076,18 @@ is in `docs/features/locations.md`.
       tap-to-trigger entirely with a registry-and-claim model built on the
       raw hardware UID scan-to-complete binding already used: a UID must be
       `provisioned` by us (`POST /api/admin/nfc-tags/provision`,
-      `models/NfcTag.ts`'s new registry shape) and `claimed` by a customer
-      manager for their own company+location (`POST /api/nfc-tags/claim`,
-      defaults to the claiming manager's own active location) before it can
-      be bound to a `TaskDefinition`/`InventoryItemType` — closes the hole
-      where any NFC tag, from anywhere, could be scanned and bound with no
-      check it was ever a real Ch'rps tag. Binding itself
-      (`lib/task-definitions.ts`'s `bindNfcTag`/`lib/inventory.ts`'s
-      `bindInventoryNfcTag`) is unchanged in shape (still many-to-one, a tag
-      can back more than one task/item type) but now gates on
-      `lib/nfc-tags.ts`'s `requireClaimedTag` first; a rejected bind
-      (`409 { reason: "unclaimed" }`) surfaces a "Claim & Retry" action
-      inline in "Scan to Link" rather than a dead end. A new `developer`
+      `models/NfcTag.ts`'s new registry shape) before it can ever be
+      claimed — closes the hole where any NFC tag, from anywhere, could be
+      scanned and bound with no check it was ever a real Ch'rps tag.
+      Claiming has no separate UI/step of its own: `lib/nfc-tags.ts`'s
+      `claimNfcTag` is called directly by `lib/task-definitions.ts`'s
+      `bindNfcTag`/`lib/inventory.ts`'s `bindInventoryNfcTag` as the first
+      thing either does, so a manager's first "Scan to Link" on a fresh tag
+      claims it for their own company+location AND binds it in the same
+      request — silent success, or a clean 404/409 if the tag was never
+      provisioned or already belongs to a different company. Binding
+      itself is otherwise unchanged in shape (still many-to-one, a tag can
+      back more than one task/item type). A new `developer`
       `User.role` tier (a strict superset of `owner`, hand-set in MongoDB
       only, same precedent as `owner` itself) gates a mobile-only
       "Provision Tag" screen (`/nfc/provision`,
@@ -1216,7 +1216,7 @@ table is a quick reference, not authoritative.
 - Live Activity: BUILT — iOS Lock Screen timer (see `docs/features/live-activity.md`); its Lock Screen button opens the app rather than completing a task directly (see the doc's "Open App button" section)
 - Manager task-list management: BUILT — create/rename/schedule/delete, see "Task Lists" above
 - NFC tap-to-trigger: REMOVED — replaced entirely by the tag registry+claim model below; see `docs/features/nfc.md`'s "History: Tap-to-trigger (removed)"
-- NFC Tag Registry + Claim: BUILT — a UID must be `provisioned` (developer-only, `/nfc/provision`) and `claimed` by a customer manager for their own company+location (`POST /api/nfc-tags/claim`, defaults to the claiming manager's own active location) before it can be bound to anything; a rejected bind surfaces "Claim & Retry" inline rather than a dead end, see `docs/features/nfc.md`'s "The tag registry"
+- NFC Tag Registry + Claim: BUILT — a UID must be `provisioned` (developer-only, `/nfc/provision`) before a customer can ever bind it; claiming happens automatically, with no separate step, the first time a manager binds ("Scan to Link") a fresh tag for their own company+location — a UID already claimed by a different company still rejects the bind (404/409, non-disclosure wording), see `docs/features/nfc.md`'s "The tag registry"
 - NFC scan-to-complete binding: BUILT — manager scans a physical, *claimed* tag's raw UID onto a task from Manage Task List; completing that task then requires a matching in-app "Scan NFC" instead of a plain Save, see `docs/features/nfc.md`
 - Multi-target NFC binding: BUILT — a claimed tag can back more than one task and/or Inventory item type at once; the FAB's blind scan disambiguates with a picker when a scan resolves to more than one, see `docs/features/nfc.md`'s "Multi-target binding"
 - Offline support: BUILT — native SQLite cache mirrors task lists/tasks/definitions/today's logs, task-log mutations (start/complete/miss) queue locally and sync on reconnect, and in-app NFC scan-to-complete resolves against the local cache when offline; a cold app launch/full reload while offline is a known, documented gap (server-URL Capacitor mode), see `docs/features/offline.md`

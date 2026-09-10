@@ -76,50 +76,58 @@ waiting to be claimed.
 
 ### Claiming
 
-The customer, once they have the physical tag in hand. A manager scans it
-and it becomes theirs: locked to one `companyId` + one `locationId`.
-`POST /api/nfc-tags/claim`, body `{ uid }` — manager-or-above, same gate as
-every other NFC-linking route (`lib/session.ts`'s `isManagerOrAbove`).
-Defaults to the claiming manager's own active location
+The customer, once they have the physical tag in hand — and there's no
+separate "Claim Tag" step or screen at all: **binding a fresh tag to a
+task or inventory item (the first "Scan to Link") is what claims it.** A
+manager scans an unclaimed tag while linking it, and in that same request
+it becomes theirs — locked to one `companyId` + one `locationId` — then
+the bind proceeds immediately. One scan, one tap, no intermediate button,
+no "now go claim it" detour. This was a deliberate simplification over an
+earlier two-step design (scan → rejected as unclaimed → tap a separate
+"Claim" button → retry) — see the note at the end of this section.
+
+`lib/nfc-tags.ts`'s `claimNfcTag(companyId, locationId, userId, uid)` is
+called as the very first thing `lib/task-definitions.ts`'s `bindNfcTag`
+and `lib/inventory.ts`'s `bindInventoryNfcTag` do, before either writes a
+UID onto a `TaskDefinition`/`InventoryItemType`:
+
+- **UID not found in the registry at all** → throws
+  `NfcTagNotRecognizedError`, turned into a `404` ("Not a recognized
+  Ch'rps tag.") by the bind route — the scan is rejected outright, nothing
+  gets claimed or bound. Only a UID `provisionNfcTag` created (see
+  "Provisioning" above) can ever be claimed.
+- **UID already `claimed` (or `retired`) under a *different* company or
+  location** → throws `NfcTagClaimedElsewhereError`, turned into a `409`
+  with a generic "This tag is already linked to another company." —
+  matches the old tap-to-trigger system's non-disclosure wording, never
+  reveals which company. This is what stops a manager from accidentally
+  (or deliberately) pulling another store's tag into their own catalog.
+- **UID already `claimed` by *this exact* company + location** —
+  idempotent no-op (a second manager binding the same tag to a different
+  task, or a retry); the bind just proceeds.
+- **UID `unclaimed`** — claims it right here: sets `status: 'claimed'`,
+  `companyId`, `locationId`, `claimedByUserId`, `claimedAt`, then the bind
+  proceeds in the same request.
+
+`locationId` defaults to the binding manager's own active location
 (`pickActiveLocationId`, same resolution every other manager-write route
-uses) — claiming never takes an explicit `locationId` in the request body,
-only the existing `?locationId=` query param an owner's location switcher
-can already set on any write route.
+uses) — claiming never takes an explicit `locationId` param; an owner can
+still narrow it with the existing `?locationId=` their header switcher
+already sets on any write route. `label`/`imageUrl` on the model exist so
+a later tag-management pass can add one without a migration, but nothing
+sets or reads them yet — deliberately left inert for v1.
 
-- **UID not found in the registry** → `404`, "Not a recognized Ch'rps
-  tag."
-- **UID already `claimed` by a *different* company or location** → `409`,
-  a generic "This tag is already linked to another company." — matches the
-  old tap-to-trigger system's non-disclosure wording, never reveals which
-  company.
-- **UID `retired`** → same generic rejection as above.
-- **UID already `claimed` by *this exact* company + location** →
-  idempotent success (a second manager scanning the same tag, or a retry).
-- **UID `unclaimed`** → claims it: sets `status: 'claimed'`, `companyId`,
-  `locationId`, `claimedByUserId`, `claimedAt`.
-
-**No separate "Claim Tag" screen in v1** — claiming happens inline, as a
-recovery step inside "Scan to Link" (see "Claim & Retry" in "In-app
-scan-to-complete binding" below), not as its own entry point. `label`/
-`imageUrl` on the model exist so a later tag-management pass can add one
-without a migration, but nothing sets or reads them yet — deliberately left
-inert for v1.
-
-### The actual gate
-
-`lib/nfc-tags.ts`'s `requireClaimedTag(companyId, locationId, uid)` is
-called by both `lib/task-definitions.ts`'s `bindNfcTag` and
-`lib/inventory.ts`'s `bindInventoryNfcTag` **before** either ever writes a
-UID onto a `TaskDefinition`/`InventoryItemType`. A UID must be `claimed` by
-the binder's own exact `companyId` + `locationId` or the bind throws
-`NfcTagNotClaimedError`, turned into a `409` with
-`{ error, reason: "unclaimed" }` by
-`app/api/task-definitions/[id]/nfc-tag`, `app/api/tasks/[id]/nfc-tag`, and
-`app/api/inventory-item-types/[id]/nfc-tag`'s `POST` handlers. A single
-message covers every rejection reason (not found, unclaimed, or claimed by
-someone else) — same non-disclosure precedent as the claim route above; the
-manager-facing fix is identical either way: claim it for this location
-first.
+**Why folded into bind instead of its own step**: an earlier version of
+this design had a standalone `POST /api/nfc-tags/claim` route and a
+client-side "Claim & Retry" recovery button that appeared only after a
+bind attempt came back rejected. Collapsing that into a single
+claim-then-bind call inside `bindNfcTag`/`bindInventoryNfcTag` removes an
+entire round-trip and UI state from the common case (a brand-new tag,
+which is the *normal* first use of any tag) — a manager scanning a fresh
+tag to link it never sees anything different from binding an
+already-claimed one. The only two outcomes now are silent success or a
+genuine error (not recognized / claimed elsewhere) — there's no
+in-between "hasn't been claimed yet" state exposed to the UI at all.
 
 ### Usage stamping
 
@@ -134,8 +142,9 @@ actually seen" from the admin side, without a separate audit table.
 
 ## In-app scan-to-complete binding
 
-Unchanged in shape from before the registry — do not conflate with the
-registry above, which only gates *whether* a bind is allowed, not how
+Same shape as before the registry, with claiming now folded invisibly into
+the first bind (see "Claiming" above) — do not conflate this with the
+registry, which only gates *whether/who* a bind is allowed for, not how
 binding/completion themselves work:
 
 - **Identifies a tag by** the tag's own raw hardware UID — nothing is
@@ -150,8 +159,9 @@ binding/completion themselves work:
   item's count-logging) on proving the right physical, *claimed* tag is
   present.
 - **Who can trigger it**: any signed-in company user — but only after a
-  manager has both claimed the tag (see "Claiming" above) and bound it in
-  Manage Task List / the Task Catalog / Manage Inventory.
+  manager has bound it in Manage Task List / the Task Catalog / Manage
+  Inventory (which, per "Claiming" above, is also what claims the tag the
+  very first time).
 
 **Binding a tag** (manager-only, in a shared "Scan-to-Complete Tag" panel —
 `components/task-panels/NfcBindingPanel.tsx`, backed by
@@ -163,28 +173,11 @@ has its own inline, unhooked equivalent in
 `components/ManageInventoryDetailSheet.tsx`): tapping **Scan to Link**
 calls `lib/native/nfc-scan.ts`'s `scanNfcTag()`, which opens
 `NfcScanPlugin`'s native `NFCTagReaderSession` sheet. On a successful read,
-the lowercase-hex UID is POSTed to the target's own `nfc-tag` route, which
-now checks the registry first (see "The actual gate" above) before writing
-anything.
-
-### Claim & Retry
-
-The manager-facing recovery path when a scanned tag hasn't been claimed
-yet — lives entirely inside "Scan to Link," no separate screen. Both
-`use-task-definition-panel.ts`'s `handleScanToLink` and
-`ManageInventoryDetailSheet.tsx`'s own copy of the same logic:
-
-1. Scan a tag, POST the bind.
-2. If the response is `409 { reason: "unclaimed" }`, `NfcBindingPanel`
-   shows a **"Claim this tag for your location"** button instead of a
-   dead-end error (`unclaimedUid`/`claiming` state, `onClaimAndLink`
-   handler).
-3. Tapping it calls `lib/client/claim-nfc-tag.ts`'s `claimNfcTag(uid)` —
-   `POST /api/nfc-tags/claim` — then, on success, automatically retries the
-   exact same bind with the same UID. No second scan needed.
-4. If the claim itself fails (not recognized, or claimed by another
-   company), that specific message replaces the button — a genuine dead
-   end, matching the claim route's own non-disclosure behavior.
+the lowercase-hex UID is POSTed to the target's own `nfc-tag` route, whose
+`bindNfcTag`/`bindInventoryNfcTag` call claims-then-binds in one step (see
+"Claiming" above) — there is no intermediate "unclaimed" state the manager
+ever sees; either it works, or `bindError` shows a genuine failure (tag not
+recognized, or already claimed by a different company).
 
 **One tag, more than one placement**: since the binding lives on the
 `TaskDefinition` and the same definition can be placed in more than one

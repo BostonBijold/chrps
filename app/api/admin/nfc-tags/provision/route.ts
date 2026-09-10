@@ -10,7 +10,9 @@ export const dynamic = "force-dynamic";
 // before it ships to a customer — see docs/features/nfc.md's
 // "Provisioning". Deliberately not company-scoped at all: a provisioned
 // tag has no companyId yet, it's just a registry row a customer will later
-// claim (POST /api/nfc-tags/claim). Gated on the "developer" role tier
+// claim — with no separate claim step, the first time a manager binds it
+// to a task/item (lib/nfc-tags.ts's claimNfcTag, called directly from
+// bindNfcTag/bindInventoryNfcTag). Gated on the "developer" role tier
 // (lib/roles.ts's isDeveloper), a strict superset of "owner" that's never
 // assignable through any in-app flow — hand-set in MongoDB, same
 // precedent as "owner" itself.

@@ -13,15 +13,8 @@ export interface TagBinding {
   busy: boolean;
   error: string | null;
   alsoBoundTo: Array<{ name: string; locationName: string | null }>;
-  // Set when a bind attempt was rejected because the scanned tag hasn't
-  // been claimed for this location yet — see docs/features/nfc.md's
-  // "Claiming". Non-null shows a "Claim & Retry" action instead of a
-  // dead-end error.
-  unclaimedUid: string | null;
-  claiming: boolean;
   onScanToLink: () => void;
   onUnbind: () => void;
-  onClaimAndLink: () => void;
 }
 
 export default function NfcBindingPanel({ tagBinding }: { tagBinding: TagBinding }) {
@@ -62,16 +55,6 @@ export default function NfcBindingPanel({ tagBinding }: { tagBinding: TagBinding
       </p>
       {tagBinding.error && (
         <p className="font-mono text-[11px] text-burgundy-light mt-1.5">{tagBinding.error}</p>
-      )}
-      {tagBinding.unclaimedUid && (
-        <button
-          type="button"
-          onClick={tagBinding.onClaimAndLink}
-          disabled={tagBinding.claiming}
-          className="font-mono text-[11px] text-olive border border-olive/30 bg-olive/10 px-3 py-1.5 rounded-pill disabled:opacity-40 mt-1.5"
-        >
-          {tagBinding.claiming ? "Claiming…" : "Claim this tag for your location"}
-        </button>
       )}
       {tagBinding.alsoBoundTo.length > 0 && (
         <p className="font-mono text-[11px] text-dim mt-1.5">
