@@ -1,6 +1,6 @@
 # Task List Row-Box (replaces the header pill)
 
-**Restyled by [`task-list-row-outline.md`](task-list-row-outline.md)** — the structure and header/footer text logic described below are still current and unchanged; that follow-up only repaints the outline color-by-state, stroke weight, section tints, and spacing. Read this doc for the actual data/layout logic, that one for the visual treatment on top of it.
+**Restyled by [`task-list-row-outline.md`](task-list-row-outline.md)** — the outline structure and header/footer strip text logic described below are still current and unchanged; that follow-up repaints the outline (stroke weight, section tints, spacing) and also drops the title line's own duplicate stat (see this doc's "Redundancy" resolution below, reversed there). Read this doc for the row-box's data/layout logic, that one for the visual treatment and the title-line change on top of it.
 
 **Supersedes [`task-list-status-box.md`](task-list-status-box.md)**, which itself replaced the original single-line "✓ Done" pill (`timer.md`'s now-superseded section). See that file for why a bordered box replaced the pill in the first place — this doc only covers what changed in that follow-up iteration: the box now wraps **only the task row list**, not the whole card.
 
@@ -40,7 +40,7 @@ The header/footer strips render identically whether the box is collapsed or expa
 
 The spec left these undecided; resolved as follows when this shipped:
 
-- **Redundancy with the title line's own live stat**: kept both, deliberately. The title line's `{doneCount}/{total} · {mins}` is a *live* "how's this run going" counter (hidden once complete, same as before); the box header's `{count} tasks · {mins}` is a *static* "how big is this list" fact that travels alongside the timing/owner info regardless of progress. They answer different questions and can say the same numbers without being the same information — no change to the title line's existing behavior.
+- **Redundancy with the title line's own live stat**: kept both, deliberately, as of this doc — the title line's `{doneCount}/{total} · {mins}` is a *live* "how's this run going" counter (hidden once complete, same as before); the box header's `{count} tasks · {mins}` is a *static* "how big is this list" fact that travels alongside the timing/owner info regardless of progress. **Reversed in [`task-list-row-outline.md`](task-list-row-outline.md)**, which removes the title line's copy entirely and keeps only the header strip's — see that doc's "Resolved open questions" for the final call.
 - **No-session fallback for a completed list**: same resolution `task-list-status-box.md` already made — both strips stay blank (no reconstructed guess from `TaskLog.updatedAt`) when a list completes without ever routing through a `TaskListSession`. The box border still turns `done`-tinted, so completion is still visible.
 - **Missed-only completion**: no visual distinction from a fully-done close-out — unchanged from the prior resolution.
 - **Restarted sessions same day**: confirmed — `GET /api/task-list-sessions` already returns each list's most recent session (`getSessionSummariesForDate`), so the box just renders whatever it's handed, no special-case needed.
