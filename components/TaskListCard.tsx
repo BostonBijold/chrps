@@ -230,26 +230,14 @@ export default function TaskListCard({
         <button className="flex items-center justify-between gap-2 text-left flex-1 min-w-0" onClick={toggle}>
           <h2 className="font-heading text-lg text-text truncate">{taskList.name}</h2>
           {isComplete && !isPastDate ? (
-            session?.completedAt && session?.ownerName ? (
-              // A resolved owner makes the range+name too long for one line
-              // alongside the list name — stack it under "✓ Done" instead
-              // of squeezing/wrapping the title, and keep both lines
-              // right-aligned so the pill still reads as one right-hand unit.
-              <span className="shrink-0 font-mono text-[10px] text-done bg-done/10 px-2 py-1 rounded-pill leading-tight flex flex-col items-end text-right">
-                <span>✓ Done</span>
-                <span>
-                  {fmtClock(session.startedAt)}–{fmtClock(session.completedAt)} · {session.ownerName}
-                </span>
-              </span>
-            ) : (
-              <span className="shrink-0 font-mono text-[10px] text-done bg-done/10 px-2 py-0.5 rounded-pill">
-                ✓ Done
-                {session?.completedAt && (
-                  <>
-                    {" · "}
-                    {fmtClock(session.startedAt)}–{fmtClock(session.completedAt)}
-                  </>
-                )}
+            // The pill's done-green tint already signifies complete — no need
+            // to spell out "Done" too, which frees it up to just be time +
+            // name on one line, wrapping onto a second only if it doesn't
+            // fit (same as before "✓ Done" was ever added to it).
+            session?.completedAt && (
+              <span className="font-mono text-[10px] text-done bg-done/10 px-2 py-0.5 rounded-pill text-right">
+                {fmtClock(session.startedAt)}–{fmtClock(session.completedAt)}
+                {session.ownerName && ` · ${session.ownerName}`}
               </span>
             )
           ) : beforeWindow && taskList.startTime ? (
