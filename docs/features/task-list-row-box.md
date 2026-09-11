@@ -1,6 +1,8 @@
 # Task List Row-Box (replaces the header pill)
 
-**Supersedes [`task-list-status-box.md`](task-list-status-box.md)**, which itself replaced the original single-line "✓ Done" pill (`timer.md`'s now-superseded section). See that file for why a bordered box replaced the pill in the first place — this doc only covers what changed in the follow-up iteration: the box now wraps **only the task row list**, not the whole card.
+**Restyled by [`task-list-row-outline.md`](task-list-row-outline.md)** — the structure and header/footer text logic described below are still current and unchanged; that follow-up only repaints the outline color-by-state, stroke weight, section tints, and spacing. Read this doc for the actual data/layout logic, that one for the visual treatment on top of it.
+
+**Supersedes [`task-list-status-box.md`](task-list-status-box.md)**, which itself replaced the original single-line "✓ Done" pill (`timer.md`'s now-superseded section). See that file for why a bordered box replaced the pill in the first place — this doc only covers what changed in that follow-up iteration: the box now wraps **only the task row list**, not the whole card.
 
 ## Problem
 
