@@ -1318,7 +1318,7 @@ placeholder slot became Inventory, see `docs/features/inventory.md`):
 5. Inventory (right 2) — item-type list grouped into sections with search, current counts (red-tinted when at/below par); tap to log a new count or view history; managers also see "+ Add Item Type" and a "Manage" button into `/inventory/manage`
 
 **Top nav:**
-- Left: Jackalope logo mark
+- Left: Ch'rps logo mark (bird/chirp icon)
 - Center: app name + date
 - Right: Profile avatar (Google icon or initial — opens profile/settings)
 
@@ -1327,7 +1327,7 @@ placeholder slot became Inventory, see `docs/features/inventory.md`):
 ## UI Reference
 
 ### Today View Structure (top to bottom)
-1. Top nav: Jackalope left, app name / date center, profile avatar right
+1. Top nav: Ch'rps logo mark left, app name / date center, profile avatar right
 2. Date navigator: < Today >
 3. Progress counter + progress bar
 4. Opening Shift list (collapsible, time-aware)
