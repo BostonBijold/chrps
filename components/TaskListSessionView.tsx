@@ -43,6 +43,7 @@ export interface ExternalLog {
   actualMinutes?: number;
   pausedSeconds?: number;
   performedByUserId?: string | null;
+  performedByName?: string | null;
 }
 
 interface Props {
@@ -104,6 +105,43 @@ function nextUnfinishedIndex(
   return -1;
 }
 
+// Corrects the caller's requested startIndex against LIVE claim state right
+// at mount — TaskListCard's "Start Tasks"/"Continue Tasks" button computes
+// its own best-guess starting index from whatever `logs` state TasksView
+// had at tap time, but that can still land on a task someone else has
+// since claimed (or already finished), even by just a moment. Without
+// this, the very first render would show THAT task as current — the
+// per-task effect's switchActiveLog call is a safe no-op against someone
+// else's already-in_progress log (it never reassigns/steals it), but the
+// screen would still let this person tap Done/Missed on a task that isn't
+// theirs to finish. Reuses the exact same finished/claimed-elsewhere walk
+// nextUnfinishedIndex uses for every later skip decision in this view, so
+// "the first press of Continue Tasks" behaves identically to any other —
+// see docs/features/task-lists.md's "Per-task claiming". Returns -1 if
+// nothing at all is available (every task finished or claimed elsewhere);
+// the caller opens straight to the summary phase in that case.
+function resolveInitialIndex(
+  tasks: RowItem[],
+  externalLogs: Record<string, ExternalLog> | undefined,
+  userId: string,
+  startIndex: number
+): number {
+  const finishedIds = new Set<string>();
+  const claimedElsewhereIds = new Set<string>();
+  for (const [taskId, log] of Object.entries(externalLogs ?? {})) {
+    if (log.state === "done" || log.state === "missed") {
+      finishedIds.add(taskId);
+    } else if (
+      (log.state === "in_progress" || log.state === "paused") &&
+      log.performedByUserId &&
+      log.performedByUserId !== userId
+    ) {
+      claimedElsewhereIds.add(taskId);
+    }
+  }
+  return nextUnfinishedIndex(tasks, finishedIds, claimedElsewhereIds, startIndex - 1);
+}
+
 const RING_R = 70;
 const RING_CIRC = 2 * Math.PI * RING_R;
 const STOPWATCH_SOFT_CAP = 30 * 60;
@@ -122,17 +160,47 @@ const TIMELINE_COLOR: Record<TimelineColorState, string> = {
 
 export default function TaskListSessionView({ taskListId, taskListName, taskListStartTime = null, tasks, logs: externalLogs, today, startIndex = 0, preVerifiedTaskId = null, preVerifiedNfcUid = null, notificationSound, companyId, userId, onClose, onFinish }: Props) {
   const { isOnline, refreshPendingCount } = useNetworkStatus();
-  const [currentIndex, setCurrentIndex] = useState(startIndex);
+  // Corrected once, right at mount, against whatever claim state the caller
+  // already had loaded — see resolveInitialIndex above. Not re-derived on
+  // every render: once running, the usual reactive skip logic (the
+  // revalidate effect, advance()) takes over from here.
+  const [currentIndex, setCurrentIndex] = useState(() => {
+    const resolved = resolveInitialIndex(tasks, externalLogs, userId, startIndex);
+    return resolved === -1 ? startIndex : resolved;
+  });
   const [elapsed, setElapsed] = useState(0);
   const [isRunning, setIsRunning] = useState(true);
   const [sessionLogs, setSessionLogs] = useState<SessionLog[]>([]);
-  const [phase, setPhase] = useState<"running" | "summary">("running");
+  const [phase, setPhase] = useState<"running" | "summary">(() =>
+    resolveInitialIndex(tasks, externalLogs, userId, startIndex) === -1 ? "summary" : "running"
+  );
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Latest known state of every task's log today, from any source — this
   // session's own actions, an external API call, or a manual tap elsewhere.
   // Kept fresh by advance(), the foreground-revalidation effect, and the
-  // jump-to-task handler, all of which re-fetch rather than trust stale state.
-  const [latestLogs, setLatestLogs] = useState<Record<string, DayLogRecord>>({});
+  // jump-to-task handler, all of which re-fetch rather than trust stale
+  // state. Seeded from the `externalLogs` prop at mount (rather than
+  // starting empty) so the very first render — before any async fetch has
+  // resolved — already reflects who's claimed which OTHER row (the bottom
+  // task list's isClaimedByOther/isPausedByMe/isRunningByMe all read this,
+  // not externalLogs directly) and, in the rare case resolveInitialIndex
+  // above found nothing available at all, the summary screen it jumps
+  // straight to isn't blank.
+  const [latestLogs, setLatestLogs] = useState<Record<string, DayLogRecord>>(() => {
+    const seeded: Record<string, DayLogRecord> = {};
+    for (const [taskId, log] of Object.entries(externalLogs ?? {})) {
+      seeded[taskId] = {
+        taskId,
+        state: log.state,
+        actualMinutes: log.actualMinutes ?? 0,
+        startedAt: log.startedAt ?? null,
+        pausedSeconds: log.pausedSeconds ?? 0,
+        performedByUserId: log.performedByUserId ?? null,
+        performedByName: log.performedByName ?? null,
+      };
+    }
+    return seeded;
+  });
   const [jumpNotice, setJumpNotice] = useState<string | null>(null);
   // True for the TASK_TRANSITION_MS window between a completion actually
   // saving and the task list moving on to whatever's next — holds the
@@ -336,6 +404,15 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
   // response alone) keeps latestLogs correct for every task, including
   // whichever one was just paused.
   useEffect(() => {
+    // Guards the mount-time case where resolveInitialIndex found nothing
+    // available at all (every task finished or claimed elsewhere) and set
+    // phase straight to "summary" — without this, this effect would still
+    // fire on the very first render (currentIndex has no prior value to
+    // compare against) and silently start/switch to the fallback task
+    // nobody actually asked for. In the ordinary walking-through flow,
+    // currentIndex only ever changes while phase is "running" anyway, so
+    // this never skips a legitimate transition.
+    if (phase !== "running") return;
     if (!currentTask) return;
     let cancelled = false;
     const task = currentTask;
