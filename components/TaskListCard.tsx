@@ -234,83 +234,100 @@ export default function TaskListCard({
   // - it's today but the scheduled timeframe has passed
   const isBackEntry = isPastDate || pastTimeframe;
 
+  // Shift lead — same header-row slot regardless of session status, so a
+  // finished list reads the same way an unstarted one does (previously the
+  // pre-assignment lived in its own row below the title while a finished
+  // list's owner name showed a different way, inline in the "✓ Done" pill —
+  // inconsistent depending on state). assignedUserName wins when a manager
+  // actually pre-assigned someone; ownerName is the fallback once a session
+  // exists but was never pre-assigned (whoever happened to run it).
+  // canPreAssign mirrors the write path's own rule (assignShiftLead rejects
+  // once a real run exists) — only pre-start is tappable/editable.
+  const canPreAssign = !session || session.status === "assigned";
+  const leadName = session?.assignedUserName ?? session?.ownerName ?? null;
+
+  // Status row — the list's own "starts/by/done range" state, now a
+  // full-width bar below the title instead of a right-aligned badge
+  // sharing the title row with the shift-lead slot above.
+  const timeLabel = isComplete
+    ? session?.startedAt && session?.completedAt
+      ? `${fmtClock(session.startedAt)}–${fmtClock(session.completedAt)}`
+      : null
+    : beforeWindow && taskList.startTime
+      ? `starts ${fmtTime(taskList.startTime)}`
+      : pastTimeframe
+        ? (collapseAfter ? `by ${fmtTime(collapseAfter)}` : "window passed")
+        : null;
+
   return (
     <section>
       {/* ── Header ──────────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between mb-3 min-h-[44px]">
-        <button className="flex items-center justify-between gap-2 text-left flex-1 min-w-0" onClick={toggle}>
+      <div className="flex items-center justify-between gap-2 mb-1 min-h-[44px]">
+        <button className="flex-1 min-w-0 text-left" onClick={toggle}>
           <h2 className="font-heading text-lg text-text truncate">{taskList.name}</h2>
-          {isComplete && !isPastDate ? (
-            // The pill's done-green tint already signifies complete — no need
-            // to spell out "Done" too, which frees it up to just be time +
-            // name on one line, wrapping onto a second only if it doesn't
-            // fit (same as before "✓ Done" was ever added to it).
-            session?.startedAt && session?.completedAt && (
-              <span className="font-mono text-[10px] text-done bg-done/10 px-2 py-0.5 rounded-pill text-right">
-                {fmtClock(session.startedAt)}–{fmtClock(session.completedAt)}
-                {session.ownerName && ` · ${session.ownerName}`}
-              </span>
-            )
-          ) : beforeWindow && taskList.startTime ? (
-            <span className="shrink-0 font-mono text-[10px] text-dim px-2 py-0.5 rounded-pill border border-border">
-              starts {fmtTime(taskList.startTime)}
-            </span>
-          ) : pastTimeframe && !isComplete ? (
-            <span className="shrink-0 font-mono text-[10px] text-dim px-2 py-0.5 rounded-pill border border-border">
-              {collapseAfter ? `by ${fmtTime(collapseAfter)}` : "window passed"}
-            </span>
-          ) : null}
         </button>
 
-        {!isComplete && (
-          <span className="font-mono text-xs">
-            <span className="text-gold">{doneCount}/{visibleTasks.length}</span>
-            <span className="text-dim"> · {fmtMins(projectedMins)}</span>
-          </span>
+        {/* Shift lead — same slot regardless of session status, so a
+            finished list reads the same way an unstarted one does (this
+            used to live in its own row below the title pre-session, while
+            a finished list's name showed a different way, inline in the
+            "✓ Done" pill — inconsistent depending on state). Not tappable
+            once a real session exists — pre-assignment is pre-start only,
+            same rule the write path itself enforces. See
+            docs/features/shift-lead-preassignment.md. */}
+        {!isAnytimeList && !isPastDate && (
+          canPreAssign && canManage(userRole) ? (
+            <div className="relative shrink-0">
+              <button
+                onClick={() => setShiftLeadPickerOpen((v) => !v)}
+                className="font-mono text-xs whitespace-nowrap"
+              >
+                <span className="text-muted">Shift lead: </span>
+                {leadName ? (
+                  <span className="text-text">{leadName}</span>
+                ) : (
+                  <span className="text-dim">+</span>
+                )}
+              </button>
+              {shiftLeadPickerOpen && (
+                <ShiftLeadPicker
+                  taskListId={taskList._id}
+                  date={selectedDate}
+                  currentAssignedUserId={session?.assignedUserId ?? null}
+                  onClose={() => setShiftLeadPickerOpen(false)}
+                  onChanged={() => {
+                    setShiftLeadPickerOpen(false);
+                    onSessionsChanged?.();
+                  }}
+                />
+              )}
+            </div>
+          ) : leadName ? (
+            <span className="shrink-0 font-mono text-xs text-muted whitespace-nowrap">
+              Shift lead: <span className="text-text">{leadName}</span>
+            </span>
+          ) : null
         )}
       </div>
 
-      {/* ── Shift lead pre-assignment ───────────────────────────────────────
-          Own row, directly under the title, expanded state only — see
-          docs/features/shift-lead-preassignment.md's "Why not the existing
-          '✓ Done' pill." Renders only while no in_progress/completed
-          session exists yet for this list/date: the moment one does, this
-          disappears and the pill above takes over, same as the spec's
-          "row disappears" rule. Anytime lists have no "Start Tasks" session
-          concept at all, and a past date has nothing left to pre-assign. */}
-      {!isAnytimeList && !isPastDate && !effectivelyCollapsed && (!session || session.status === "assigned") && (
-        canManage(userRole) ? (
-          <div className="relative -mt-2 mb-3">
-            <button
-              onClick={() => setShiftLeadPickerOpen((v) => !v)}
-              className="font-mono text-xs text-left min-h-[28px]"
-            >
-              {session?.assignedUserName ? (
-                <span className="text-muted">
-                  Shift lead: <span className="text-text">{session.assignedUserName}</span>
-                </span>
-              ) : (
-                <span className="text-dim">+ Shift lead</span>
-              )}
-            </button>
-            {shiftLeadPickerOpen && (
-              <ShiftLeadPicker
-                taskListId={taskList._id}
-                date={selectedDate}
-                currentAssignedUserId={session?.assignedUserId ?? null}
-                onClose={() => setShiftLeadPickerOpen(false)}
-                onChanged={() => {
-                  setShiftLeadPickerOpen(false);
-                  onSessionsChanged?.();
-                }}
-              />
-            )}
-          </div>
-        ) : session?.assignedUserName ? (
-          <div className="-mt-2 mb-3 font-mono text-xs text-muted">
-            Shift lead: <span className="text-text">{session.assignedUserName}</span>
-          </div>
-        ) : null
+      {/* ── Status row — full-width, fills the list's own width (was a
+          right-aligned badge sharing the title row with the shift-lead
+          slot above, plus a separate doneCount stat beside it — now one
+          bar, so it doesn't crowd the title row or the shift-lead slot). */}
+      {(timeLabel || !isComplete) && (
+        <div
+          className={`w-full flex items-center justify-between gap-2 px-3 py-1 mb-3 rounded-pill font-mono text-[10px] ${
+            isComplete ? "text-done bg-done/10" : "text-dim border border-border"
+          }`}
+        >
+          <span>{timeLabel}</span>
+          {!isComplete && (
+            <span>
+              <span className="text-gold">{doneCount}/{visibleTasks.length}</span>
+              <span className="text-dim"> · {fmtMins(projectedMins)}</span>
+            </span>
+          )}
+        </div>
       )}
 
       {/* ── Collapsed: complete summary ──────────────────────────────────── */}

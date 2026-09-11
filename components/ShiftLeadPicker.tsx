@@ -106,8 +106,10 @@ export default function ShiftLeadPicker({ taskListId, date, currentAssignedUserI
       {/* Backdrop — dismiss on outside tap, same convention as every other sheet */}
       <div className="fixed inset-0 z-40" onClick={onClose} />
 
-      {/* Sheet — anchored under the row it was opened from, not the screen bottom */}
-      <div className="absolute left-0 right-0 top-full mt-1 z-50 bg-card border border-border rounded-card shadow-lg max-h-64 overflow-y-auto">
+      {/* Sheet — anchored under (and right-aligned to) the small trigger it
+          was opened from, not stretched to the card's full width like the
+          old below-title row was, and not a screen-bottom slide-up either. */}
+      <div className="absolute right-0 top-full mt-1 z-50 w-64 max-w-[80vw] bg-card border border-border rounded-card shadow-lg max-h-64 overflow-y-auto">
         {loading ? (
           <p className="text-dim font-mono text-xs text-center py-6">Loading team…</p>
         ) : roster.length === 0 ? (

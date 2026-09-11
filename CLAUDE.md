@@ -1142,14 +1142,19 @@ is in `docs/features/locations.md`.
       a task list before anyone's actually started it: a new
       `TaskListSession` `status: "assigned"` (with `assignedUserId`/
       `assignedByUserId`/`assignedAt`, and a now-nullable `startedAt`)
-      records the intent ahead of the run itself. A header row directly
-      under the list title (`TaskListCard.tsx`, new
-      `components/ShiftLeadPicker.tsx` — an anchored-under-the-row sheet,
+      records the intent ahead of the run itself. A header-row slot next to
+      the list title (`TaskListCard.tsx`, new
+      `components/ShiftLeadPicker.tsx` — a sheet anchored under that slot,
       roster grouped by Job Tag when the location has any configured, flat
-      otherwise) shows "Shift lead: Jordan" (every role) or a manager-only
-      "+ Shift lead" placeholder, and disappears the instant the list's own
-      session actually starts — the existing per-task claim pills / "✓ Done"
-      pill take over from there. `lib/task-list-session-actions.ts`'s
+      otherwise) shows "Shift lead: Jordan" (every role, once resolved —
+      the pre-assignment, or the session's own owner as a fallback once one
+      has run but nobody pre-assigned it) or a manager-only "Shift lead: +"
+      placeholder, going non-tappable the instant the list's own session
+      actually starts (same slot, same name, just inert text from then on).
+      The list's own "starts/by/done-range" status — previously sharing
+      that header row as a right-aligned badge — moved to its own
+      full-width bar directly below the title, freeing the header row for
+      this slot. `lib/task-list-session-actions.ts`'s
       `ensureOpenSession` upgrades a pre-assigned record in place
       (`performedByUserId` stamped from the pre-assignment, never from
       whoever's tap actually started it) instead of opening a second,
@@ -1297,7 +1302,7 @@ table is a quick reference, not authoritative.
 
 - Account Deletion: BUILT — Profile's "Delete Account" row (`employee`/`manager` only) scrubs PII off the caller's own `User` document, detaches them from their company/location, deletes their `PushToken`s and OAuth account link, and invalidates their session (`DELETE /api/account`, `lib/auth.ts`'s jwt callback); `owner` sees a static contact-support message instead of a button, see `docs/features/account-deletion.md`
 
-- Shift Lead Pre-Assignment: BUILT — a manager can pre-name a task list's shift lead for today before anyone's started it, via a header row directly under the list title (visible to every role once assigned, manager-tappable "+ Shift lead" placeholder otherwise, employees see nothing while unassigned) that opens `components/ShiftLeadPicker.tsx` — a sheet anchored under the row rather than sliding up from the screen bottom, roster grouped by Job Tag when the location has any configured. The row disappears the moment the list's session actually starts, handing off to the existing per-task claim pills / "✓ Done" pill; `TaskListSession` gained a new `"assigned"` status plus `assignedUserId`/`assignedByUserId`/`assignedAt`, and `ensureOpenSession` upgrades an `assigned` record in place on first start rather than crediting whoever physically tapped first. See `docs/features/shift-lead-preassignment.md`
+- Shift Lead Pre-Assignment: BUILT — a manager can pre-name a task list's shift lead for today before anyone's started it, via a slot on the header row's right side, next to the list title (visible to every role once a name resolves — the pre-assignment, or the session's own owner as a fallback once one's run but nobody pre-assigned it — manager-tappable "Shift lead: +" placeholder otherwise, employees see nothing while unassigned) that opens `components/ShiftLeadPicker.tsx` — a sheet anchored under that slot rather than sliding up from the screen bottom, roster grouped by Job Tag when the location has any configured. The slot goes non-tappable (same name, same place) the moment the list's session actually starts; the list's own "starts/by/done-range" status, previously a badge sharing that same header row, is now a full-width bar directly below the title instead, so the two never crowd each other. `TaskListSession` gained a new `"assigned"` status plus `assignedUserId`/`assignedByUserId`/`assignedAt`, and `ensureOpenSession` upgrades an `assigned` record in place on first start rather than crediting whoever physically tapped first. See `docs/features/shift-lead-preassignment.md`
 
 Routine Review (the old Sunday goal-vs-average-minutes comparison) has been
 retired — it doesn't fit a checklist-based work app.
