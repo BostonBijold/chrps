@@ -163,7 +163,7 @@ export default function BottomNav() {
   // (see docs/features/task-lists.md's "Per-task claiming") means a
   // shift-window task and an anytime task now resolve identically — both
   // just "open" the task directly, claiming a pending one exactly like
-  // tapping Start Timer on its row would.
+  // tapping Start Task on its row would.
   const navigateFromResolution = (
     data:
       | { mode: "already-logged"; taskId: string; state: "done" | "missed" | "rest" }

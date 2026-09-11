@@ -361,7 +361,7 @@ export default function TaskRow({
                   className="w-full flex items-center justify-center gap-1.5 bg-olive/10 border border-olive/30 text-olive font-mono text-xs px-3 py-2 rounded-card min-h-[40px] hover:bg-olive/20 transition-colors"
                 >
                   <span>▶</span>
-                  <span>{isStopwatch ? "Start Timer" : hasDuration ? `Start Timer · ${fmtMins(item.projectedMinutes)}` : "Start Timer"}</span>
+                  <span>{isStopwatch ? "Start Task" : hasDuration ? `Start Task · ${fmtMins(item.projectedMinutes)}` : "Start Task"}</span>
                 </button>
               ) : !isForm ? (
                 <div className="flex items-center gap-2">
