@@ -29,6 +29,8 @@ interface DayLogRecord {
   actualMinutes: number;
   startedAt: string | null;
   pausedSeconds: number;
+  performedByUserId: string | null;
+  performedByName: string | null;
 }
 
 // Subset of TaskLogEntry (see TasksView) needed to resume a timer that was
@@ -40,6 +42,7 @@ export interface ExternalLog {
   startedAt?: string;
   actualMinutes?: number;
   pausedSeconds?: number;
+  performedByUserId?: string | null;
 }
 
 interface Props {
@@ -79,13 +82,24 @@ function fmtMins(secs: number) {
 // forward — so a session never reaches the summary screen just because it
 // ran off the end of the list. A task that's paused (jumped away from) or
 // was never touched (jumped over) still needs resolving, however far back
-// in the list it sits. Returns -1 only when every task is finished.
-function nextUnfinishedIndex(tasks: RowItem[], finishedIds: Set<string>, afterIndex: number): number {
+// in the list it sits. `claimedElsewhereIds` (see docs/features/task-lists.md's
+// "Per-task claiming") are tasks currently in_progress/paused under a
+// DIFFERENT person entirely — this walkthrough steps over them rather than
+// landing on them, since they're someone else's active claim, not this
+// session's to advance or complete. Returns -1 only when every remaining
+// task is either finished or claimed by someone else.
+function nextUnfinishedIndex(
+  tasks: RowItem[],
+  finishedIds: Set<string>,
+  claimedElsewhereIds: Set<string>,
+  afterIndex: number
+): number {
+  const unavailable = (id: string) => finishedIds.has(id) || claimedElsewhereIds.has(id);
   for (let i = afterIndex + 1; i < tasks.length; i++) {
-    if (!finishedIds.has(tasks[i]._id)) return i;
+    if (!unavailable(tasks[i]._id)) return i;
   }
   for (let i = 0; i <= afterIndex; i++) {
-    if (!finishedIds.has(tasks[i]._id)) return i;
+    if (!unavailable(tasks[i]._id)) return i;
   }
   return -1;
 }
@@ -197,13 +211,15 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
     try {
       const res = await fetch(`/api/task-logs?date=${today}`);
       if (!res.ok) return [];
-      const fresh: Array<{ taskId: string; state: LogState; actualMinutes: number | null; startedAt: string | null; pausedSeconds?: number }> = await res.json();
+      const fresh: Array<{ taskId: string; state: LogState; actualMinutes: number | null; startedAt: string | null; pausedSeconds?: number; performedByUserId?: string | null; performedByName?: string | null }> = await res.json();
       const records: DayLogRecord[] = fresh.map((l) => ({
         taskId: l.taskId,
         state: l.state,
         actualMinutes: l.actualMinutes ?? 0,
         startedAt: l.startedAt ?? null,
         pausedSeconds: l.pausedSeconds ?? 0,
+        performedByUserId: l.performedByUserId ?? null,
+        performedByName: l.performedByName ?? null,
       }));
       setLatestLogs((prev) => {
         const next = { ...prev };
@@ -242,7 +258,19 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
       const finishedIds = new Set(
         records.filter((r) => r.state === "done" || r.state === "missed").map((r) => r.taskId)
       );
-      const nextIndex = nextUnfinishedIndex(tasks, finishedIds, currentIndex);
+      // Someone else's active claim (see docs/features/task-lists.md's
+      // "Per-task claiming") — step over it rather than landing on it.
+      const claimedElsewhereIds = new Set(
+        records
+          .filter(
+            (r) =>
+              (r.state === "in_progress" || r.state === "paused") &&
+              !!r.performedByUserId &&
+              r.performedByUserId !== userId
+          )
+          .map((r) => r.taskId)
+      );
+      const nextIndex = nextUnfinishedIndex(tasks, finishedIds, claimedElsewhereIds, currentIndex);
       if (nextIndex !== -1) {
         setCurrentIndex(nextIndex);
       } else {
@@ -294,7 +322,7 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
       window.removeEventListener("pageshow", revalidate);
       clearInterval(poll);
     };
-  }, [phase, currentTask, currentIndex, tasks, fetchDayLogs, today]);
+  }, [phase, currentTask, currentIndex, tasks, fetchDayLogs, today, userId]);
 
   // Move to a new task — advancing sequentially, or jumping. Only one timer
   // is ever actively running: switching to a new current task pauses
@@ -546,12 +574,15 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
       const [records] = await Promise.all([
         // Skip past anything already FINISHED today (done/missed), from
         // ANY source — an earlier API call, a manual tap elsewhere, or this
-        // session itself. An in_progress or paused task is deliberately NOT
-        // skipped — it becomes current instead, resuming from its real banked
-        // time, since it's just something you (or another source) started
-        // earlier and haven't finished yet, not something to bypass. The walk
-        // below wraps back to the start of the list rather than stopping at
-        // the end, so a paused/pending task earlier in the list (jumped away
+        // session itself. An in_progress or paused task claimed by THIS
+        // person is deliberately NOT skipped — it becomes current instead,
+        // resuming from its real banked time, since it's just something you
+        // started earlier and haven't finished yet. A task claimed by
+        // SOMEONE ELSE (see docs/features/task-lists.md's "Per-task
+        // claiming") is skipped too, same as a finished one — it's their
+        // active claim, not this walkthrough's to land on. The walk below
+        // wraps back to the start of the list rather than stopping at the
+        // end, so a paused/pending task earlier in the list (jumped away
         // from or jumped over) still gets revisited instead of silently
         // ending the session. Re-fetch rather than trust sessionLogs/
         // externalLogs, since either can be stale relative to an out-of-band
@@ -561,11 +592,15 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
       ]);
       const finishedIds = new Set(sessionLogs.map((l) => l.taskId));
       finishedIds.add(currentTask._id);
+      const claimedElsewhereIds = new Set<string>();
       for (const r of records) {
         if (r.state === "done" || r.state === "missed") finishedIds.add(r.taskId);
+        else if ((r.state === "in_progress" || r.state === "paused") && r.performedByUserId && r.performedByUserId !== userId) {
+          claimedElsewhereIds.add(r.taskId);
+        }
       }
 
-      const nextIndex = nextUnfinishedIndex(tasks, finishedIds, currentIndex);
+      const nextIndex = nextUnfinishedIndex(tasks, finishedIds, claimedElsewhereIds, currentIndex);
       if (nextIndex !== -1) {
         setCurrentIndex(nextIndex);
       } else {
@@ -575,7 +610,7 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
       }
       setTransitioning(false);
     },
-    [currentTask, currentIndex, tasks, saveLog, sessionLogs, fetchDayLogs]
+    [currentTask, currentIndex, tasks, saveLog, sessionLogs, fetchDayLogs, userId]
   );
 
   // Jump directly to a different task — pending (never started), in_progress
@@ -600,9 +635,21 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
         setJumpNotice(`${targetTask.name} was already logged — refreshed.`);
         return;
       }
+      // Someone else's active claim (see docs/features/task-lists.md's
+      // "Per-task claiming") — this walkthrough can't jump into it, same as
+      // a finished task, since it's their active claim, not this session's.
+      if (
+        targetLog &&
+        (targetLog.state === "in_progress" || targetLog.state === "paused") &&
+        targetLog.performedByUserId &&
+        targetLog.performedByUserId !== userId
+      ) {
+        setJumpNotice(`${targetTask.name} is claimed by someone else right now.`);
+        return;
+      }
       setCurrentIndex(index);
     },
-    [phase, currentIndex, tasks, fetchDayLogs]
+    [phase, currentIndex, tasks, fetchDayLogs, userId]
   );
 
   // Closing mid-task (the X button) just dismisses this view — the current
@@ -1094,21 +1141,30 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
                   ? { taskId: task._id, state: ext.state, actualMinutes: ext.actualMinutes ?? 0 }
                   : undefined);
             const isDone = loggedIds.has(task._id);
-            // Paused: started earlier in this session, left when you jumped
-            // away — its elapsed time is banked, not lost, and resumes when
-            // you jump back. Distinct from "upcoming" (never started): it
-            // shouldn't render dimmed the way a never-started task does.
-            const isPausedElsewhere = !isCurrent && !isDone && live?.state === "paused";
-            // Rare: genuinely still ticking from another tab/device.
-            const isRunningElsewhere = !isCurrent && !isDone && live?.state === "in_progress";
-            const isUpcoming = !isDone && !isCurrent && !isPausedElsewhere && !isRunningElsewhere;
+            // Claimed by someone ELSE entirely (see docs/features/task-lists.md's
+            // "Per-task claiming") — this walkthrough can view it but never
+            // jump into it; it's their active claim, not this session's.
+            const isClaimedByOther =
+              !isCurrent && !isDone && (live?.state === "in_progress" || live?.state === "paused") &&
+              !!live?.performedByUserId && live.performedByUserId !== userId;
+            // Paused: started earlier in THIS session (or resumed by this
+            // same person elsewhere), left when you jumped away — its
+            // elapsed time is banked, not lost, and resumes when you jump
+            // back. Distinct from "upcoming" (never started): it shouldn't
+            // render dimmed the way a never-started task does.
+            const isPausedByMe = !isCurrent && !isDone && !isClaimedByOther && live?.state === "paused";
+            // Rare: genuinely still ticking from another tab/device this
+            // same person is signed into.
+            const isRunningByMe = !isCurrent && !isDone && !isClaimedByOther && live?.state === "in_progress";
+            const isUpcoming = !isDone && !isCurrent && !isClaimedByOther && !isPausedByMe && !isRunningByMe;
             const isTaskCheckbox = task.taskType === "checkbox";
             const isTaskStopwatch = task.taskType === "stopwatch";
             const isTaskForm = task.taskType === "form";
-            // Anything not current and not finished can be jumped to —
-            // pending tasks start fresh, paused/in_progress tasks resume.
-            const canJump = (isUpcoming || isPausedElsewhere || isRunningElsewhere) && phase === "running";
-            const isActiveElsewhere = isPausedElsewhere || isRunningElsewhere;
+            // Anything not current, not finished, and not claimed by
+            // someone else can be jumped to — pending tasks start fresh,
+            // paused/in_progress tasks (mine) resume.
+            const canJump = (isUpcoming || isPausedByMe || isRunningByMe) && phase === "running";
+            const isActiveElsewhere = isPausedByMe || isRunningByMe;
 
             return (
               <div
@@ -1147,11 +1203,16 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
                     {log.state === "done" ? "✓" : log.state === "missed" ? "✗" : "~"}
                   </span>
                 )}
-                {isPausedElsewhere && (
+                {isPausedByMe && (
                   <span className="font-mono text-amber text-[9px] flex-shrink-0">paused</span>
                 )}
-                {isRunningElsewhere && (
+                {isRunningByMe && (
                   <span className="font-mono text-amber text-[9px] flex-shrink-0">running</span>
+                )}
+                {isClaimedByOther && (
+                  <span className="font-mono text-dim text-[9px] flex-shrink-0">
+                    {live?.performedByName ?? "claimed"}
+                  </span>
                 )}
                 {isCurrent && !log && <ChevronRight size={14} className="text-olive flex-shrink-0" />}
                 {canJump && <span className="font-mono text-dim text-[9px] flex-shrink-0">jump</span>}

@@ -31,11 +31,7 @@ Response: `{ _id, name, startTime, scheduledDays }`.
 ### `DELETE /api/task-lists/[taskListId]`
 **Manager-only** (`403` for an employee). **Soft delete** — sets `TaskList.isActive: false` and saves; the document (and its full `TaskLog`/`TaskListSession` history) is never physically removed, it just drops out of `GET /api/task-lists`'s active set. Response: `{ ok: true }`.
 
-### `GET /api/task-lists/session-locks?date=YYYY-MM-DD`
-Which of the company's shift-window lists (`startTime` set) currently have a *claimed* open session, and who holds it — backs the "Start Tasks" button's locked state and the manager-only unlock icon in `TaskListCard.tsx`. See "Task list locking" in [task-lists.md](../features/task-lists.md). Response: `Array<{ taskListId, performedByUserId, performedByName }>` — a session a manager has unlocked (`performedByUserId: null`) is omitted entirely, same as no open session.
-
-### `POST /api/task-lists/[taskListId]/unlock-session`
-**Manager-only** (`403` for an employee). Request body: `{ date }`. Clears `performedByUserId` back to `null` on the list's OPEN session for that date via `lib/task-list-session-actions.ts`'s `unlockSession` — nothing is closed, duplicated, or reassigned; already-completed tasks in it are untouched. The next person to touch a task in that list claims it, same mechanism as a brand-new session's first touch (`ensureOpenSession`). Response: `{ ok: true }`.
+> `GET /api/task-lists/session-locks` and `POST /api/task-lists/[taskListId]/unlock-session` were **removed** — the list-level "one person at a time" session lock they backed was replaced by per-task claiming, computed directly off each task's own `TaskLog` (`performedByUserId`/`startedAt`) instead of a separate list-level lock. See "Per-task claiming" in [task-lists.md](../features/task-lists.md).
 
 ### `GET /api/task-lists/start-next`
 Query param `date` (defaults to today, `YYYY-MM-DD`). Read-only: loads all non-anytime lists (`timeOfDay !== "anytime"`, sorted by `order`), their active tasks (filtered through `isTaskVisibleOn`, so a task hidden today by its own `scheduledDays` is never offered), and that date's logs; **any** log for a task — regardless of state, including `in_progress` and `paused` — counts as "already logged" (skipped, not re-offered). Walks lists in order and returns the first task in the first list that has no log yet for that date.
@@ -120,7 +116,7 @@ Collection: `tasklogs`. Schema (`models/TaskLog.ts`): `companyId`, `performedByU
 `sessionTaskListId` is set while `state === "in_progress"` **or** `"paused"`, via a Task List Session's own in-session navigation (see below) — it anchors the timer inside a Task List Session for that list, so opening the app resumes into the session view at that task instead of the standalone timer. It's cleared (`null`) the moment the log reaches a terminal state, by either PATCH branch below. See [timer.md](../features/timer.md) for the client-side resume logic that reads it.
 
 ### `GET /api/task-logs?date=YYYY-MM-DD`
-Returns all logs for the company on that date (defaults to today, computed **server-side in UTC** via `toISOString()` — not the client's local date) — company-wide, so any employee's completion of a shared task shows up for everyone.
+Returns all logs for the company on that date (defaults to today, computed **server-side in UTC** via `toISOString()` — not the client's local date) — company-wide, so any employee's completion of a shared task shows up for everyone. Each log also carries a resolved `performedByName` — the claiming user's display name, populated only while `state` is `in_progress`/`paused` (`null` otherwise) — for `TaskRow.tsx`'s per-task claim pill, see "Per-task claiming" in [task-lists.md](../features/task-lists.md). Resolved server-side via a small `User` lookup keyed off `performedByUserId`, not stored on `TaskLog` itself.
 
 ### `POST /api/task-logs`
 Request body: `{ taskId, date, state, actualMinutes?, isBackEntry?, sessionTaskListId?, sessionNav? }`.

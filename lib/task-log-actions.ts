@@ -3,7 +3,6 @@ import type { LogState } from "@/models/TaskLog";
 import Task from "@/models/Task";
 import TaskDefinition from "@/models/TaskDefinition";
 import type { FormFieldValue } from "@/models/TaskDefinition";
-import TaskList from "@/models/TaskList";
 import { ensureOpenSession, incrementSessionPauseOrJump, recordSessionCompletion } from "@/lib/task-list-session-actions";
 import NfcTag from "@/models/NfcTag";
 import { stampNfcTagUsage } from "@/lib/nfc-tags";
@@ -95,37 +94,6 @@ export async function assertPhotoProvided(taskId: string, photoUrl?: string | nu
   if (definition?.requiresPhoto && !photoUrl) {
     throw new PhotoRequiredError();
   }
-}
-
-// Thrown by assertShiftListSessionAuthorized below — every route that can
-// reach a task-log mutation must catch this and turn it into a clean 4xx.
-export class ShiftListSessionRequiredError extends Error {
-  constructor() {
-    super("This task belongs to a scheduled task list — use Start Tasks / Continue Tasks on that list to update it.");
-    this.name = "ShiftListSessionRequiredError";
-  }
-}
-
-// A task belonging to a list with a startTime (a shift-window list —
-// Opening/Mid/Closing/custom-with-schedule) can only move through that
-// list's own guided "Start Tasks" session — see the task list locking
-// design in docs/features/task-lists.md. sessionTaskListId is whatever
-// session anchor the caller is acting under: either a fresh request's own
-// param (starting a timer) or the existing log's already-carried-over
-// anchor (a terminal write against an already-in-progress log) — it must
-// match the task's own taskListId for the call to be authorized. An
-// anytime task (no startTime on its list) is never restricted.
-export async function assertShiftListSessionAuthorized(
-  companyId: string,
-  taskId: string,
-  sessionTaskListId: string | null
-) {
-  const task = await Task.findById(taskId).select("taskListId").lean();
-  if (!task) return;
-  const list = await TaskList.findOne({ _id: task.taskListId, companyId }).select("startTime").lean();
-  if (!list?.startTime) return;
-  if (sessionTaskListId && sessionTaskListId === task.taskListId.toString()) return;
-  throw new ShiftListSessionRequiredError();
 }
 
 // bankedSeconds is elapsed time already accumulated in an earlier running

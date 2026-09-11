@@ -326,11 +326,26 @@ branches on the total count:
 
 **A physical tag identifies exactly one task, permanently** — a scan never
 opens, redirects to, or advances into a different task.
-`resolveFabScanTarget` resolves the task's list type (shift-window vs.
-anytime) and its `TaskLog` for today, then decides between four response
-modes: `already-logged`, `anytime`, `session`, `locked` — see the route's
-own implementation and `TasksView.tsx`'s FAB-navigation effect for the
-full detail on each; unchanged by this rework.
+`resolveFabScanTarget` looks at the task's own `TaskLog` for today (not the
+task's list type — a shift-window task and an anytime task resolve
+identically now, see [task-lists.md](task-lists.md)'s "Per-task claiming")
+and decides between three response modes:
+
+- **`already-logged`** — a terminal log (`done`/`missed`/`rest`) already
+  exists. Dead end: the FAB flashes a status message, no navigation.
+- **`claimed`** — the task is `in_progress`/`paused` under a DIFFERENT
+  `performedByUserId`. Someone else's active claim: the FAB flashes
+  `"In progress by <name> — try again once they finish"`, same wording
+  `TaskRow.tsx`'s own claim pill uses, no navigation — a scan never bumps
+  another person's claim.
+- **`open`** — the task is pending, or already claimed by the SAME person
+  (rejoining after backgrounding the app, say). Navigates to
+  `/tasks?openTaskId=<id>&verifiedNfcUid=<uid>&date=<localDate>`;
+  `TasksView.tsx`'s FAB-navigation effect then calls the same
+  `handleStartTimer` a tap on the task's own Start/Resume button would —
+  claiming a pending task, resuming a standalone timer, or reopening the
+  guided `TaskListSessionView` walkthrough if the existing log carries a
+  `sessionTaskListId` anchor, exactly as if the row itself had been tapped.
 
 **This scan pre-satisfies that task's own Scan NFC step** — two equivalent
 ways to finish a bound task, one scan either way (scan on the way in via
