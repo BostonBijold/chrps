@@ -49,6 +49,16 @@ The API enforces, server-side, that **at most one log can be `in_progress` at a 
 
 On completion, `TasksView.handleTimerComplete` `PATCH`es `{ state: "done", actualMinutes }` — but the server derives `actualMinutes` itself from `now - startedAt` when a `startedAt` exists (see task-lists-api.md); the client-sent value is only a fallback for the edge case where no `startedAt` is on record.
 
+### Single-active-timer race
+
+`startInProgressLog`/`switchActiveLog` each enforce the invariant with a **check, then a separate write** — find any stray `in_progress` log for this person, resolve it (complete or pause), *then* upsert the target task to `in_progress`. Those aren't one atomic operation, so two calls for the SAME person but two DIFFERENT tasks, close enough together, can each run their own check before either write has committed: both see "nothing to resolve" and both upserts land, leaving that person with two simultaneously `in_progress` logs — a real invariant violation, not just a display glitch.
+
+This was always theoretically possible, but per-task claiming (see [task-lists.md](task-lists.md)'s "Per-task claiming") made it easy to actually hit: a shift list now surfaces several independent Start/Resume buttons on screen at once, where before there was only ever one "Start Tasks" button live at a time per screen.
+
+**Fix**: both functions re-run the exact same resolve-strays check a SECOND time, immediately after their own write commits (`completeStrayInProgressLogs` again in `startInProgressLog`; the extracted `pauseOtherInProgressLogs` again in `switchActiveLog`). This closes the window rather than eliminating it outright — no multi-document transaction is used, since nothing else in this codebase does either — but it converges reliably: whichever of two racing calls finishes last runs its reconciliation pass against the now-committed state of *both* writes, and cleans up the other one. The residual risk (both reconciliation passes racing each other too) is vanishingly small in practice — network/UI timing dwarfs the single-digit-millisecond gap between a write committing and its own immediately-following reconciliation query — and even then, the very next interaction that touches either task resolves it.
+
+If a person's account is already stuck with two simultaneous `in_progress` logs from before this fix, no migration is needed: marking either one Done or Missed through the normal UI leaves the other as the sole `in_progress` log, which is the correct end state.
+
 ## Resuming after a reload or app close
 
 Because `startedAt` is already persisted before the timer UI opens, closing the tab/app entirely and reopening it does not lose progress: `TasksView` has a mount-time effect that scans the day's logs for one with `state === "in_progress"` and a `startedAt`, computes elapsed as `Date.now() - startedAt`, and reopens `TimerScreen` automatically with that seeded value — reproducing the exact resume behavior of manually tapping "Resume Timer" on an in-progress row. Since the single-active-timer invariant above guarantees at most one `in_progress` log exists per person at any time, this scan is never ambiguous about which task to reopen.

@@ -247,7 +247,53 @@ export async function startInProgressLog(
     { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
   ).lean();
 
+  // Reconcile AGAIN now that this task's own write has committed — closes
+  // the check-then-act race between the completeStrayInProgressLogs call
+  // above and this upsert: two rapid taps on two DIFFERENT rows (much more
+  // reachable now that a shift list surfaces several independent Start
+  // Task buttons at once — see docs/features/task-lists.md's "Per-task
+  // claiming") can each run their own stray-check before either write has
+  // committed, so both see "nothing to complete" and both end up
+  // in_progress. This second pass runs against the now-committed state, so
+  // whichever of the two calls finishes last is the one that observes (and
+  // completes) the other — the single-active-timer invariant converges to
+  // exactly one in_progress log per person even when the first check
+  // raced. See docs/features/timer.md's "Single-active-timer race".
+  await completeStrayInProgressLogs(companyId, performedByUserId, taskId);
+
   return log;
+}
+
+// Pauses every OTHER in_progress log for performedByUserId (any task, any
+// date) — banking each one's elapsed time into pausedSeconds, same math
+// switchActiveLog always used inline before this was extracted. Shared by
+// switchActiveLog's pre-write check AND its post-write reconciliation pass
+// below (see the race-condition note there); returns how many were paused
+// so the pauseOrJumpCount increment only fires off the first (pre-write)
+// call, matching the existing "a genuine jump happened" semantics.
+async function pauseOtherInProgressLogs(companyId: string, performedByUserId: string, exceptTaskId: string) {
+  const others = await TaskLog.find({
+    companyId,
+    performedByUserId,
+    state: "in_progress",
+    taskId: { $ne: exceptTaskId },
+  }).lean();
+
+  for (const o of others) {
+    const startedAt = o.startedAt ? new Date(o.startedAt) : null;
+    const ranSeconds = startedAt ? Math.max(0, Math.floor((Date.now() - startedAt.getTime()) / 1000)) : 0;
+    await TaskLog.updateOne(
+      { _id: o._id },
+      {
+        $set: {
+          state: "paused",
+          startedAt: null,
+          pausedSeconds: (o.pausedSeconds ?? 0) + ranSeconds,
+        },
+      }
+    );
+  }
+  return others.length;
 }
 
 // Switches which task is the single active timer WITHOUT ever marking the
@@ -279,38 +325,23 @@ export async function switchActiveLog(
   // TaskListSession; every later call for the same list/date just reuses it.
   if (sessionTaskListId) await ensureOpenSession(companyId, locationId, performedByUserId, sessionTaskListId, date);
 
-  const others = await TaskLog.find({
-    companyId,
-    performedByUserId,
-    state: "in_progress",
-    taskId: { $ne: taskId },
-  }).lean();
+  const pausedCount = await pauseOtherInProgressLogs(companyId, performedByUserId, taskId);
 
   // Only counts as a "jump" if something was actually running and got
   // pushed aside — the very first task of a session has nothing to switch
   // away from, so that opening move isn't attention moving away from
   // anything and shouldn't inflate the count.
-  if (sessionTaskListId && others.length > 0) {
+  if (sessionTaskListId && pausedCount > 0) {
     await incrementSessionPauseOrJump(companyId, locationId, sessionTaskListId, date);
-  }
-
-  for (const o of others) {
-    const startedAt = o.startedAt ? new Date(o.startedAt) : null;
-    const ranSeconds = startedAt ? Math.max(0, Math.floor((Date.now() - startedAt.getTime()) / 1000)) : 0;
-    await TaskLog.updateOne(
-      { _id: o._id },
-      {
-        $set: {
-          state: "paused",
-          startedAt: null,
-          pausedSeconds: (o.pausedSeconds ?? 0) + ranSeconds,
-        },
-      }
-    );
   }
 
   const existing = await TaskLog.findOne({ companyId, locationId, taskId, date }).lean();
   if (existing?.state === "in_progress") {
+    // Still worth a reconciliation pass here too — a second, near-
+    // simultaneous switch to a THIRD task from the same person could have
+    // slipped its own in_progress log in between the check above and now.
+    // See the race-condition note below.
+    await pauseOtherInProgressLogs(companyId, performedByUserId, taskId);
     return existing;
   }
 
@@ -330,6 +361,21 @@ export async function switchActiveLog(
     },
     { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
   ).lean();
+
+  // Reconcile AGAIN now that this task's own write has committed — closes
+  // the check-then-act race between the pauseOtherInProgressLogs call above
+  // and this upsert: two rapid taps on two DIFFERENT rows from the same
+  // person (much more reachable now that a shift list surfaces several
+  // independent Start/Resume buttons at once — see
+  // docs/features/task-lists.md's "Per-task claiming") can each run their
+  // own stray-check before either write has committed, so both see
+  // "nothing to pause" and both end up in_progress. This second pass runs
+  // against the now-committed state, so whichever of the two calls
+  // finishes last is the one that observes (and pauses) the other — the
+  // single-active-timer invariant converges to exactly one in_progress log
+  // per person even when the first check raced. See
+  // docs/features/timer.md's "Single-active-timer race".
+  await pauseOtherInProgressLogs(companyId, performedByUserId, taskId);
 
   return log;
 }
