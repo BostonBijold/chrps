@@ -205,7 +205,6 @@ export default function TaskListCard({
     wasComplete.current = isComplete;
   }, [isComplete, isPastDate]);
 
-  const doneCount = visibleTasks.filter((t) => logs[t._id]?.state === "done").length;
   const timedTasks = visibleTasks.filter((t) => t.taskType !== "checkbox");
   const projectedMins = timedTasks.reduce((s, t) => s + t.projectedMinutes, 0);
   const actualMins = timedTasks.reduce((s, t) => s + (logs[t._id]?.actualMinutes ?? 0), 0);
@@ -288,28 +287,26 @@ export default function TaskListCard({
 
   return (
     <section>
-      {/* ── Title line (outside the row-box) ─────────────────────────────── */}
-      <div className="flex items-center justify-between mb-3 min-h-[44px]">
+      {/* ── Title line (outside the row-outline) ──────────────────────────── */}
+      {/* No live X/Y stat here anymore — it duplicated the header strip's own
+          static task-count/minutes below, and docs/features/task-list-row-outline.md
+          resolves that redundancy by dropping this copy, not the strip's. */}
+      <div className="flex items-center mb-3 min-h-[44px]">
         <button className="flex items-center gap-2 text-left flex-1" onClick={toggle}>
           <h2 className="font-heading text-lg text-text">{taskList.name}</h2>
         </button>
-        {!isComplete && (
-          <span className="font-mono text-xs flex-shrink-0 ml-2">
-            <span className="text-gold">{doneCount}/{visibleTasks.length}</span>
-            <span className="text-dim"> · {fmtMins(projectedMins)}</span>
-          </span>
-        )}
       </div>
 
       {/* ── Row-outline: header strip + task rows + footer strip ─────────── */}
-      {/* See docs/features/task-list-row-outline.md — heavier stroke +
-          state color (gray → done-green) on the outline itself, matching
-          tint on the header/footer sections, everything ~1/3 more compact
-          than the row-box iteration this restyles. TaskRow.tsx's own row
-          height is untouched — it's already above CLAUDE.md's 44px tap-
-          target floor, and "tighter" here only means this component's own
-          chrome. */}
-      <div className={`rounded-card border-[3px] overflow-hidden ${isComplete ? "border-done" : "border-border"}`}>
+      {/* See docs/features/task-list-row-outline.md — the outline's own
+          stroke stays neutral in every state (an earlier pass tried a
+          done-green stroke and walked it back); only the header/footer
+          section backgrounds tint gray → light green on completion. No
+          padding gutter between the outline and the row list it wraps —
+          flush on all sides. TaskRow.tsx's own row height is untouched —
+          it's already above CLAUDE.md's 44px tap-target floor, and
+          "tighter" here only means this component's own chrome. */}
+      <div className="rounded-card border-[3px] border-border overflow-hidden">
         <button
           onClick={toggle}
           className={`w-full text-left px-3 py-1.5 font-mono text-[10px] text-dim min-h-[20px] flex items-center ${isComplete ? "bg-done/10" : "bg-card"}`}
@@ -402,30 +399,33 @@ export default function TaskListCard({
           )}
 
           {!effectivelyCollapsed && (
-            <div className="px-3 py-2">
-              <div className="bg-card rounded-card overflow-hidden divide-y divide-border">
-                {visibleTasks.map((task) => (
-                  <TaskRow
-                    key={task._id}
-                    item={task}
-                    log={logs[task._id]}
-                    weekLogs={weekLogs[task._id] ?? []}
-                    weekDates={weekDates}
-                    today={today}
-                    isExpanded={expandedTaskId === task._id}
-                    selectedDate={selectedDate}
-                    isBackEntry={isBackEntry}
-                    currentUserId={currentUserId ?? ""}
-                    onStartTimer={() => onStartTimer(task)}
-                    onStateChange={(s, opts) => onStateChange(task._id, s, opts)}
-                    onToggleExpand={() =>
-                      setExpandedTaskId((prev) => (prev === task._id ? null : task._id))
-                    }
-                    canUndo={canManage(userRole)}
-                    onUndo={() => onStateChange(task._id, null)}
-                  />
-                ))}
-              </div>
+            // Flush against the outline on all sides — no padding gutter.
+            // No rounded-card here either: this sits between the header/
+            // footer strips' dividers, not at the outline's own rounded
+            // corners, so its own rounding would just float oddly once
+            // there's no gutter left to contain it.
+            <div className="bg-card overflow-hidden divide-y divide-border">
+              {visibleTasks.map((task) => (
+                <TaskRow
+                  key={task._id}
+                  item={task}
+                  log={logs[task._id]}
+                  weekLogs={weekLogs[task._id] ?? []}
+                  weekDates={weekDates}
+                  today={today}
+                  isExpanded={expandedTaskId === task._id}
+                  selectedDate={selectedDate}
+                  isBackEntry={isBackEntry}
+                  currentUserId={currentUserId ?? ""}
+                  onStartTimer={() => onStartTimer(task)}
+                  onStateChange={(s, opts) => onStateChange(task._id, s, opts)}
+                  onToggleExpand={() =>
+                    setExpandedTaskId((prev) => (prev === task._id ? null : task._id))
+                  }
+                  canUndo={canManage(userRole)}
+                  onUndo={() => onStateChange(task._id, null)}
+                />
+              ))}
             </div>
           )}
         </div>
