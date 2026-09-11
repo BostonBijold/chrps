@@ -168,7 +168,7 @@ This is a session-scoped wrapper around a task list *as a whole* — real start/
 [{ taskListId, startedAt: <ISO>, completedAt: <ISO> | null, status, ownerName }]
 ```
 
-`ownerName` is the session's `performedByUserId` resolved to a display name (`"someone else"` fallback for a non-`ObjectId` id, e.g. `SKIP_AUTH`'s dev sentinel — same guard `GET /api/task-logs` uses for `performedByName`). This powers `TaskListCard.tsx`'s task list row-box (start/end time + session owner — see [`features/task-list-row-box.md`](../features/task-list-row-box.md)); `completionSequence`/`pauseOrJumpCount`/real start-to-finish duration are still not surfaced anywhere — future work for analytics (e.g. "you keep starting fifteen minutes late").
+`ownerName` is the session's `performedByUserId` resolved to a display name (`"someone else"` fallback for a non-`ObjectId` id, e.g. `SKIP_AUTH`'s dev sentinel — same guard `GET /api/task-logs` uses for `performedByName`). This powers `TaskListCard.tsx`'s task list row-outline (start/end time + session owner — see [`features/task-list-row-outline.md`](../features/task-list-row-outline.md)); `completionSequence`/`pauseOrJumpCount`/real start-to-finish duration are still not surfaced anywhere — future work for analytics (e.g. "you keep starting fifteen minutes late").
 
 ## Consumed by
 
