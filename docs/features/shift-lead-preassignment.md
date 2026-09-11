@@ -12,56 +12,66 @@ scoped small: no recurring/future-dated assignment, no admin-portal
 configuration. That's planned separately for the admin console later; this
 covers only "assign today's lead for this list, right now."
 
-## Why not the existing "✓ Done" pill
+## Why a separate field, even though it now shares the pill's slot
 
-`TaskListCard.tsx`'s header pill (see [timer.md](timer.md#✓-done-pill--session-start-end-time--owner))
-reports **what happened** — it only renders once a session has actually run
-and reads `performedByUserId` off a completed `TaskListSession`.
-Pre-assignment is a different kind of fact: **intent set ahead of time**,
-which needs to survive through to session start without being silently
-overwritten by whoever physically taps the first task. Reusing the same
-pill/field would conflate "who's supposed to run this" with "who did," so
-this gets its own header row and its own fields on the session record — see
-"Data model" below.
+`TaskListCard.tsx`'s "✓ Done" status row (see [timer.md](timer.md#✓-done-status-row--session-start-end-time--owner))
+reports **what happened** — `performedByUserId` off a `TaskListSession`,
+only meaningful once a session has actually run. Pre-assignment is a
+different kind of fact: **intent set ahead of time**, which needs to
+survive through to session start without being silently overwritten by
+whoever physically taps the first task. The two stay separate *fields*
+(`assignedUserId` vs. `performedByUserId` — see "Data model" below) so
+"who's supposed to run this" is never conflated with "who did," even
+though — see "UI" below — they now render in the **same on-screen slot**
+rather than two differently-positioned elements. That positional split was
+the original design and turned out inconsistent in practice: a
+not-yet-started list showed its assignment on its own row below the title,
+while a finished list's name showed a different way, inline in the pill
+next to the title — the two states read as unrelated UI. Unifying the
+*slot* (not the underlying fields) fixed that.
 
 ## UI
 
-**Header row**, directly under the list title, **expanded state only** —
-collapsed ("starts HH:MM") state is unchanged. Renders only while no
-`in_progress`/`completed` session exists yet for that list/date (see "When
-the row disappears" below), and only for today (a past date has nothing
-left to pre-assign) and shift-window lists (anytime lists have no "Start
-Tasks" session concept to pre-assign into):
+**Header row, right side** — the same slot in every session state, not
+just pre-start. `TaskListCard.tsx` shows only for today's shift-window
+lists (anytime lists have no "Start Tasks" session concept to pre-assign
+into; a past date has nothing left to pre-assign):
 
-- **Assigned**: `Shift lead: Jordan` — plain text, not a pill/badge.
-  Visible to every role.
-- **Unassigned, manager viewing**: faint placeholder `+ Shift lead`,
-  tappable.
-- **Unassigned, employee viewing**: nothing rendered — no placeholder, no
-  empty row.
+- **Pre-start, unassigned, manager viewing**: faint placeholder
+  `Shift lead: +`, tappable.
+- **Pre-start, unassigned, employee viewing**: nothing rendered — no
+  placeholder, no empty slot.
+- **A name is resolved** (either a pre-assignment, or — once a session has
+  actually run — its owner as a fallback when nobody pre-assigned it):
+  `Shift lead: Jordan`, plain text, not a pill/badge, visible to every
+  role. Tappable for a manager only while still pre-start (`canPreAssign`
+  — no session yet, or one still in `status: "assigned"`); once a session
+  reaches `in_progress`/`completed` it's inert plain text for everyone,
+  matching the write path's own pre-start-only rule (see "Known
+  limitations" on restarts).
 
-Tapping the row is **manager-only**, gated server-side the same way
+Tapping is **manager-only**, gated server-side the same way
 `DELETE /api/task-logs` (Undo) is — `403` for an employee,
 `canManage(userRole)` (`TaskListCard.tsx`'s existing helper, wrapping
 `isManagerOrAbove`) threaded down the same way the file already threads
-manager-only affordances elsewhere. An assigned row stays tappable for a
-manager too (to reassign or clear) — only an employee's view of it is
-inert plain text.
+manager-only affordances elsewhere.
 
-**When the row disappears**: the moment a session for that list/date
-reaches `in_progress` or `completed`, this row stops rendering and the
-existing per-task claim pills / "✓ Done" pill take over exactly as they do
-today. This isn't a separate flag to maintain — it falls out of "only
-render while the day's session (if any) is in `assigned` status or doesn't
-exist yet." It also means assignment is a **pre-start-only** action:
-there's no UI path to reassign the list-level owner once work has actually
-begun (see "Known limitations" on restarts).
+**Status row, full-width, directly below the title** — the list's own
+"starts/by/done-range" state (previously a right-aligned badge that shared
+the title row with the pill/shift-lead slot, plus a separate `doneCount`
+stat next to it): `starts HH:MM` before the window, `by HH:MM`/"window
+passed" once it's past without being done, the `0/N · Xm` progress stat on
+the right for any not-yet-complete list, or — once complete — the
+session's own `start–end` time range in the done-green tint, spanning the
+full card width either way rather than an auto-sized badge. No longer
+carries a name at all (that moved up into the header-row slot above).
 
 **Picker** (`components/ShiftLeadPicker.tsx`): a small sheet anchored
-directly under the tapped row (`absolute … top-full`, not a bottom-of-
-screen slide-up like `AddTaskSheet`'s default presentation) — same sheet
-primitive (rounded card, backdrop-to-dismiss), different anchor. Fetches
-the company's roster (`GET /api/team`) and Job Tag catalog
+under (and right-aligned to) the header-row trigger (`absolute right-0
+top-full`, fixed width, not stretched to the card's full width and not a
+bottom-of-screen slide-up like `AddTaskSheet`'s default presentation) —
+same sheet primitive (rounded card, backdrop-to-dismiss), different
+anchor. Fetches the company's roster (`GET /api/team`) and Job Tag catalog
 (`GET /api/job-tags`) on open, and lists the roster (any role, not just
 manager-or-above), grouped by Job Tag when the company has tags configured,
 flat/alphabetical when it doesn't. Untagged members get their own "Other"
@@ -117,8 +127,9 @@ day's session doc for that `taskListId`:
   `assignedUserId`/`assignedByUserId`/`assignedAt` on it (reassignment).
 - A session already in `status: "in_progress"`/`"completed"` exists for
   that list/date → reject (`409`) — the UI shouldn't be able to reach this
-  state since the row disappears once a session is running, but the API
-  enforces it independently rather than trusting the client.
+  state since the header-row slot goes non-tappable once a session is
+  running, but the API enforces it independently rather than trusting the
+  client.
 
 **Clear** (`DELETE /api/task-list-sessions/assign?taskListId=…&date=…`):
 manager-only. `clearShiftLead` deletes the `"assigned"` record outright
@@ -219,8 +230,8 @@ poll cycle.
 
 ## Depends on
 
-[timer.md](timer.md)'s "A persisted session record" and "'✓ Done' pill"
-sections — this extends that same model rather than introducing a
+[timer.md](timer.md)'s "A persisted session record" and "'✓ Done' status
+row" sections — this extends that same model rather than introducing a
 parallel one. [task-lists-api.md](../api/task-lists-api.md#task-list-sessions)
 for the full `TaskListSession` shape. [admin-console.md](admin-console.md#job-tags-catalog-built-add-on-to-phase-1b)
 for the picker's grouping source (`JobTag` catalog).
