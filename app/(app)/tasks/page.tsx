@@ -9,6 +9,7 @@ import User from "@/models/User";
 import Company from "@/models/Company";
 import Todo, { serializeTodo, todosForDateQuery } from "@/models/Todo";
 import { seedDefaultTaskLists, ensureAnytimeTaskList } from "@/lib/seed";
+import { getSessionSummariesForDate } from "@/lib/task-list-session-actions";
 import { resolveTasks } from "@/lib/task-definitions";
 import { calendarWeekDates } from "@/lib/week-dates";
 import TasksView from "@/components/TasksView";
@@ -146,21 +147,34 @@ export default async function TasksPage({
   // docs/features/locations.md.
   const todayLogs = await TaskLog.find({ companyId, locationId, date: today }).lean();
 
+  // Today's most recent TaskListSession per list — start/end time + who
+  // opened it first ("session owner"), for TaskListCard's "✓ Done" pill.
+  // See lib/task-list-session-actions.ts's getSessionSummariesForDate.
+  const sessionSummaries = await getSessionSummariesForDate(companyId, locationId, today);
+
   // Every log's performedByUserId, resolved into a display name — the
   // initial paint of TaskRow's/TaskCard's in_progress/paused claim pill AND
   // a done/missed row's "by <name>" attribution (visible to every teammate,
   // not just managers) both need this. Same resolution GET /api/task-logs
   // itself does for the client's later polling refetches — see
-  // docs/features/task-lists.md's "Per-task claiming".
+  // docs/features/task-lists.md's "Per-task claiming". Folded together with
+  // each session's own performedByUserId (its "session owner") so both
+  // resolve off a single User query.
   const performedByIds = Array.from(
     new Set(
-      todayLogs
-        .map((l) => l.performedByUserId)
+      [...todayLogs.map((l) => l.performedByUserId), ...sessionSummaries.map((s) => s.performedByUserId)]
         .filter((id): id is string => !!id && mongoose.isValidObjectId(id))
     )
   );
   const performers = performedByIds.length > 0 ? await User.find({ _id: { $in: performedByIds } }, "name").lean() : [];
   const nameByPerformerId = new Map(performers.map((u) => [u._id.toString(), u.name as string | undefined]));
+
+  const initialSessions = sessionSummaries.map((s) => ({
+    taskListId: s.taskListId,
+    startedAt: s.startedAt.toISOString(),
+    completedAt: s.completedAt ? s.completedAt.toISOString() : null,
+    ownerName: s.performedByUserId ? nameByPerformerId.get(s.performedByUserId) ?? "someone else" : null,
+  }));
 
   const initialLogs = todayLogs.map((l) => ({
     _id: l._id.toString(),
@@ -216,6 +230,7 @@ export default async function TasksPage({
     <TasksView
       taskLists={taskListsWithTasks}
       initialLogs={initialLogs}
+      initialSessions={initialSessions}
       initialTodos={initialTodos}
       weekLogs={weekLogs}
       weekDates={weekDates}

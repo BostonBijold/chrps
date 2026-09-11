@@ -22,6 +22,18 @@ function canManage(userRole: "manager" | "employee" | "owner" | "developer" | un
   return !!userRole && isManagerOrAbove(userRole);
 }
 
+// Client-facing shape of a taskList's most recent TaskListSession run for
+// the date being viewed — see lib/task-list-session-actions.ts's
+// getSessionSummariesForDate. completedAt/ownerName are null when the
+// session hasn't closed (or its owner couldn't be resolved) — the "✓ Done"
+// pill below falls back to plain text in that case rather than showing a
+// half-filled time range.
+export interface TaskListSessionSummary {
+  startedAt: string; // ISO
+  completedAt: string | null; // ISO
+  ownerName: string | null; // whoever started the session first — see TaskListSession.performedByUserId
+}
+
 export interface TaskListCardTaskList {
   _id: string;
   name: string;
@@ -34,6 +46,12 @@ export interface TaskListCardTaskList {
 interface Props {
   taskList: TaskListCardTaskList;
   logs: Record<string, TaskLogEntry>;
+  // This list's most recent TaskListSession run for selectedDate, if any —
+  // undefined when no one ever opened the guided "Start Tasks" walkthrough
+  // for it that day (e.g. every task was completed via its own row's Start
+  // button instead). Only ever passed for shift-window lists — anytime
+  // lists have no "Start Tasks" flow to anchor a session to.
+  session?: TaskListSessionSummary;
   weekLogs: Record<string, Array<{ date: string; state: LogState; actualMinutes: number | null }>>;
   weekDates: string[]; // Sunday→Saturday, fixed calendar week (see lib/week-dates.ts)
   isPastDate?: boolean;
@@ -84,6 +102,18 @@ function fmtTime(t: string): string {
   return m ? `${h12}:${String(m).padStart(2, "0")}${suffix}` : `${h12}${suffix}`;
 }
 
+// Same 12-hour/no-leading-zero/lowercase-suffix style as fmtTime above, just
+// starting from a full timestamp (a TaskListSession's startedAt/completedAt)
+// instead of an "HH:MM" TaskList.startTime string.
+function fmtClock(iso: string): string {
+  const d = new Date(iso);
+  const h = d.getHours();
+  const m = d.getMinutes();
+  const suffix = h >= 12 ? "pm" : "am";
+  const h12 = h % 12 || 12;
+  return m ? `${h12}:${String(m).padStart(2, "0")}${suffix}` : `${h12}${suffix}`;
+}
+
 function fmtMins(mins: number) {
   if (mins < 60) return `${mins}m`;
   const h = Math.floor(mins / 60);
@@ -109,7 +139,7 @@ const STATE_SYMBOL: Record<LogState, string> = {
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function TaskListCard({
-  taskList, logs, weekLogs, weekDates,
+  taskList, logs, session, weekLogs, weekDates,
   isPastDate = false, selectedDate, today,
   onStateChange, onStartTimer, onStartTaskList,
   currentUserId, userRole,
@@ -202,6 +232,13 @@ export default function TaskListCard({
           {isComplete && !isPastDate ? (
             <span className="font-mono text-[10px] text-done bg-done/10 px-2 py-0.5 rounded-pill">
               ✓ Done
+              {session?.completedAt && (
+                <>
+                  {" · "}
+                  {fmtClock(session.startedAt)}–{fmtClock(session.completedAt)}
+                  {session.ownerName && ` · ${session.ownerName}`}
+                </>
+              )}
             </span>
           ) : beforeWindow && taskList.startTime ? (
             <span className="font-mono text-[10px] text-dim px-2 py-0.5 rounded-pill border border-border">

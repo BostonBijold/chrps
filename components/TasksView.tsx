@@ -6,7 +6,7 @@ import Link from "next/link";
 import { Settings } from "lucide-react";
 import Header from "@/components/Header";
 import DateNav from "@/components/DateNav";
-import TaskListCard, { type TaskListCardTaskList } from "@/components/TaskListCard";
+import TaskListCard, { type TaskListCardTaskList, type TaskListSessionSummary } from "@/components/TaskListCard";
 import TimerScreen, { type TimerItem } from "@/components/TimerScreen";
 import TaskFormScreen, { type InventoryCountEntry } from "@/components/TaskFormScreen";
 import type { NotificationSound } from "@/lib/notification-sound";
@@ -54,6 +54,10 @@ export type WeekLog = { taskId: string; date: string; state: LogState; actualMin
 interface Props {
   taskLists: TaskListCardTaskList[];
   initialLogs: TaskLogEntry[];
+  // One TaskListSession summary per taskList (its most recent run today) —
+  // powers TaskListCard's "✓ Done" pill (start/end time + session owner).
+  // See lib/task-list-session-actions.ts's getSessionSummariesForDate.
+  initialSessions: Array<TaskListSessionSummary & { taskListId: string }>;
   initialTodos: TodoEntry[];
   weekLogs: WeekLog[];
   weekDates: string[];
@@ -86,7 +90,7 @@ interface ActiveSession {
 }
 
 export default function TasksView({
-  taskLists, initialLogs, initialTodos, weekLogs, weekDates,
+  taskLists, initialLogs, initialSessions, initialTodos, weekLogs, weekDates,
   today, userName, userId, userRole, companyId, activeLocationId, locationId, skipAuth,
   autoStartNext = false,
   autoAddTask = false,
@@ -100,6 +104,9 @@ export default function TasksView({
   const prevTodayRef = useRef(today);
   const [logs, setLogs] = useState<Record<string, TaskLogEntry>>(
     Object.fromEntries(initialLogs.map((l) => [l.taskId, l]))
+  );
+  const [sessions, setSessions] = useState<Record<string, TaskListSessionSummary>>(
+    Object.fromEntries(initialSessions.map((s) => [s.taskListId, s]))
   );
   const [liveWeekLogs, setLiveWeekLogs] = useState<WeekLog[]>(weekLogs);
   const [timerItem, setTimerItem] = useState<TimerItem | null>(null);
@@ -315,10 +322,25 @@ export default function TasksView({
     }
   }, [selectedDate]);
 
+  // A TaskListSession only ever changes alongside a TaskLog write (see
+  // lib/task-list-session-actions.ts), so this is fetched at exactly the
+  // same points refetchLogs is — never on its own separate poll.
+  const refetchSessions = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/task-list-sessions?date=${selectedDate}`);
+      if (!res.ok) return;
+      const data: Array<TaskListSessionSummary & { taskListId: string }> = await res.json();
+      setSessions(Object.fromEntries(data.map((s) => [s.taskListId, s])));
+    } catch {
+      // keep previous state; next poll/event will retry
+    }
+  }, [selectedDate]);
+
   // Re-fetch logs whenever the selected date changes
   useEffect(() => {
     if (selectedDate === today) {
       setLogs(Object.fromEntries(initialLogs.map((l) => [l.taskId, l])));
+      setSessions(Object.fromEntries(initialSessions.map((s) => [s.taskListId, s])));
       return;
     }
     let cancelled = false;
@@ -329,8 +351,15 @@ export default function TasksView({
           setLogs(Object.fromEntries(data.map((l) => [l.taskId, l])));
         }
       });
+    fetch(`/api/task-list-sessions?date=${selectedDate}`)
+      .then((r) => r.json())
+      .then((data: Array<TaskListSessionSummary & { taskListId: string }>) => {
+        if (!cancelled) {
+          setSessions(Object.fromEntries(data.map((s) => [s.taskListId, s])));
+        }
+      });
     return () => { cancelled = true; };
-  }, [selectedDate, today, initialLogs]);
+  }, [selectedDate, today, initialLogs, initialSessions]);
 
   // Keeps today's TaskLogs (external App Intent / Siri / Shortcuts triggers,
   // and — since per-task claiming replaced the list-level session lock, see
@@ -369,6 +398,7 @@ export default function TasksView({
             if (lastLogsVersion !== undefined && lastLogsVersion !== logsVersion) {
               changed = true;
               refetchLogs();
+              refetchSessions();
             }
             lastLogsVersion = logsVersion;
             consecutiveUnchanged = changed ? 0 : consecutiveUnchanged + 1;
@@ -389,6 +419,7 @@ export default function TasksView({
     };
     const onChanged = () => {
       refetchLogs();
+      refetchSessions();
       resetBackoff();
     };
     const onVisible = () => {
@@ -407,7 +438,7 @@ export default function TasksView({
       window.removeEventListener("focus", onVisible);
       clearTimeout(timeoutId);
     };
-  }, [selectedDate, today, refetchLogs]);
+  }, [selectedDate, today, refetchLogs, refetchSessions]);
 
   // Re-fetch to-dos whenever the selected date changes
   useEffect(() => {
@@ -1074,6 +1105,7 @@ export default function TasksView({
                   key={`${taskList._id}-${selectedDate}`}
                   taskList={taskList}
                   logs={logs}
+                  session={sessions[taskList._id]}
                   weekLogs={weekLogsByTask}
                   weekDates={weekDates}
                   isPastDate={isPastDate}

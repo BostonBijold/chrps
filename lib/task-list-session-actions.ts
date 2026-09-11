@@ -52,6 +52,44 @@ export async function isTaskListFullyResolved(companyId: string, locationId: str
   return tasks.every((t) => terminalIds.has(t._id.toString()));
 }
 
+// One summary per taskList, for every TaskListSession opened against
+// companyId/locationId on date — the list's own MOST RECENT run (by
+// startedAt), since a list can legitimately be started/finished/restarted
+// more than once the same day (see models/TaskListSession.ts's
+// no-unique-index note). Powers TaskListCard's "✓ Done" pill (start/end
+// time + session owner — the person whose performedByUserId is stamped on
+// the session, i.e. whoever opened it first) — see docs/features/task-lists.md.
+export interface TaskListSessionSummary {
+  taskListId: string;
+  startedAt: Date;
+  completedAt: Date | null;
+  status: "in_progress" | "completed";
+  performedByUserId: string | null;
+}
+
+export async function getSessionSummariesForDate(
+  companyId: string,
+  locationId: string | null,
+  date: string
+): Promise<TaskListSessionSummary[]> {
+  const sessions = await TaskListSession.find({ companyId, locationId, date })
+    .sort({ startedAt: -1 })
+    .lean();
+  const latestByTaskListId = new Map<string, TaskListSessionSummary>();
+  for (const s of sessions) {
+    const key = s.taskListId.toString();
+    if (latestByTaskListId.has(key)) continue; // sorted desc — first hit per list is already the latest
+    latestByTaskListId.set(key, {
+      taskListId: key,
+      startedAt: s.startedAt,
+      completedAt: s.completedAt ?? null,
+      status: s.status,
+      performedByUserId: s.performedByUserId ?? null,
+    });
+  }
+  return Array.from(latestByTaskListId.values());
+}
+
 // Finds the open (in_progress) TaskListSession for this company/list/date,
 // or creates one. Called whenever a task is about to become in_progress
 // anchored to a list — startInProgressLog and switchActiveLog both call
