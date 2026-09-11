@@ -223,29 +223,38 @@ export default function TaskListCard({
   // - it's today but the scheduled timeframe has passed
   const isBackEntry = isPastDate || pastTimeframe;
 
-  // ── Status box header/footer text (shift-window lists only) ──────────────
-  // See docs/features/task-list-status-box.md — replaces the old single-line
-  // "✓ Done" pill with two fixed strips baked into the box's own edges, so
-  // the box's shape never changes across "not started"/"running"/"done" —
-  // only the two strips' text does. Session data always wins once a
-  // TaskListSession exists for this list/date (persists through and past
-  // completion — the footer adds the finish time on top, it doesn't replace
-  // this); the scheduled startTime is only a placeholder before anyone's
-  // claimed the list. Both fall back to blank (not a stale/misleading
-  // guess) for a list completed without ever opening a session.
+  // ── Row-box header/footer text (shift-window lists only) ─────────────────
+  // See docs/features/task-list-row-box.md — a bordered box wraps just the
+  // task row list (the title line and "Start Tasks" button stay outside it)
+  // with two fixed strips baked into its own top/bottom edges, so the box's
+  // shape never changes across "not started"/"running"/"done" — only the
+  // two strips' text does. Session data always wins once a TaskListSession
+  // exists for this list/date (persists through and past completion — the
+  // footer adds the finish time on top, it doesn't replace this); the
+  // scheduled startTime is only a placeholder before anyone's claimed the
+  // list. Task count/projected minutes stay in the header strip
+  // unconditionally, alongside whichever of those two — a static "how big
+  // is this list" fact, deliberately distinct from the title line's own
+  // live done-count stat below. Both strips fall back to blank (not a
+  // stale/misleading guess) for a list completed without ever opening a
+  // session.
+  const taskCountLabel = `${visibleTasks.length} task${visibleTasks.length === 1 ? "" : "s"} · ${fmtMins(projectedMins)}`;
   const headerStripText = session
-    ? `${fmtClock(session.startedAt)} · ${session.ownerName ?? "someone"}`
-    : !isComplete && taskList.startTime
-    ? `Starts ${fmtTime(taskList.startTime)}`
-    : null;
+    ? `${fmtClock(session.startedAt)} · ${session.ownerName ?? "someone"} · ${taskCountLabel}`
+    : isComplete
+    ? null
+    : taskList.startTime
+    ? `Starts ${fmtTime(taskList.startTime)} · ${taskCountLabel}`
+    : taskCountLabel;
   const footerStripText = session?.completedAt ? fmtClock(session.completedAt) : null;
 
   if (isAnytimeList) {
     // Anytime lists never get a TaskListSession (the guided "Start Tasks"
-    // walkthrough that creates one is shift-window-only), so the status
-    // box's session-driven header/footer strips have nothing to show here —
-    // keep the simpler bare-title + "✓ Done" pill this always had. See
-    // docs/features/task-list-status-box.md's "Scoping" section.
+    // walkthrough that creates one is shift-window-only), so the row-box's
+    // session-driven header/footer strips have nothing to show here — keep
+    // the simpler bare-title + "✓ Done" pill this always had. See
+    // docs/features/task-list-status-box.md's "Scoping" section (unchanged
+    // by the row-box follow-up).
     return (
       <section>
         <div className="flex items-center gap-2 mb-3 min-h-[44px]">
@@ -279,24 +288,25 @@ export default function TaskListCard({
 
   return (
     <section>
+      {/* ── Title line (outside the row-box) ─────────────────────────────── */}
+      <div className="flex items-center justify-between mb-3 min-h-[44px]">
+        <button className="flex items-center gap-2 text-left flex-1" onClick={toggle}>
+          <h2 className="font-heading text-lg text-text">{taskList.name}</h2>
+        </button>
+        {!isComplete && (
+          <span className="font-mono text-xs flex-shrink-0 ml-2">
+            <span className="text-gold">{doneCount}/{visibleTasks.length}</span>
+            <span className="text-dim"> · {fmtMins(projectedMins)}</span>
+          </span>
+        )}
+      </div>
+
+      {/* ── Row-box: header strip + task rows + footer strip ─────────────── */}
       <div className={`rounded-card border overflow-hidden ${isComplete ? "border-done/40" : "border-border"}`}>
-        {/* ── Header strip ──────────────────────────────────────────────── */}
-        <button onClick={toggle} className="w-full text-left px-4 pt-3.5 pb-3">
-          <div className="flex items-center justify-between">
-            <h2 className="font-heading text-lg text-text">{taskList.name}</h2>
-            {!isComplete && (
-              <span className="font-mono text-xs flex-shrink-0 ml-2">
-                <span className="text-gold">{doneCount}/{visibleTasks.length}</span>
-                <span className="text-dim"> · {fmtMins(projectedMins)}</span>
-              </span>
-            )}
-          </div>
-          <div className="font-mono text-[10px] text-dim min-h-[14px] mt-1">
-            {headerStripText}
-          </div>
+        <button onClick={toggle} className="w-full text-left px-4 py-2 font-mono text-[10px] text-dim min-h-[28px] flex items-center">
+          {headerStripText}
         </button>
 
-        {/* ── Body: collapsed summary, or expanded task rows ──────────────── */}
         <div className="border-t border-border">
           {effectivelyCollapsed && isComplete && (
             <button
@@ -406,52 +416,6 @@ export default function TaskListCard({
                   />
                 ))}
               </div>
-
-              {/* "Start Tasks" — an optional guided walkthrough alongside each
-                  row's own Start/Resume button (see docs/features/task-lists.md's
-                  "Per-task claiming"); anyone can launch it any time, and it
-                  skips over a task someone else already claimed rather than
-                  blocking on it (TaskListSessionView.tsx's own logic). */}
-              {visibleTasks.length > 0 && !isComplete && !isPastDate && (() => {
-                const hasStarted = visibleTasks.some((t) => !!logs[t._id]);
-                // Skip past both a finished task AND one someone ELSE already
-                // has claimed — landing "Continue Tasks" directly on a task in
-                // progress under a different performedByUserId was the bug:
-                // TaskListSessionView's own reactive skip logic only runs
-                // AFTER something changes, never validates its very first
-                // currentIndex, so the first tap needs to pick a genuinely
-                // available task itself. (TaskListSessionView's own
-                // resolveInitialIndex re-validates this against live data at
-                // mount too, so this is a best-guess landing spot, not the
-                // only guard — see docs/features/task-lists.md's "Per-task
-                // claiming".) Falls back to 0 if nothing qualifies (every
-                // remaining task is done or claimed elsewhere).
-                const firstIncompleteIdx = Math.max(
-                  0,
-                  visibleTasks.findIndex((t) => {
-                    const log = logs[t._id];
-                    if (!log || log.state === "missed") return true;
-                    if (log.state === "done") return false;
-                    if (
-                      (log.state === "in_progress" || log.state === "paused") &&
-                      log.performedByUserId &&
-                      log.performedByUserId !== currentUserId
-                    ) {
-                      return false;
-                    }
-                    return true;
-                  })
-                );
-                return (
-                  <button
-                    onClick={() => onStartTaskList(taskList, firstIncompleteIdx)}
-                    className="mt-3 w-full flex items-center justify-center gap-2 bg-olive text-text font-body font-medium py-3.5 rounded-card min-h-[48px] active:opacity-90 transition-opacity"
-                  >
-                    <Play size={15} fill="currentColor" />
-                    {hasStarted ? "Continue Tasks" : "Start Tasks"}
-                  </button>
-                );
-              })()}
             </div>
           )}
         </div>
@@ -461,6 +425,53 @@ export default function TaskListCard({
           {footerStripText}
         </div>
       </div>
+
+      {/* "Start Tasks" — outside the row-box, same as the title line above
+          it. An optional guided walkthrough alongside each row's own
+          Start/Resume button (see docs/features/task-lists.md's "Per-task
+          claiming"); anyone can launch it any time, and it skips over a
+          task someone else already claimed rather than blocking on it
+          (TaskListSessionView.tsx's own logic). */}
+      {!effectivelyCollapsed && visibleTasks.length > 0 && !isComplete && !isPastDate && (() => {
+        const hasStarted = visibleTasks.some((t) => !!logs[t._id]);
+        // Skip past both a finished task AND one someone ELSE already
+        // has claimed — landing "Continue Tasks" directly on a task in
+        // progress under a different performedByUserId was the bug:
+        // TaskListSessionView's own reactive skip logic only runs
+        // AFTER something changes, never validates its very first
+        // currentIndex, so the first tap needs to pick a genuinely
+        // available task itself. (TaskListSessionView's own
+        // resolveInitialIndex re-validates this against live data at
+        // mount too, so this is a best-guess landing spot, not the
+        // only guard — see docs/features/task-lists.md's "Per-task
+        // claiming".) Falls back to 0 if nothing qualifies (every
+        // remaining task is done or claimed elsewhere).
+        const firstIncompleteIdx = Math.max(
+          0,
+          visibleTasks.findIndex((t) => {
+            const log = logs[t._id];
+            if (!log || log.state === "missed") return true;
+            if (log.state === "done") return false;
+            if (
+              (log.state === "in_progress" || log.state === "paused") &&
+              log.performedByUserId &&
+              log.performedByUserId !== currentUserId
+            ) {
+              return false;
+            }
+            return true;
+          })
+        );
+        return (
+          <button
+            onClick={() => onStartTaskList(taskList, firstIncompleteIdx)}
+            className="mt-3 w-full flex items-center justify-center gap-2 bg-olive text-text font-body font-medium py-3.5 rounded-card min-h-[48px] active:opacity-90 transition-opacity"
+          >
+            <Play size={15} fill="currentColor" />
+            {hasStarted ? "Continue Tasks" : "Start Tasks"}
+          </button>
+        );
+      })()}
     </section>
   );
 }
