@@ -1138,28 +1138,34 @@ is in `docs/features/locations.md`.
       already passed a boolean `isOwner` prop computed server-side via the
       shared helper — Inventory, Team — were unaffected, since they never
       had this bug.)
-- [x] Task List Status Box (replaces the "✓ Done" pill) — a shift-window
-      list's `TaskListCard` is now a bordered box with a fixed header strip
-      (the list's scheduled start time before anyone's claimed it; once a
-      `TaskListSession` exists — see "Task Lists" above — its real
-      `startedAt` plus the "session owner," whoever opened the guided
-      "Start Tasks" walkthrough first, `TaskListSession.performedByUserId`,
-      stamped once on creation and never reassigned) and a footer strip
-      (blank until the session's `completedAt` is set, then just the
-      finish time, no name — finishing is often incidental, unlike who was
-      assigned to lead). Both strips render identically collapsed or
-      expanded — only the task rows between them change. Both fall back to
-      blank for a list completed without ever routing every task through a
-      session (e.g. the last task was finished via its own row's Start
-      button instead), rather than a stale/reconstructed guess. Anytime
-      lists never get a `TaskListSession` and keep the old bare "✓ Done"
-      pill unchanged. Backed by `GET /api/task-list-sessions?date=`
-      (`lib/task-list-session-actions.ts`'s `getSessionSummariesForDate`,
-      the first read endpoint this collection has ever had) that
-      `TasksView.tsx` fetches alongside `GET /api/task-logs`, on the same
-      mount/date-change/poll cadence — see
-      `docs/features/task-list-status-box.md` and
-      `docs/api/task-lists-api.md`'s "Task List Sessions".
+- [x] Task List Row-Box (replaces the "✓ Done" pill) — a shift-window
+      list's task rows (not the title line above them, and not the "Start
+      Tasks" button below — both stay exactly where they were) are now
+      wrapped in a bordered box with a fixed header strip (the list's
+      scheduled start time + task count + projected minutes before anyone's
+      claimed it; once a `TaskListSession` exists — see "Task Lists"
+      above — its real `startedAt` + the "session owner," whoever opened
+      the guided "Start Tasks" walkthrough first,
+      `TaskListSession.performedByUserId`, stamped once on creation and
+      never reassigned, with the task count/minutes still alongside) and a
+      footer strip (blank until the session's `completedAt` is set, then
+      just the finish time, no name — finishing is often incidental,
+      unlike who was assigned to lead). Both strips render identically
+      collapsed or expanded — only the task rows between them change. Both
+      fall back to blank for a list completed without ever routing every
+      task through a session (e.g. the last task was finished via its own
+      row's Start button instead), rather than a stale/reconstructed
+      guess. Anytime lists never get a `TaskListSession` and keep the old
+      bare "✓ Done" pill unchanged. Backed by `GET
+      /api/task-list-sessions?date=` (`lib/task-list-session-actions.ts`'s
+      `getSessionSummariesForDate`, the first read endpoint this
+      collection has ever had) that `TasksView.tsx` fetches alongside `GET
+      /api/task-logs`, on the same mount/date-change/poll cadence. A first
+      iteration (`docs/features/task-list-status-box.md`) wrapped the
+      whole card including the title line and Start Tasks button; this
+      follow-up (`docs/features/task-list-row-box.md`) narrowed the box to
+      just the rows — see that doc and `docs/api/task-lists-api.md`'s
+      "Task List Sessions".
 
 Personal-habit-tracker features from before the restaurant pivot — the
 timer-based Countdown/Stopwatch/Checkbox item types and the Sunday "Routine
@@ -1272,7 +1278,7 @@ table is a quick reference, not authoritative.
 
 ## Current App State
 - Task Lists: BUILT — Opening/Mid-Shift/Closing shift lists + standalone Anytime Tasks list + manager-created custom lists, time-aware collapse/expand, dot progress, Edit button per list
-- Task List Session: BUILT — guided multi-task walkthrough with live projected-finish/timeline; a shift-window `TaskListCard` is now a bordered status box whose header/footer strips show that session's start/end time and its owner (first person to open it), via a `GET /api/task-list-sessions` read route, replacing the old "✓ Done" pill — see "Task List Status Box" in "Feature Build Order" above
+- Task List Session: BUILT — guided multi-task walkthrough with live projected-finish/timeline; a shift-window `TaskListCard`'s task rows sit in a bordered box (title line and "Start Tasks" button stay outside it) whose header/footer strips show that session's start/end time, task count/projected minutes, and its owner (first person to open it), via a `GET /api/task-list-sessions` read route, replacing the old "✓ Done" pill — see "Task List Row-Box" in "Feature Build Order" above
 - Reports tab: BUILT — renamed from Analytics; manager sees the company-wide task completion/variance dashboard, employee sees a personal-only Overview (streak + weekly % + charts scoped to self), plus a chronological Logs history sub-tab for both roles, see `docs/features/reports.md`
 - To-Dos: BUILT — standalone quick-capture list, shown on the Today view
 - Live Activity: BUILT — iOS Lock Screen timer (see `docs/features/live-activity.md`); its Lock Screen button opens the app rather than completing a task directly (see the doc's "Open App button" section)

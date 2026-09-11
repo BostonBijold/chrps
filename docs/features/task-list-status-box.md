@@ -1,5 +1,7 @@
 # Task List Status Box (replaces the header pill)
 
+**SUPERSEDED by [`task-list-row-box.md`](task-list-row-box.md)** — the box described below wrapped the *whole* `TaskListCard` (title line, strips, and the "Start Tasks" button all inside one border). The follow-up iteration narrowed it to wrap only the task row list, restoring the title line and "Start Tasks" button to their original positions outside the box. Kept here for history; the box concept, `border-done` treatment, and the resolved open questions below still apply unchanged — see the newer doc for what actually differs.
+
 ## Problem
 
 `TaskListCard.tsx`'s previous header pill (`✓ Done · 10:15pm–10:16pm · Boston Bijold`) crammed start time, end time, and the session owner into one horizontal line. It only rendered in that expanded form once a `TaskListSession` had actually closed (`completedAt` set) — see `timer.md`'s (now-superseded) "✓ Done pill" section. Before that, or for a list with no session at all, the card just showed plain "✓ Done" text with no time detail. This redesign gives every state (not started, running, done) a single consistent container, so the card doesn't restructure itself as the list progresses.
