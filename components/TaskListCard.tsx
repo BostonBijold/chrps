@@ -5,6 +5,7 @@ import { Play } from "lucide-react";
 import AppIcon from "@/components/AppIcon";
 import TaskRow, { type RowItem } from "@/components/TaskRow";
 import TaskCard from "@/components/TaskCard";
+import ShiftLeadPicker from "@/components/ShiftLeadPicker";
 import type { TaskLogEntry } from "@/components/TasksView";
 import type { LogState } from "@/models/TaskLog";
 import { isTaskVisibleOn } from "@/lib/task-visibility";
@@ -24,14 +25,17 @@ function canManage(userRole: "manager" | "employee" | "owner" | "developer" | un
 
 // Client-facing shape of a taskList's most recent TaskListSession run for
 // the date being viewed — see lib/task-list-session-actions.ts's
-// getSessionSummariesForDate. completedAt/ownerName are null when the
-// session hasn't closed (or its owner couldn't be resolved) — the "✓ Done"
-// pill below falls back to plain text in that case rather than showing a
-// half-filled time range.
+// getSessionSummariesForDate. status "assigned" means nobody's actually
+// started the list yet (a manager just pre-named its shift lead — see
+// docs/features/shift-lead-preassignment.md); startedAt/completedAt/
+// ownerName are only ever populated once status moves past that.
 export interface TaskListSessionSummary {
-  startedAt: string; // ISO
+  status: "assigned" | "in_progress" | "completed";
+  startedAt: string | null; // ISO
   completedAt: string | null; // ISO
   ownerName: string | null; // whoever started the session first — see TaskListSession.performedByUserId
+  assignedUserId: string | null;
+  assignedUserName: string | null; // the pre-assigned shift lead, if any — see TaskListSession.assignedUserId
 }
 
 export interface TaskListCardTaskList {
@@ -70,6 +74,12 @@ interface Props {
   // rendering) doesn't need it.
   currentUserId?: string;
   userRole?: "manager" | "employee" | "owner" | "developer";
+  // Called after a successful shift-lead assign/clear/reassign (see
+  // docs/features/shift-lead-preassignment.md) so the caller can
+  // re-fetch sessions immediately rather than waiting on TasksView's own
+  // poll cycle. Omitted for the anytime-list call site, which never
+  // renders the shift-lead row in the first place.
+  onSessionsChanged?: () => void;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -142,8 +152,9 @@ export default function TaskListCard({
   taskList, logs, session, weekLogs, weekDates,
   isPastDate = false, selectedDate, today,
   onStateChange, onStartTimer, onStartTaskList,
-  currentUserId, userRole,
+  currentUserId, userRole, onSessionsChanged,
 }: Props) {
+  const [shiftLeadPickerOpen, setShiftLeadPickerOpen] = useState(false);
   // Derive end time once we know what tasks are in this list
   const timedTasksAll = taskList.tasks.filter((t) => t.taskType !== "checkbox");
   const totalProjectedMins = timedTasksAll.reduce((s, t) => s + t.projectedMinutes, 0);
@@ -234,7 +245,7 @@ export default function TaskListCard({
             // to spell out "Done" too, which frees it up to just be time +
             // name on one line, wrapping onto a second only if it doesn't
             // fit (same as before "✓ Done" was ever added to it).
-            session?.completedAt && (
+            session?.startedAt && session?.completedAt && (
               <span className="font-mono text-[10px] text-done bg-done/10 px-2 py-0.5 rounded-pill text-right">
                 {fmtClock(session.startedAt)}–{fmtClock(session.completedAt)}
                 {session.ownerName && ` · ${session.ownerName}`}
@@ -258,6 +269,49 @@ export default function TaskListCard({
           </span>
         )}
       </div>
+
+      {/* ── Shift lead pre-assignment ───────────────────────────────────────
+          Own row, directly under the title, expanded state only — see
+          docs/features/shift-lead-preassignment.md's "Why not the existing
+          '✓ Done' pill." Renders only while no in_progress/completed
+          session exists yet for this list/date: the moment one does, this
+          disappears and the pill above takes over, same as the spec's
+          "row disappears" rule. Anytime lists have no "Start Tasks" session
+          concept at all, and a past date has nothing left to pre-assign. */}
+      {!isAnytimeList && !isPastDate && !effectivelyCollapsed && (!session || session.status === "assigned") && (
+        canManage(userRole) ? (
+          <div className="relative -mt-2 mb-3">
+            <button
+              onClick={() => setShiftLeadPickerOpen((v) => !v)}
+              className="font-mono text-xs text-left min-h-[28px]"
+            >
+              {session?.assignedUserName ? (
+                <span className="text-muted">
+                  Shift lead: <span className="text-text">{session.assignedUserName}</span>
+                </span>
+              ) : (
+                <span className="text-dim">+ Shift lead</span>
+              )}
+            </button>
+            {shiftLeadPickerOpen && (
+              <ShiftLeadPicker
+                taskListId={taskList._id}
+                date={selectedDate}
+                currentAssignedUserId={session?.assignedUserId ?? null}
+                onClose={() => setShiftLeadPickerOpen(false)}
+                onChanged={() => {
+                  setShiftLeadPickerOpen(false);
+                  onSessionsChanged?.();
+                }}
+              />
+            )}
+          </div>
+        ) : session?.assignedUserName ? (
+          <div className="-mt-2 mb-3 font-mono text-xs text-muted">
+            Shift lead: <span className="text-text">{session.assignedUserName}</span>
+          </div>
+        ) : null
+      )}
 
       {/* ── Collapsed: complete summary ──────────────────────────────────── */}
       {effectivelyCollapsed && isComplete && (

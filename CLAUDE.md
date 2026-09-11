@@ -1138,6 +1138,25 @@ is in `docs/features/locations.md`.
       already passed a boolean `isOwner` prop computed server-side via the
       shared helper — Inventory, Team — were unaffected, since they never
       had this bug.)
+- [x] Shift Lead Pre-Assignment — a manager can name today's shift lead for
+      a task list before anyone's actually started it: a new
+      `TaskListSession` `status: "assigned"` (with `assignedUserId`/
+      `assignedByUserId`/`assignedAt`, and a now-nullable `startedAt`)
+      records the intent ahead of the run itself. A header row directly
+      under the list title (`TaskListCard.tsx`, new
+      `components/ShiftLeadPicker.tsx` — an anchored-under-the-row sheet,
+      roster grouped by Job Tag when the location has any configured, flat
+      otherwise) shows "Shift lead: Jordan" (every role) or a manager-only
+      "+ Shift lead" placeholder, and disappears the instant the list's own
+      session actually starts — the existing per-task claim pills / "✓ Done"
+      pill take over from there. `lib/task-list-session-actions.ts`'s
+      `ensureOpenSession` upgrades a pre-assigned record in place
+      (`performedByUserId` stamped from the pre-assignment, never from
+      whoever's tap actually started it) instead of opening a second,
+      separate session. Assign/reassign/clear
+      (`POST`/`DELETE /api/task-list-sessions/assign`) is manager-only,
+      403 for an employee, same gating convention as Undo. See
+      docs/features/shift-lead-preassignment.md.
 
 Personal-habit-tracker features from before the restaurant pivot — the
 timer-based Countdown/Stopwatch/Checkbox item types and the Sunday "Routine
@@ -1277,6 +1296,8 @@ table is a quick reference, not authoritative.
 - Admin Console: BUILT — desktop-first `/console` section (`app/(console)/console/**`, gated manager-or-above in its `layout.tsx`, blocked from the native iOS shell): a Rollup Dashboard (`GET /api/reports/rollup`) as `/console`'s own homepage, giving an owner a cross-location snapshot (completion rate, tasks logged, missed lists, below-par items, active employees) that has no mobile equivalent (Locations CRUD, the console's original Phase 1a page, was removed entirely; Rollup moved off its own `/console/rollup` route to become the homepage in its place), a company-wide Team & Access table + invite panel + a small owner-only Locations panel (create/rename/archive — Locations CRUD's return, embedded here rather than as its own page/nav item this time) + Job Tags catalog (create/rename/archive tags, per-teammate toggle assignment), Task & Task List Management (`/console/tasks`, manager-or-above) — a two-pane task-list/task editor reusing mobile's exact APIs and field-editing building blocks, NFC status-only (no scan action), plus a Task Catalog pane for editing/creating/deleting a saved task independent of any list placement — a Reports page (`/console/reports`, manager-or-above) — desktop-shaped stat strip/leaderboard table/task-list grid/Logs table/Inventory card grid, all fed by mobile's exact `GET /api/reports`/`/api/reports/leaderboard`/`/api/reports/inventory`/`GET /api/task-logs/history` responses (new presentational layouts, reused pure math/types from `components/reports/shared.ts`) — and an Inventory Management page (`/console/inventory`, manager-or-above) — grouped item-type table with always-visible log-a-count input + expandable history per row, plus a persistent Manage Groups panel below it; no NFC anywhere (an item with `nfcRequiredToLog` set from mobile 409s here with console-specific error copy, not mobile's "use Save via NFC"). Team & Access and the Rollup Dashboard homepage stay owner-only, each self-gating now that the blanket layout check loosened; Task Management, Reports, and Inventory are the three manager-and-up pages. Reached via a manager-or-above card on the Profile page (`components/ProfileView.tsx`) — login itself still always lands on Tasks, same as every other role — see `docs/features/admin-console.md`, `docs/features/console-task-management.md`, `docs/features/console-reports.md`, and `docs/features/console-inventory.md`
 
 - Account Deletion: BUILT — Profile's "Delete Account" row (`employee`/`manager` only) scrubs PII off the caller's own `User` document, detaches them from their company/location, deletes their `PushToken`s and OAuth account link, and invalidates their session (`DELETE /api/account`, `lib/auth.ts`'s jwt callback); `owner` sees a static contact-support message instead of a button, see `docs/features/account-deletion.md`
+
+- Shift Lead Pre-Assignment: BUILT — a manager can pre-name a task list's shift lead for today before anyone's started it, via a header row directly under the list title (visible to every role once assigned, manager-tappable "+ Shift lead" placeholder otherwise, employees see nothing while unassigned) that opens `components/ShiftLeadPicker.tsx` — a sheet anchored under the row rather than sliding up from the screen bottom, roster grouped by Job Tag when the location has any configured. The row disappears the moment the list's session actually starts, handing off to the existing per-task claim pills / "✓ Done" pill; `TaskListSession` gained a new `"assigned"` status plus `assignedUserId`/`assignedByUserId`/`assignedAt`, and `ensureOpenSession` upgrades an `assigned` record in place on first start rather than crediting whoever physically tapped first. See `docs/features/shift-lead-preassignment.md`
 
 Routine Review (the old Sunday goal-vs-average-minutes comparison) has been
 retired — it doesn't fit a checklist-based work app.

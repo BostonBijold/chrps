@@ -1116,6 +1116,7 @@ export default function TasksView({
                   onStartTaskList={(tl, startIndex) => setActiveSession({ taskList: tl, startIndex })}
                   currentUserId={userId}
                   userRole={userRole}
+                  onSessionsChanged={refetchSessions}
                 />
               ))}
             </div>
