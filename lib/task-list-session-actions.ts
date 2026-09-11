@@ -1,7 +1,6 @@
 import mongoose from "mongoose";
 import TaskListSession from "@/models/TaskListSession";
 import Task from "@/models/Task";
-import TaskList from "@/models/TaskList";
 import TaskLog from "@/models/TaskLog";
 import User from "@/models/User";
 import type { LogState } from "@/models/TaskLog";
@@ -59,21 +58,14 @@ export async function isTaskListFullyResolved(companyId: string, locationId: str
 // this whenever they're given a non-null sessionTaskListId, so "session
 // started" always means a real task actually began running, never a guess
 // reconstructed later from logs. performedByUserId is stamped only on
-// creation, recording whoever actually opened this run — a later employee
-// joining the same open session doesn't reassign it, UNLESS a manager has
-// unlocked it (performedByUserId: null — see unlockSession below), in which
-// case it's up for grabs and whoever touches it next claims it, same as a
-// fresh session's first touch. See docs/features/task-lists.md's task list
-// locking section.
+// creation, recording whoever opened this particular guided walkthrough —
+// TaskListSession no longer acts as an exclusivity lock over the list's
+// tasks (see docs/features/task-lists.md's "Per-task claiming"); it's kept
+// purely as a session-scoped wrapper (real start/finish, completion order,
+// pause/jump count) around whichever tasks got walked through this way.
 export async function ensureOpenSession(companyId: string, locationId: string | null, performedByUserId: string, taskListId: string, date: string) {
   const existing = await TaskListSession.findOne({ companyId, locationId, taskListId, date, status: "in_progress" });
-  if (existing) {
-    if (!existing.performedByUserId) {
-      existing.performedByUserId = performedByUserId;
-      await existing.save();
-    }
-    return existing;
-  }
+  if (existing) return existing;
   return TaskListSession.create({
     companyId,
     locationId,
@@ -89,70 +81,17 @@ export async function ensureOpenSession(companyId: string, locationId: string | 
   });
 }
 
-export interface SessionLock {
-  taskListId: string;
-  performedByUserId: string;
-  performedByName: string;
-}
-
-// One open (in_progress) session's lock info per task list, for whichever of
-// taskListIds currently have one — used by TaskListCard's "Start Tasks"
-// button to show "In progress by <name>" and gate the unlock icon. A
-// session a manager has already unlocked (performedByUserId: null) reports
-// no lock — it behaves like no open session for claiming purposes.
-export async function getOpenSessionLocks(companyId: string, locationId: string | null, taskListIds: string[], date: string): Promise<SessionLock[]> {
-  if (taskListIds.length === 0) return [];
-  const sessions = await TaskListSession.find({
-    companyId,
-    locationId,
-    taskListId: { $in: taskListIds },
-    date,
-    status: "in_progress",
-    performedByUserId: { $ne: null },
-  }).lean();
-  if (sessions.length === 0) return [];
-
-  // performedByUserId isn't always a real User _id — SKIP_AUTH's local dev
-  // user (see lib/session.ts's DEV_USER_ID) is a plain sentinel string, not
-  // a Mongo ObjectId, and would otherwise make this $in query throw a cast
-  // error instead of just not matching. Filter those out before querying;
-  // they fall through to the "someone else" fallback below like any other
-  // unresolved id.
-  const validIds = sessions.map((s) => s.performedByUserId as string).filter((id) => mongoose.isValidObjectId(id));
-  const users = validIds.length > 0 ? await User.find({ _id: { $in: validIds } }, "name").lean() : [];
-  const nameById = new Map(users.map((u) => [u._id.toString(), u.name as string | undefined]));
-
-  return sessions.map((s) => ({
-    taskListId: s.taskListId.toString(),
-    performedByUserId: s.performedByUserId as string,
-    performedByName: nameById.get(s.performedByUserId as string) ?? "someone else",
-  }));
-}
-
-// Manager-only unlock (role checked by the caller, e.g. the unlock API
-// route) — clears performedByUserId back to null on the OPEN session for
-// this list/date. Nothing else about the session changes: not closed, not
-// duplicated, no reassignment step, already-completed tasks in it stay
-// exactly as they are. A no-op if there's no open session to unlock.
-export async function unlockSession(companyId: string, locationId: string | null, taskListId: string, date: string) {
-  await TaskListSession.updateOne(
-    { companyId, locationId, taskListId, date, status: "in_progress" },
-    { $set: { performedByUserId: null } }
-  );
-}
-
 // Called after a manager Undo (DELETE /api/task-logs) removes a TaskLog —
 // Undo only ever deletes the log itself, it never touches TaskListSession,
 // so undoing the one log that had ever anchored a list's session leaves
 // that session stuck: isTaskListFullyResolved can never become true again
-// (nothing left to have a terminal log), so it never auto-closes, and
-// nothing releases performedByUserId short of a manager's manual unlock —
-// "In progress by <name>" persists even though nothing is actually running.
-// If literally no TaskLog remains for any of this list's active tasks on
-// date, the session no longer represents anything that actually happened —
-// delete it outright (whatever its status) so the list is claimable again,
-// exactly as if it had never been started. A no-op whenever some other
-// task in the list still has a log (something's still genuinely in play).
+// (nothing left to have a terminal log), so it never auto-closes. If
+// literally no TaskLog remains for any of this list's active tasks on
+// date, the session no longer represents anything that actually
+// happened — delete it outright (whatever its status) rather than leave a
+// phantom "completed" or "in_progress" TaskListSession row with nothing
+// behind it. A no-op whenever some other task in the list still has a log
+// (something's still genuinely in play).
 export async function releaseSessionIfNowEmpty(companyId: string, locationId: string | null, taskId: string, date: string) {
   const task = await Task.findById(taskId).select("taskListId").lean();
   if (!task) return;
@@ -207,18 +146,27 @@ export async function incrementSessionPauseOrJump(companyId: string, locationId:
   );
 }
 
+// performedByUserId isn't always a real User _id — SKIP_AUTH's local dev
+// user (see lib/session.ts's DEV_USER_ID) is a plain sentinel string, not a
+// Mongo ObjectId, and would otherwise throw a cast error. Falls back to a
+// generic label same as the old getOpenSessionLocks did.
+async function resolveClaimantName(userId: string): Promise<string> {
+  if (!mongoose.isValidObjectId(userId)) return "someone else";
+  const user = await User.findById(userId, "name").lean();
+  return (user?.name as string | undefined) ?? "someone else";
+}
+
 // Decides what a FAB "scan to open" hit on taskId should do — see
 // docs/features/nfc.md's "FAB 'scan to open' shortcut". Read-only: never
-// creates or mutates a session itself. A physical tag identifies exactly one
+// creates or mutates a log itself. A physical tag identifies exactly one
 // task, permanently — it never redirects to, or substitutes, a different
-// task, so the very first check is always "does this specific task already
-// have a log today," regardless of list type. Only a genuinely untouched
-// task falls through to the anytime/session/locked branches below.
+// task. Task-level claiming (see docs/features/task-lists.md's "Per-task
+// claiming") means a shift-window task and an anytime task now resolve
+// identically — there's no separate "session"/list-lock branch anymore.
 export type FabScanResolution =
   | { kind: "already-logged"; taskId: string; state: LogState }
-  | { kind: "anytime"; taskId: string }
-  | { kind: "session"; taskId: string; taskListId: string }
-  | { kind: "locked"; taskId: string; taskListId: string; lockedByName: string };
+  | { kind: "claimed"; taskId: string; taskListId: string; claimedByName: string }
+  | { kind: "open"; taskId: string; taskListId: string };
 
 export async function resolveFabScanTarget(
   companyId: string,
@@ -229,39 +177,29 @@ export async function resolveFabScanTarget(
 ): Promise<FabScanResolution | null> {
   const task = await Task.findOne({ _id: taskId, companyId, isActive: true }).select("taskListId").lean();
   if (!task) return null;
-
   const taskListId = task.taskListId.toString();
-  const list = await TaskList.findOne({ _id: taskListId, companyId }).select("startTime").lean();
-  const isShiftWindow = !!list?.startTime;
 
-  const existingLog = await TaskLog.findOne({ companyId, locationId, taskId, date }).select("state").lean();
+  const existingLog = await TaskLog.findOne({ companyId, locationId, taskId, date })
+    .select("state performedByUserId")
+    .lean();
 
-  // A task mid-run (in_progress/paused) inside a shift-window list's open
-  // session isn't a dead end the way a terminal log is — the list's session
-  // is what carries lock state, not the tag, so rescanning the same tag
-  // while its session is active must jump straight back into that session
-  // at that task (same as tapping into an already-open session's row),
-  // locked out only if someone ELSE holds it. Never spawns a second
-  // start/duplicate. See docs/features/nfc.md.
-  if (existingLog && isShiftWindow && (existingLog.state === "in_progress" || existingLog.state === "paused")) {
-    const [lock] = await getOpenSessionLocks(companyId, locationId, [taskListId], date);
-    if (lock && lock.performedByUserId !== performedByUserId) {
-      return { kind: "locked", taskId, taskListId, lockedByName: lock.performedByName };
+  if (existingLog && (existingLog.state === "in_progress" || existingLog.state === "paused")) {
+    // Claimed by someone else — a physical tag never bumps another
+    // person's active claim; report it the same way TaskRow's own claim
+    // pill would. Claimed by the SAME person (rejoining, e.g. resuming
+    // after backgrounding the app) is safe to reopen, same as tapping
+    // straight into that row would be.
+    if (existingLog.performedByUserId && existingLog.performedByUserId !== performedByUserId) {
+      const claimedByName = await resolveClaimantName(existingLog.performedByUserId as string);
+      return { kind: "claimed", taskId, taskListId, claimedByName };
     }
-    return { kind: "session", taskId, taskListId };
+    return { kind: "open", taskId, taskListId };
   }
 
-  // Any other existing log (done/missed/rest, or in_progress/paused on an
-  // anytime task, which has no session/lock concept) is a dead end — a tag
+  // Any other existing log (done/missed/rest) is a dead end — a tag
   // identifies exactly one task, permanently, and rescanning it is only
   // ever a status check, never a way to reopen or advance into it.
   if (existingLog) return { kind: "already-logged", taskId, state: existingLog.state as LogState };
 
-  if (!isShiftWindow) return { kind: "anytime", taskId };
-
-  const [lock] = await getOpenSessionLocks(companyId, locationId, [taskListId], date);
-  if (lock && lock.performedByUserId !== performedByUserId) {
-    return { kind: "locked", taskId, taskListId, lockedByName: lock.performedByName };
-  }
-  return { kind: "session", taskId, taskListId };
+  return { kind: "open", taskId, taskListId };
 }

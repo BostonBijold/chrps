@@ -1,9 +1,11 @@
 import { redirect } from "next/navigation";
+import mongoose from "mongoose";
 import { auth } from "@/lib/auth";
 import { connectDB } from "@/lib/mongoose";
 import TaskList from "@/models/TaskList";
 import Task from "@/models/Task";
 import TaskLog from "@/models/TaskLog";
+import User from "@/models/User";
 import Company from "@/models/Company";
 import Todo, { serializeTodo, todosForDateQuery } from "@/models/Todo";
 import { seedDefaultTaskLists, ensureAnytimeTaskList } from "@/lib/seed";
@@ -23,7 +25,6 @@ export default async function TasksPage({
   searchParams?: {
     startNext?: string; addTask?: string; date?: string; resumeTimer?: string;
     openTaskId?: string; verifiedNfcUid?: string;
-    openSessionTaskId?: string; openSessionListId?: string;
   };
 }) {
   const skipAuth = process.env.SKIP_AUTH === "true";
@@ -144,6 +145,22 @@ export default async function TasksPage({
   // every teammate at their own store), not the whole company — see
   // docs/features/locations.md.
   const todayLogs = await TaskLog.find({ companyId, locationId, date: today }).lean();
+
+  // Claiming user's display name for the initial paint of TaskRow's claim
+  // pill — same resolution GET /api/task-logs itself does for the client's
+  // later polling refetches, see docs/features/task-lists.md's "Per-task
+  // claiming". Only needed for a non-terminal (in_progress/paused) log.
+  const claimedIds = Array.from(
+    new Set(
+      todayLogs
+        .filter((l) => l.state === "in_progress" || l.state === "paused")
+        .map((l) => l.performedByUserId)
+        .filter((id): id is string => !!id && mongoose.isValidObjectId(id))
+    )
+  );
+  const claimants = claimedIds.length > 0 ? await User.find({ _id: { $in: claimedIds } }, "name").lean() : [];
+  const claimantNameById = new Map(claimants.map((u) => [u._id.toString(), u.name as string | undefined]));
+
   const initialLogs = todayLogs.map((l) => ({
     _id: l._id.toString(),
     taskId: l.taskId.toString(),
@@ -165,6 +182,11 @@ export default async function TasksPage({
     // completed but the task list can't be continued." See TasksView.tsx's
     // openInProgressTimer.
     sessionTaskListId: l.sessionTaskListId ? l.sessionTaskListId.toString() : null,
+    performedByUserId: l.performedByUserId ?? null,
+    performedByName:
+      l.state === "in_progress" || l.state === "paused"
+        ? claimantNameById.get(l.performedByUserId ?? "") ?? "someone else"
+        : null,
   }));
 
   // 7-day streak logs
@@ -212,8 +234,6 @@ export default async function TasksPage({
       autoResumeTimer={!!searchParams?.resumeTimer}
       autoOpenTaskId={searchParams?.openTaskId ?? null}
       autoOpenVerifiedNfcUid={searchParams?.verifiedNfcUid ?? null}
-      autoOpenSessionTaskId={searchParams?.openSessionTaskId ?? null}
-      autoOpenSessionListId={searchParams?.openSessionListId ?? null}
       notificationSound={notificationSound}
     />
   );

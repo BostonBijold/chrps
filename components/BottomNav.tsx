@@ -157,15 +157,18 @@ export default function BottomNav() {
   // Navigates based on GET /api/tasks/by-nfc-uid's response, once it's
   // resolved down to a single target — shared by the direct single-match
   // path and the post-disambiguation pick. `"inventory"` opens the item's
-  // log-count screen directly, pre-verified — no session/lock/already-
-  // logged concept applies to an append-only inventory count, unlike a
-  // task's four-way split (see docs/features/inventory.md).
+  // log-count screen directly, pre-verified — no claimed/already-logged
+  // concept applies to an append-only inventory count, unlike a task's
+  // three-way split (see docs/features/inventory.md). Task-level claiming
+  // (see docs/features/task-lists.md's "Per-task claiming") means a
+  // shift-window task and an anytime task now resolve identically — both
+  // just "open" the task directly, claiming a pending one exactly like
+  // tapping Start Timer on its row would.
   const navigateFromResolution = (
     data:
-      | { mode: "already-logged"; taskId: string; state: "in_progress" | "paused" | "done" | "missed" | "rest" }
-      | { mode: "anytime"; taskId: string }
-      | { mode: "session"; taskId: string; taskListId: string }
-      | { mode: "locked"; taskId: string; taskListId: string; lockedByName: string }
+      | { mode: "already-logged"; taskId: string; state: "done" | "missed" | "rest" }
+      | { mode: "claimed"; taskId: string; taskListId: string; claimedByName: string }
+      | { mode: "open"; taskId: string; taskListId: string }
       | { mode: "inventory"; itemTypeId: string },
     uid: string,
     localDate: string
@@ -175,29 +178,25 @@ export default function BottomNav() {
       // never a way to reopen or "continue" that task, only a status
       // check. No navigation, same transient pill other scan outcomes use.
       const message =
-        data.state === "in_progress" || data.state === "paused"
-          ? "Already started — this task is already in progress."
-          : data.state === "done"
-            ? "Already completed for today."
-            : data.state === "missed"
-              ? "Already marked missed for today."
-              : "Already marked as rest for today.";
+        data.state === "done"
+          ? "Already completed for today."
+          : data.state === "missed"
+            ? "Already marked missed for today."
+            : "Already marked as rest for today.";
       flashScanMessage(message);
       return;
     }
-    if (data.mode === "locked") {
-      // Never fight an active session lock — no navigation, just the same
-      // transient pill "no task linked"/"scan failed" already uses.
-      flashScanMessage(`In progress by ${data.lockedByName} — try again once they finish.`);
+    if (data.mode === "claimed") {
+      // Never bump someone else's active claim — no navigation, just the
+      // same transient pill "no task linked"/"scan failed" already uses.
+      flashScanMessage(`In progress by ${data.claimedByName} — try again once they finish.`);
       return;
     }
 
     const url =
       data.mode === "inventory"
         ? `/inventory/${data.itemTypeId}?verifiedNfcUid=${encodeURIComponent(uid)}`
-        : data.mode === "anytime"
-          ? `/tasks?openTaskId=${data.taskId}&verifiedNfcUid=${encodeURIComponent(uid)}&date=${localDate}`
-          : `/tasks?openSessionTaskId=${data.taskId}&openSessionListId=${data.taskListId}&verifiedNfcUid=${encodeURIComponent(uid)}&date=${localDate}`;
+        : `/tasks?openTaskId=${data.taskId}&verifiedNfcUid=${encodeURIComponent(uid)}&date=${localDate}`;
     // Only /tasks needs router.replace's same-route-new-params behavior (see
     // the "Why this effect's dependency array matters" note in
     // docs/features/nfc.md) — an inventory item detail page is a plain
@@ -262,10 +261,9 @@ export default function BottomNav() {
         return;
       }
       const data = (await res.json()) as
-        | { mode: "already-logged"; taskId: string; state: "in_progress" | "paused" | "done" | "missed" | "rest" }
-        | { mode: "anytime"; taskId: string }
-        | { mode: "session"; taskId: string; taskListId: string }
-        | { mode: "locked"; taskId: string; taskListId: string; lockedByName: string }
+        | { mode: "already-logged"; taskId: string; state: "done" | "missed" | "rest" }
+        | { mode: "claimed"; taskId: string; taskListId: string; claimedByName: string }
+        | { mode: "open"; taskId: string; taskListId: string }
         | { mode: "inventory"; itemTypeId: string }
         | { mode: "disambiguate"; options: Array<{ targetType: "task" | "inventory"; targetId: string; name: string }> };
 
@@ -303,10 +301,9 @@ export default function BottomNav() {
         return;
       }
       const data = (await res.json()) as
-        | { mode: "already-logged"; taskId: string; state: "in_progress" | "paused" | "done" | "missed" | "rest" }
-        | { mode: "anytime"; taskId: string }
-        | { mode: "session"; taskId: string; taskListId: string }
-        | { mode: "locked"; taskId: string; taskListId: string; lockedByName: string }
+        | { mode: "already-logged"; taskId: string; state: "done" | "missed" | "rest" }
+        | { mode: "claimed"; taskId: string; taskListId: string; claimedByName: string }
+        | { mode: "open"; taskId: string; taskListId: string }
         | { mode: "inventory"; itemTypeId: string };
       navigateFromResolution(data, uid, localDate);
     } catch {

@@ -1,17 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
+import mongoose from "mongoose";
 import { connectDB } from "@/lib/mongoose";
 import TaskLog from "@/models/TaskLog";
+import User from "@/models/User";
 import type { LogState } from "@/models/TaskLog";
 import type { FormFieldValue } from "@/models/TaskDefinition";
 import {
   assertNfcVerified,
   assertPhotoProvided,
-  assertShiftListSessionAuthorized,
   completeInProgressLog,
   NfcTagRequiredError,
   PhotoRequiredError,
   serializeLog,
-  ShiftListSessionRequiredError,
   startInProgressLog,
   switchActiveLog,
 } from "@/lib/task-log-actions";
@@ -36,7 +36,36 @@ export async function GET(req: NextRequest) {
   const requestedLocationId = await validateLocationId(companyId, req.nextUrl.searchParams.get("locationId"));
   const locationId = pickActiveLocationId(sessionUser, requestedLocationId);
   const logs = await TaskLog.find({ companyId, locationId, date }).lean();
-  return NextResponse.json(logs.map(serializeLog));
+  const serialized = logs.map(serializeLog);
+
+  // Resolve the claiming user's display name for any task currently
+  // claimed (in_progress/paused) — TaskRow.tsx's claim pill needs this to
+  // show "who has this" to every other viewer, see docs/features/task-lists.md's
+  // "Per-task claiming". A terminal log's performedByUserId is attribution
+  // only and doesn't need a name resolved here. Same "filter out non-
+  // ObjectId sentinels" guard as lib/task-list-session-actions.ts's old
+  // getOpenSessionLocks — SKIP_AUTH's local dev user id isn't a real
+  // Mongo ObjectId and would otherwise throw a cast error on the $in query.
+  const claimedIds = Array.from(
+    new Set(
+      serialized
+        .filter((l) => l.state === "in_progress" || l.state === "paused")
+        .map((l) => l.performedByUserId)
+        .filter((id): id is string => !!id && mongoose.isValidObjectId(id))
+    )
+  );
+  const users = claimedIds.length > 0 ? await User.find({ _id: { $in: claimedIds } }, "name").lean() : [];
+  const nameById = new Map(users.map((u) => [u._id.toString(), u.name as string | undefined]));
+
+  return NextResponse.json(
+    serialized.map((l) => ({
+      ...l,
+      performedByName:
+        l.state === "in_progress" || l.state === "paused"
+          ? nameById.get(l.performedByUserId ?? "") ?? "someone else"
+          : null,
+    }))
+  );
 }
 
 // POST — creates or replaces a log entry.
@@ -91,17 +120,11 @@ export async function POST(req: NextRequest) {
   const locationId = pickActiveLocationId(sessionUser, await validateLocationId(companyId, requestedLocationId));
 
   if (state === "in_progress") {
-    // A shift-list task can only ever start running anchored to its own
-    // list's session — see assertShiftListSessionAuthorized. An anytime
-    // task (TaskCard's Start button) is unrestricted, same as before.
-    try {
-      await assertShiftListSessionAuthorized(companyId, taskId, sessionTaskListId ?? null);
-    } catch (err) {
-      if (err instanceof ShiftListSessionRequiredError) {
-        return NextResponse.json({ error: err.message }, { status: 403 });
-      }
-      throw err;
-    }
+    // A shift-list task now claims exactly like an anytime task (TaskCard's
+    // Start button) — any teammate can start any pending task independently,
+    // sessionTaskListId (when present) only anchors it inside a
+    // TaskListSessionView walkthrough, it's never an authorization gate.
+    // See docs/features/task-lists.md's "Per-task claiming."
     const log = sessionNav
       ? await switchActiveLog(companyId, locationId, performedByUserId, taskId, date, sessionTaskListId ?? null)
       : await startInProgressLog(companyId, locationId, performedByUserId, taskId, date, sessionTaskListId ?? null);
@@ -117,20 +140,6 @@ export async function POST(req: NextRequest) {
   // write terminal states through this route rather than PATCH.
   const priorLog = await TaskLog.findOne({ companyId, locationId, taskId, date }).lean();
   const priorSessionTaskListId = priorLog?.sessionTaskListId ? priorLog.sessionTaskListId.toString() : null;
-
-  // Same shift-list gate as above: a terminal write only carries this
-  // task's own taskListId in priorSessionTaskListId if it arrived here via
-  // that list's session (the per-task in_progress start stamps it before
-  // Done/Missed becomes reachable) — a direct call bypassing the
-  // session has nothing to match and is rejected.
-  try {
-    await assertShiftListSessionAuthorized(companyId, taskId, priorSessionTaskListId);
-  } catch (err) {
-    if (err instanceof ShiftListSessionRequiredError) {
-      return NextResponse.json({ error: err.message }, { status: 403 });
-    }
-    throw err;
-  }
 
   // No timer/form flow runs through this branch (it's the quick-complete/
   // back-entry path — see components/TaskCard.tsx), so there's never a
@@ -236,23 +245,11 @@ export async function PATCH(req: NextRequest) {
 
   // Read the prior sessionTaskListId up front — that's the only record of
   // which TaskListSession (if any) this completion belongs to (see
-  // lib/task-list-session-actions.ts), and the same value both branches
-  // below need for the shift-list authorization check: a shift-list task
-  // only carries its own list's id here if it arrived via that list's
-  // session (the per-task in_progress start stamps it before Done/Missed
-  // becomes reachable) — a direct call bypassing the session has nothing to
-  // match and is rejected.
+  // lib/task-list-session-actions.ts's recordSessionCompletion below); it's
+  // no longer an authorization gate (see docs/features/task-lists.md's
+  // "Per-task claiming") — any teammate can complete any in_progress log.
   const priorLog = await TaskLog.findOne({ companyId, locationId, taskId, date }).lean();
   const priorSessionTaskListId = priorLog?.sessionTaskListId ? priorLog.sessionTaskListId.toString() : null;
-
-  try {
-    await assertShiftListSessionAuthorized(companyId, taskId, priorSessionTaskListId);
-  } catch (err) {
-    if (err instanceof ShiftListSessionRequiredError) {
-      return NextResponse.json({ error: err.message }, { status: 403 });
-    }
-    throw err;
-  }
 
   if (state === "done" && !(startOverride && endOverride)) {
     // Timer completion: derive duration from server-recorded startedAt, plus

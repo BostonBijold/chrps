@@ -45,19 +45,11 @@ export interface TaskLogEntry {
   sessionTaskListId?: string | null; // set when this in_progress timer is anchored inside a Task List Session
   formData?: Record<string, FormFieldValue> | null; // captured readings for a form task — see TaskRow.tsx's view-only shift-list rows
   photoUrl?: string | null; // Blob URL of the completion photo, if this task's TaskDefinition.requiresPhoto was set — see docs/features/task-completion-photo.md
+  performedByUserId?: string | null; // who started/completed this log — drives TaskRow's claim pill for in_progress/paused, see docs/features/task-lists.md
+  performedByName?: string | null; // resolved server-side (GET /api/task-logs) only while state is in_progress/paused — the claiming user's display name for the pill
 }
 
 export type WeekLog = { taskId: string; date: string; state: LogState; actualMinutes: number | null };
-
-// Who currently holds a shift-window task list's open "Start Tasks" session
-// — see the "Task List Locking" design in docs/features/task-lists.md.
-// Absent from the map entirely means no open session (or one a manager has
-// unlocked, which the server already reports as no lock — see
-// lib/task-list-session-actions.ts's getOpenSessionLocks).
-export interface SessionLockInfo {
-  performedByUserId: string;
-  performedByName: string;
-}
 
 interface Props {
   taskLists: TaskListCardTaskList[];
@@ -85,8 +77,6 @@ interface Props {
   autoResumeTimer?: boolean;
   autoOpenTaskId?: string | null; // set by BottomNav.tsx's FAB "scan to open" shortcut
   autoOpenVerifiedNfcUid?: string | null; // the UID that scan already read — pre-satisfies that task's own Scan NFC step, see TaskFormScreen.tsx
-  autoOpenSessionTaskId?: string | null; // set when the FAB scan resolved to a shift-window task — see docs/features/nfc.md
-  autoOpenSessionListId?: string | null; // that task's parent list, to join/auto-start its session
   notificationSound: NotificationSound; // which chirp to play on an NFC scan-to-complete save — see lib/notification-sound.ts
 }
 
@@ -103,8 +93,6 @@ export default function TasksView({
   autoResumeTimer = false,
   autoOpenTaskId = null,
   autoOpenVerifiedNfcUid = null,
-  autoOpenSessionTaskId = null,
-  autoOpenSessionListId = null,
   notificationSound,
 }: Props) {
   const router = useRouter();
@@ -133,10 +121,6 @@ export default function TasksView({
   const [todos, setTodos] = useState<TodoEntry[]>(initialTodos);
   const [addTodoOpen, setAddTodoOpen] = useState(false);
   const [editingTodo, setEditingTodo] = useState<TodoEntry | null>(null);
-  // Which shift-window task lists currently have an open session, and who
-  // holds it — keyed by taskListId, absent = unlocked/no session. See
-  // GET /api/task-lists/session-locks.
-  const [sessionLocks, setSessionLocks] = useState<Record<string, SessionLockInfo>>({});
 
   const isPastDate = selectedDate !== today;
 
@@ -187,38 +171,21 @@ export default function TasksView({
     if (autoOpenTaskId) {
       const found = taskLists.flatMap((tl) => tl.tasks).find((t) => t._id === autoOpenTaskId) ?? null;
       if (found) {
-        setTimerInitialElapsed(0);
-        setTimerItem(found);
         if (autoOpenVerifiedNfcUid) setPreVerified({ taskId: found._id, uid: autoOpenVerifiedNfcUid });
-      }
-      router.replace("/tasks");
-    }
-    if (autoOpenSessionTaskId && autoOpenSessionListId) {
-      // A FAB scan on a shift-window task auto-starts (or joins) that list's
-      // session and lands the user directly on the scanned task — same
-      // free-jump guided walkthrough as tapping "Start Tasks" and then
-      // tapping straight to that one row. This is mechanically identical to
-      // the manual flow: setting activeSession is all that's needed —
-      // TaskListSessionView's own per-task effect anchors the in_progress
-      // log with sessionTaskListId on mount, which is what makes
-      // ensureOpenSession start/join the session server-side. See
-      // docs/features/nfc.md's "FAB scan → auto-start nearest shift-window
-      // list" section.
-      const taskList = taskLists.find((tl) => tl._id === autoOpenSessionListId);
-      const visible = taskList ? taskList.tasks.filter((t) => isTaskVisibleOn(t, today)) : [];
-      // Index into the SAME filtered/visible array TaskListSessionView is
-      // rendered against below (sessionTasks) — indexing against the raw,
-      // unfiltered taskList.tasks would drift out of sync whenever a task
-      // isn't scheduled today, landing on the wrong row entirely.
-      const startIndex = visible.findIndex((t) => t._id === autoOpenSessionTaskId);
-      if (taskList && startIndex !== -1) {
-        setActiveSession({ taskList, startIndex });
-        if (autoOpenVerifiedNfcUid) setPreVerified({ taskId: autoOpenSessionTaskId, uid: autoOpenVerifiedNfcUid });
+        // A shift-window task now claims exactly like an anytime task — see
+        // docs/features/task-lists.md's "Per-task claiming." handleStartTimer
+        // already knows how to resume a session-anchored in_progress/paused
+        // log into the guided TaskListSessionView (reproducing "tapped Start
+        // Tasks and navigated to that task by hand"), resume a plain
+        // standalone timer, or claim a fresh task — same three-way branch a
+        // tap on TaskRow's own Start/Resume button goes through, so a FAB
+        // scan and a per-row tap land in exactly the same place.
+        handleStartTimer(found);
       }
       router.replace("/tasks");
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoStartNext, autoAddTask, autoOpenTaskId, autoOpenVerifiedNfcUid, autoOpenSessionTaskId, autoOpenSessionListId]);
+  }, [autoStartNext, autoAddTask, autoOpenTaskId, autoOpenVerifiedNfcUid]);
 
   // Shared by both resume effects below — finds the day's in_progress log.
   // Only one is ever in_progress at a time (jumping to a different task
@@ -365,32 +332,15 @@ export default function TasksView({
     return () => { cancelled = true; };
   }, [selectedDate, today, initialLogs]);
 
-  // Which shift-window task lists currently have an open session — fetched
-  // on date change; kept live thereafter by the combined poll-check effect
-  // below. See GET /api/task-lists/session-locks and TaskListCard.tsx.
-  const refetchSessionLocks = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/task-lists/session-locks?date=${selectedDate}`);
-      if (!res.ok) return;
-      const data: Array<{ taskListId: string } & SessionLockInfo> = await res.json();
-      setSessionLocks(Object.fromEntries(data.map((l) => [l.taskListId, { performedByUserId: l.performedByUserId, performedByName: l.performedByName }])));
-    } catch {
-      // keep previous state; next poll/event will retry
-    }
-  }, [selectedDate]);
-
-  useEffect(() => {
-    refetchSessionLocks();
-  }, [refetchSessionLocks]);
-
-  // Keeps both today's TaskLogs (external App Intent / Siri / Shortcuts
-  // triggers) and the shift-list session locks above live while the Tasks
-  // page sits open and visible — without paying for two full fetches every
-  // LOG_POLL_MS the way the old dual setInterval polls did. Each tick hits
-  // GET /api/task-logs/poll-check instead: a cheap {count, maxUpdatedAt}
-  // fingerprint per resource (no document bodies), and only calls the real
-  // refetch when a fingerprint actually differs from what was last seen.
-  // On top of that, the interval itself backs off geometrically
+  // Keeps today's TaskLogs (external App Intent / Siri / Shortcuts triggers,
+  // and — since per-task claiming replaced the list-level session lock, see
+  // docs/features/task-lists.md's "Per-task claiming" — any teammate
+  // claiming/completing a shift-list task from their own device) live while
+  // the Tasks page sits open and visible, without paying for a full fetch
+  // every LOG_POLL_MS. Each tick hits GET /api/task-logs/poll-check instead:
+  // a cheap {count, maxUpdatedAt} fingerprint (no document bodies), and only
+  // calls the real refetch when it actually differs from what was last
+  // seen. On top of that, the interval itself backs off geometrically
   // (LOG_POLL_MS -> ... -> MAX_POLL_MS) after consecutive unchanged ticks —
   // a foregrounded idle tab (a kiosk iPad, a tester who left the app open)
   // is the common case, not someone actively working through a list, so
@@ -398,35 +348,29 @@ export default function TasksView({
   // happened" signals (same-tab event, tab refocused) resets the backoff
   // back to LOG_POLL_MS immediately, so active use still feels like a flat
   // 2s poll. Only runs while viewing today — nothing external changes a
-  // past day, and there's no session lock to poll for one either.
+  // past day.
   useEffect(() => {
     if (selectedDate !== today) return;
     let cancelled = false;
     let timeoutId: ReturnType<typeof setTimeout>;
     let consecutiveUnchanged = 0;
-    // undefined = "haven't checked yet" — the first tick just seeds these
+    // undefined = "haven't checked yet" — the first tick just seeds this
     // rather than treating "no prior version" as a change, since the
-    // mount-time effects above already fetched fresh data.
+    // mount-time effect above already fetched fresh data.
     let lastLogsVersion: string | undefined;
-    let lastSessionLocksVersion: string | undefined;
 
     const tick = async () => {
       if (document.visibilityState === "visible") {
         try {
           const res = await fetch(`/api/task-logs/poll-check?date=${selectedDate}`);
           if (res.ok) {
-            const { logsVersion, sessionLocksVersion }: { logsVersion: string; sessionLocksVersion: string } = await res.json();
+            const { logsVersion }: { logsVersion: string } = await res.json();
             let changed = false;
             if (lastLogsVersion !== undefined && lastLogsVersion !== logsVersion) {
               changed = true;
               refetchLogs();
             }
-            if (lastSessionLocksVersion !== undefined && lastSessionLocksVersion !== sessionLocksVersion) {
-              changed = true;
-              refetchSessionLocks();
-            }
             lastLogsVersion = logsVersion;
-            lastSessionLocksVersion = sessionLocksVersion;
             consecutiveUnchanged = changed ? 0 : consecutiveUnchanged + 1;
           }
         } catch {
@@ -445,7 +389,6 @@ export default function TasksView({
     };
     const onChanged = () => {
       refetchLogs();
-      refetchSessionLocks();
       resetBackoff();
     };
     const onVisible = () => {
@@ -464,21 +407,7 @@ export default function TasksView({
       window.removeEventListener("focus", onVisible);
       clearTimeout(timeoutId);
     };
-  }, [selectedDate, today, refetchLogs, refetchSessionLocks]);
-
-  // Manager-only — clears the open session's lock so someone else can pick
-  // the task list back up. See POST /api/task-lists/[id]/unlock-session.
-  const handleUnlockSession = useCallback(
-    async (taskListId: string) => {
-      await fetch(`/api/task-lists/${taskListId}/unlock-session`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date: selectedDate }),
-      });
-      refetchSessionLocks();
-    },
-    [selectedDate, refetchSessionLocks]
-  );
+  }, [selectedDate, today, refetchLogs]);
 
   // Re-fetch to-dos whenever the selected date changes
   useEffect(() => {
@@ -1155,8 +1084,6 @@ export default function TasksView({
                   onStartTaskList={(tl, startIndex) => setActiveSession({ taskList: tl, startIndex })}
                   currentUserId={userId}
                   userRole={userRole}
-                  sessionLock={sessionLocks[taskList._id] ?? null}
-                  onUnlockSession={() => handleUnlockSession(taskList._id)}
                 />
               ))}
             </div>

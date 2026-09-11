@@ -25,13 +25,12 @@ export interface ITaskListSession extends Document {
   // store would incorrectly appear "already open" at another. Null only for
   // sessions predating Locations, backfilled by the one-off migration.
   locationId: string | null;
-  // Who started this particular session run — an attribute, not part of the
-  // lookup key: the list/date lookup below is company-wide (any employee
-  // can pick up an already-open session), same reasoning as
-  // TaskLog.performedByUserId. Null means an open session a manager has
-  // unlocked — see lib/task-list-session-actions.ts's unlockSession — and
-  // acts as "up for grabs": the next person to touch a task in this list
-  // claims it, same as a brand-new session's first touch.
+  // Who opened this particular guided "Start Tasks" walkthrough — an
+  // attribute only, never an exclusivity lock over the list's tasks (see
+  // docs/features/task-lists.md's "Per-task claiming" — that used to be
+  // this field's job, before per-task claiming replaced it). Stamped once
+  // on creation and never reassigned; who's actually claimed/completed any
+  // given task lives on that task's own TaskLog.performedByUserId instead.
   performedByUserId: string | null;
   taskListId: mongoose.Types.ObjectId;
   date: string; // YYYY-MM-DD
