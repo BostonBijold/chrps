@@ -288,6 +288,12 @@ rather than a mobile bottom sheet.
 (`TaskList`/`Task.visibleToJobTags`) is not part of this pass — flagged
 in `locations.md` as "a distinct future pass" and left that way here too.
 
+**Consumed by**: [`notification-job-tag-targeting.md`](notification-job-tag-targeting.md)
+(narrows a list's start-time reminder audience) and
+[`shift-lead-preassignment.md`](shift-lead-preassignment.md) (groups the
+shift-lead picker's roster by tag) both read this catalog — neither
+touches task-list visibility either.
+
 ## Phase 2 — Cross-location rollup dashboard (built)
 
 The genuinely new part — the piece with no existing precedent.

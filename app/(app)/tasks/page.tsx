@@ -165,8 +165,11 @@ export default async function TasksPage({
   const todayLogs = await TaskLog.find({ companyId, locationId, date: today }).lean();
 
   // Today's most recent TaskListSession per list — start/end time + who
-  // opened it first ("session owner"), for TaskListCard's "✓ Done" pill.
-  // See lib/task-list-session-actions.ts's getSessionSummariesForDate.
+  // opened it first ("session owner"), for TaskListCard's "✓ Done" pill; or,
+  // when nothing's been started yet, a pre-assigned shift lead instead, for
+  // the shift-lead pre-assignment row — see
+  // docs/features/shift-lead-preassignment.md. See
+  // lib/task-list-session-actions.ts's getSessionSummariesForDate.
   const sessionSummaries = await getSessionSummariesForDate(companyId, locationId, today);
 
   // Every log's performedByUserId, resolved into a display name — the
@@ -179,8 +182,11 @@ export default async function TasksPage({
   // resolve off a single User query.
   const performedByIds = Array.from(
     new Set(
-      [...todayLogs.map((l) => l.performedByUserId), ...sessionSummaries.map((s) => s.performedByUserId)]
-        .filter((id): id is string => !!id && mongoose.isValidObjectId(id))
+      [
+        ...todayLogs.map((l) => l.performedByUserId),
+        ...sessionSummaries.map((s) => s.performedByUserId),
+        ...sessionSummaries.map((s) => s.assignedUserId),
+      ].filter((id): id is string => !!id && mongoose.isValidObjectId(id))
     )
   );
   const performers = performedByIds.length > 0 ? await User.find({ _id: { $in: performedByIds } }, "name").lean() : [];
@@ -188,9 +194,12 @@ export default async function TasksPage({
 
   const initialSessions = sessionSummaries.map((s) => ({
     taskListId: s.taskListId,
-    startedAt: s.startedAt.toISOString(),
+    status: s.status,
+    startedAt: s.startedAt ? s.startedAt.toISOString() : null,
     completedAt: s.completedAt ? s.completedAt.toISOString() : null,
     ownerName: s.performedByUserId ? nameByPerformerId.get(s.performedByUserId) ?? "someone else" : null,
+    assignedUserId: s.assignedUserId,
+    assignedUserName: s.assignedUserId ? nameByPerformerId.get(s.assignedUserId) ?? "someone else" : null,
   }));
 
   const initialLogs = todayLogs.map((l) => ({

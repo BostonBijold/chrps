@@ -58,13 +58,23 @@ export async function isTaskListFullyResolved(companyId: string, locationId: str
 // more than once the same day (see models/TaskListSession.ts's
 // no-unique-index note). Powers TaskListCard's "✓ Done" pill (start/end
 // time + session owner — the person whose performedByUserId is stamped on
-// the session, i.e. whoever opened it first) — see docs/features/task-lists.md.
+// the session, i.e. whoever opened it first) — see docs/features/task-lists.md —
+// and, when status is "assigned", the shift-lead pre-assignment row instead
+// (see docs/features/shift-lead-preassignment.md). Mongo's null-sorts-last-
+// on-descending behavior means an "assigned" record (startedAt: null) only
+// ever wins the "latest per list" pick below when there's no real
+// in_progress/completed run to beat it — exactly the "surface it only while
+// nothing's actually running yet" rule that row needs, with no extra
+// filtering logic required here.
 export interface TaskListSessionSummary {
   taskListId: string;
-  startedAt: Date;
+  status: "assigned" | "in_progress" | "completed";
+  startedAt: Date | null;
   completedAt: Date | null;
-  status: "in_progress" | "completed";
   performedByUserId: string | null;
+  assignedUserId: string | null;
+  assignedByUserId: string | null;
+  assignedAt: Date | null;
 }
 
 export async function getSessionSummariesForDate(
@@ -81,10 +91,13 @@ export async function getSessionSummariesForDate(
     if (latestByTaskListId.has(key)) continue; // sorted desc — first hit per list is already the latest
     latestByTaskListId.set(key, {
       taskListId: key,
-      startedAt: s.startedAt,
-      completedAt: s.completedAt ?? null,
       status: s.status,
+      startedAt: s.startedAt ?? null,
+      completedAt: s.completedAt ?? null,
       performedByUserId: s.performedByUserId ?? null,
+      assignedUserId: s.assignedUserId ?? null,
+      assignedByUserId: s.assignedByUserId ?? null,
+      assignedAt: s.assignedAt ?? null,
     });
   }
   return Array.from(latestByTaskListId.values());
@@ -101,7 +114,26 @@ export async function getSessionSummariesForDate(
 // tasks (see docs/features/task-lists.md's "Per-task claiming"); it's kept
 // purely as a session-scoped wrapper (real start/finish, completion order,
 // pause/jump count) around whichever tasks got walked through this way.
+//
+// A pre-assigned shift lead (see docs/features/shift-lead-preassignment.md)
+// takes priority: if today's list has an "assigned" record, this upgrades
+// it in place rather than opening a separate "in_progress" one alongside
+// it — performedByUserId is stamped from the PRE-assignment
+// (assignedUserId), not from whoever's tap actually triggered this call, so
+// a different person physically starting the list doesn't quietly take
+// over the assignment. assignedUserId/assignedByUserId/assignedAt are left
+// untouched, staying on the record as a permanent "who was assigned, and by
+// whom" alongside the run itself.
 export async function ensureOpenSession(companyId: string, locationId: string | null, performedByUserId: string, taskListId: string, date: string) {
+  const assigned = await TaskListSession.findOne({ companyId, locationId, taskListId, date, status: "assigned" });
+  if (assigned) {
+    assigned.status = "in_progress";
+    assigned.startedAt = new Date();
+    assigned.performedByUserId = assigned.assignedUserId;
+    await assigned.save();
+    return assigned;
+  }
+
   const existing = await TaskListSession.findOne({ companyId, locationId, taskListId, date, status: "in_progress" });
   if (existing) return existing;
   return TaskListSession.create({
@@ -117,6 +149,43 @@ export async function ensureOpenSession(companyId: string, locationId: string | 
     completionSequence: [],
     pauseOrJumpCount: 0,
   });
+}
+
+// Pre-assigns (or reassigns) today's shift lead for a task list, before
+// anyone's actually started it — see
+// docs/features/shift-lead-preassignment.md. Finds-or-creates the day's
+// "assigned" record; rejects (returns null) if a real run (in_progress/
+// completed) already exists for that list/date, since the UI's own "row
+// disappears once a session is running" rule shouldn't be trusted blindly
+// on the server side. Manager-only gating happens in the API route, not
+// here — same division of labor as every other action in this file.
+export async function assignShiftLead(
+  companyId: string,
+  locationId: string | null,
+  taskListId: string,
+  date: string,
+  assignedUserId: string,
+  assignedByUserId: string
+) {
+  const started = await TaskListSession.findOne({
+    companyId, locationId, taskListId, date,
+    status: { $in: ["in_progress", "completed"] },
+  }).select("_id").lean();
+  if (started) return null;
+
+  return TaskListSession.findOneAndUpdate(
+    { companyId, locationId, taskListId, date, status: "assigned" },
+    { $set: { assignedUserId, assignedByUserId, assignedAt: new Date() } },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  );
+}
+
+// Clears today's pre-assignment, if one exists. Deletes the "assigned"
+// record outright rather than leaving an empty shell behind — simplest
+// option, and nothing downstream depends on an empty "assigned" doc
+// existing (see the spec's Write path notes).
+export async function clearShiftLead(companyId: string, locationId: string | null, taskListId: string, date: string) {
+  await TaskListSession.deleteOne({ companyId, locationId, taskListId, date, status: "assigned" });
 }
 
 // Called after a manager Undo (DELETE /api/task-logs) removes a TaskLog —
