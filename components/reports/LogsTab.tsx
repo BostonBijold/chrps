@@ -190,7 +190,7 @@ export default function LogsTab({ role }: { role: "manager" | "employee" | "owne
                 <p className="font-body text-sm text-text leading-tight truncate">{log.taskName}</p>
                 <p className="font-mono text-[10px] text-dim mt-0.5 truncate">
                   {log.taskListName}
-                  {isManagerOrAbove(role) && ` · ${log.performedByName}`}
+                  {` · ${log.performedByName}`}
                   {log.isBackEntry && " · back-entry"}
                 </p>
               </div>

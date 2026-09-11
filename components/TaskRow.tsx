@@ -241,6 +241,13 @@ export default function TaskRow({
           >
             {item.name}
           </p>
+          {/* Who completed/missed it — visible to every teammate, not just
+              managers, see docs/features/task-lists.md's "Per-task claiming". */}
+          {(state === "done" || state === "missed") && log?.performedByName && (
+            <p className="font-mono text-[10px] text-dim">
+              {LABEL[state]} by {log.performedByName}
+            </p>
+          )}
           <div className="mt-1.5">
             <StreakDots
               logs={weekLogs}
@@ -532,7 +539,9 @@ export default function TaskRow({
             </p>
           )}
 
-          {/* ── Done/missed — unchanged read-only detail ── */}
+          {/* ── Done/missed — unchanged read-only detail (the "by <name>"
+              attribution already shows on the collapsed row's header
+              above, so it isn't repeated here) ── */}
           {state === "done" && isForm && log?.formData && formFields.length > 0 ? (
             <div className="space-y-1.5">
               {formFields.map((f) => {

@@ -90,7 +90,7 @@ This is a **separate route from `GET /api/task-logs`**, not an extension of it �
 
 **Pagination**: simple page/limit with a `hasMore` boolean — no cursor. This is the first paginated route in the codebase; cursor pagination on a sometimes-null `completedAt` field wasn't worth the added complexity at current data scale.
 
-**UI** (`components/reports/LogsTab.tsx`): manager gets a team-member `<select>` (from `GET /api/team`, "All team members" default) and a task-list `<select>` (from `GET /api/task-lists`, "All lists" default), plus two date inputs defaulting to a trailing 14-day window; employee gets the same minus the team-member dropdown and the per-row performer name (always "you"). "Load more" appends the next page; no infinite-scroll observer (no such pattern exists elsewhere in this app either).
+**UI** (`components/reports/LogsTab.tsx`): manager gets a team-member `<select>` (from `GET /api/team`, "All team members" default) and a task-list `<select>` (from `GET /api/task-lists`, "All lists" default), plus two date inputs defaulting to a trailing 14-day window; employee gets the same minus the team-member dropdown (their own logs are already the only ones the server ever returns to them). Every row's per-log performer name is shown regardless of role — an employee's own history just always shows their own name, same as it would to a manager browsing that same teammate's history. "Load more" appends the next page; no infinite-scroll observer (no such pattern exists elsewhere in this app either).
 
 Deferred: exact retention/paging limits for very old date ranges, and a CSV/export option — neither scoped for v1.
 

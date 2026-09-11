@@ -45,8 +45,8 @@ export interface TaskLogEntry {
   sessionTaskListId?: string | null; // set when this in_progress timer is anchored inside a Task List Session
   formData?: Record<string, FormFieldValue> | null; // captured readings for a form task — see TaskRow.tsx's view-only shift-list rows
   photoUrl?: string | null; // Blob URL of the completion photo, if this task's TaskDefinition.requiresPhoto was set — see docs/features/task-completion-photo.md
-  performedByUserId?: string | null; // who started/completed this log — drives TaskRow's claim pill for in_progress/paused, see docs/features/task-lists.md
-  performedByName?: string | null; // resolved server-side (GET /api/task-logs) only while state is in_progress/paused — the claiming user's display name for the pill
+  performedByUserId?: string | null; // who started/completed this log — drives TaskRow's/TaskCard's claim pill (in_progress/paused) and "by <name>" attribution (done/missed), see docs/features/task-lists.md
+  performedByName?: string | null; // resolved server-side (GET /api/task-logs) for any log with a performedByUserId — this user's display name, visible to every teammate regardless of role
 }
 
 export type WeekLog = { taskId: string; date: string; state: LogState; actualMinutes: number | null };
