@@ -38,32 +38,28 @@ export async function GET(req: NextRequest) {
   const logs = await TaskLog.find({ companyId, locationId, date }).lean();
   const serialized = logs.map(serializeLog);
 
-  // Resolve the claiming user's display name for any task currently
-  // claimed (in_progress/paused) — TaskRow.tsx's claim pill needs this to
-  // show "who has this" to every other viewer, see docs/features/task-lists.md's
-  // "Per-task claiming". A terminal log's performedByUserId is attribution
-  // only and doesn't need a name resolved here. Same "filter out non-
-  // ObjectId sentinels" guard as lib/task-list-session-actions.ts's old
-  // getOpenSessionLocks — SKIP_AUTH's local dev user id isn't a real
-  // Mongo ObjectId and would otherwise throw a cast error on the $in query.
-  const claimedIds = Array.from(
+  // Resolve every log's performedByUserId into a display name — TaskRow.tsx/
+  // TaskCard.tsx need this both for the in_progress/paused claim pill (see
+  // docs/features/task-lists.md's "Per-task claiming") and for a done/
+  // missed row's "by <name>" attribution, visible to every teammate, not
+  // just managers. Same "filter out non-ObjectId sentinels" guard as
+  // lib/task-list-session-actions.ts's old getOpenSessionLocks — SKIP_AUTH's
+  // local dev user id isn't a real Mongo ObjectId and would otherwise throw
+  // a cast error on the $in query.
+  const performedByIds = Array.from(
     new Set(
       serialized
-        .filter((l) => l.state === "in_progress" || l.state === "paused")
         .map((l) => l.performedByUserId)
         .filter((id): id is string => !!id && mongoose.isValidObjectId(id))
     )
   );
-  const users = claimedIds.length > 0 ? await User.find({ _id: { $in: claimedIds } }, "name").lean() : [];
+  const users = performedByIds.length > 0 ? await User.find({ _id: { $in: performedByIds } }, "name").lean() : [];
   const nameById = new Map(users.map((u) => [u._id.toString(), u.name as string | undefined]));
 
   return NextResponse.json(
     serialized.map((l) => ({
       ...l,
-      performedByName:
-        l.state === "in_progress" || l.state === "paused"
-          ? nameById.get(l.performedByUserId ?? "") ?? "someone else"
-          : null,
+      performedByName: l.performedByUserId ? nameById.get(l.performedByUserId) ?? "someone else" : null,
     }))
   );
 }

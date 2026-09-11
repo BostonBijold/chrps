@@ -361,7 +361,34 @@ export default function TaskListCard({
               blocking on it (TaskListSessionView.tsx's own logic). */}
           {visibleTasks.length > 0 && !isComplete && !isPastDate && taskList.timeOfDay !== "anytime" && (() => {
             const hasStarted = visibleTasks.some((t) => !!logs[t._id]);
-            const firstIncompleteIdx = Math.max(0, visibleTasks.findIndex((t) => logs[t._id]?.state !== "done"));
+            // Skip past both a finished task AND one someone ELSE already
+            // has claimed — landing "Continue Tasks" directly on a task in
+            // progress under a different performedByUserId was the bug:
+            // TaskListSessionView's own reactive skip logic only runs
+            // AFTER something changes, never validates its very first
+            // currentIndex, so the first tap needs to pick a genuinely
+            // available task itself. (TaskListSessionView's own
+            // resolveInitialIndex re-validates this against live data at
+            // mount too, so this is a best-guess landing spot, not the
+            // only guard — see docs/features/task-lists.md's "Per-task
+            // claiming".) Falls back to 0 if nothing qualifies (every
+            // remaining task is done or claimed elsewhere).
+            const firstIncompleteIdx = Math.max(
+              0,
+              visibleTasks.findIndex((t) => {
+                const log = logs[t._id];
+                if (!log || log.state === "missed") return true;
+                if (log.state === "done") return false;
+                if (
+                  (log.state === "in_progress" || log.state === "paused") &&
+                  log.performedByUserId &&
+                  log.performedByUserId !== currentUserId
+                ) {
+                  return false;
+                }
+                return true;
+              })
+            );
             return (
               <button
                 onClick={() => onStartTaskList(taskList, firstIncompleteIdx)}

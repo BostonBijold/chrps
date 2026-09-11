@@ -146,20 +146,21 @@ export default async function TasksPage({
   // docs/features/locations.md.
   const todayLogs = await TaskLog.find({ companyId, locationId, date: today }).lean();
 
-  // Claiming user's display name for the initial paint of TaskRow's claim
-  // pill — same resolution GET /api/task-logs itself does for the client's
-  // later polling refetches, see docs/features/task-lists.md's "Per-task
-  // claiming". Only needed for a non-terminal (in_progress/paused) log.
-  const claimedIds = Array.from(
+  // Every log's performedByUserId, resolved into a display name — the
+  // initial paint of TaskRow's/TaskCard's in_progress/paused claim pill AND
+  // a done/missed row's "by <name>" attribution (visible to every teammate,
+  // not just managers) both need this. Same resolution GET /api/task-logs
+  // itself does for the client's later polling refetches — see
+  // docs/features/task-lists.md's "Per-task claiming".
+  const performedByIds = Array.from(
     new Set(
       todayLogs
-        .filter((l) => l.state === "in_progress" || l.state === "paused")
         .map((l) => l.performedByUserId)
         .filter((id): id is string => !!id && mongoose.isValidObjectId(id))
     )
   );
-  const claimants = claimedIds.length > 0 ? await User.find({ _id: { $in: claimedIds } }, "name").lean() : [];
-  const claimantNameById = new Map(claimants.map((u) => [u._id.toString(), u.name as string | undefined]));
+  const performers = performedByIds.length > 0 ? await User.find({ _id: { $in: performedByIds } }, "name").lean() : [];
+  const nameByPerformerId = new Map(performers.map((u) => [u._id.toString(), u.name as string | undefined]));
 
   const initialLogs = todayLogs.map((l) => ({
     _id: l._id.toString(),
@@ -183,10 +184,7 @@ export default async function TasksPage({
     // openInProgressTimer.
     sessionTaskListId: l.sessionTaskListId ? l.sessionTaskListId.toString() : null,
     performedByUserId: l.performedByUserId ?? null,
-    performedByName:
-      l.state === "in_progress" || l.state === "paused"
-        ? claimantNameById.get(l.performedByUserId ?? "") ?? "someone else"
-        : null,
+    performedByName: l.performedByUserId ? nameByPerformerId.get(l.performedByUserId) ?? "someone else" : null,
   }));
 
   // 7-day streak logs

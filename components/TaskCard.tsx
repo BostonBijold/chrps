@@ -120,6 +120,12 @@ export default function TaskCard({
           </div>
           <div className="flex-1 min-w-0">
             <p className="font-body text-sm text-dim line-through leading-tight">{item.name}</p>
+            {/* Who completed it — visible to every teammate, not just
+                managers, see docs/features/task-lists.md's "Per-task
+                claiming". */}
+            {log?.performedByName && (
+              <p className="font-mono text-[10px] text-dim">Done by {log.performedByName}</p>
+            )}
             {instructionsButton}
             <div className="mt-1.5">
               <StreakDots
@@ -178,6 +184,9 @@ export default function TaskCard({
           </div>
           <div className="flex-1 min-w-0">
             <p className="font-body text-sm text-dim leading-tight">{item.name}</p>
+            {log?.performedByName && (
+              <p className="font-mono text-[10px] text-dim">Missed by {log.performedByName}</p>
+            )}
             {instructionsButton}
             <div className="mt-1.5">
               <StreakDots
