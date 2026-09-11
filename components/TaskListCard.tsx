@@ -227,25 +227,37 @@ export default function TaskListCard({
     <section>
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between mb-3 min-h-[44px]">
-        <button className="flex items-center gap-2 text-left flex-1" onClick={toggle}>
-          <h2 className="font-heading text-lg text-text">{taskList.name}</h2>
+        <button className="flex items-center justify-between gap-2 text-left flex-1 min-w-0" onClick={toggle}>
+          <h2 className="font-heading text-lg text-text truncate">{taskList.name}</h2>
           {isComplete && !isPastDate ? (
-            <span className="font-mono text-[10px] text-done bg-done/10 px-2 py-0.5 rounded-pill">
-              ✓ Done
-              {session?.completedAt && (
-                <>
-                  {" · "}
-                  {fmtClock(session.startedAt)}–{fmtClock(session.completedAt)}
-                  {session.ownerName && ` · ${session.ownerName}`}
-                </>
-              )}
-            </span>
+            session?.completedAt && session?.ownerName ? (
+              // A resolved owner makes the range+name too long for one line
+              // alongside the list name — stack it under "✓ Done" instead
+              // of squeezing/wrapping the title, and keep both lines
+              // right-aligned so the pill still reads as one right-hand unit.
+              <span className="shrink-0 font-mono text-[10px] text-done bg-done/10 px-2 py-1 rounded-pill leading-tight flex flex-col items-end text-right">
+                <span>✓ Done</span>
+                <span>
+                  {fmtClock(session.startedAt)}–{fmtClock(session.completedAt)} · {session.ownerName}
+                </span>
+              </span>
+            ) : (
+              <span className="shrink-0 font-mono text-[10px] text-done bg-done/10 px-2 py-0.5 rounded-pill">
+                ✓ Done
+                {session?.completedAt && (
+                  <>
+                    {" · "}
+                    {fmtClock(session.startedAt)}–{fmtClock(session.completedAt)}
+                  </>
+                )}
+              </span>
+            )
           ) : beforeWindow && taskList.startTime ? (
-            <span className="font-mono text-[10px] text-dim px-2 py-0.5 rounded-pill border border-border">
+            <span className="shrink-0 font-mono text-[10px] text-dim px-2 py-0.5 rounded-pill border border-border">
               starts {fmtTime(taskList.startTime)}
             </span>
           ) : pastTimeframe && !isComplete ? (
-            <span className="font-mono text-[10px] text-dim px-2 py-0.5 rounded-pill border border-border">
+            <span className="shrink-0 font-mono text-[10px] text-dim px-2 py-0.5 rounded-pill border border-border">
               {collapseAfter ? `by ${fmtTime(collapseAfter)}` : "window passed"}
             </span>
           ) : null}
