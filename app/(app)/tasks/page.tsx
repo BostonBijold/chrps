@@ -12,6 +12,7 @@ import { seedDefaultTaskLists, ensureAnytimeTaskList } from "@/lib/seed";
 import { getSessionSummariesForDate } from "@/lib/task-list-session-actions";
 import { resolveTasks } from "@/lib/task-definitions";
 import { calendarWeekDates } from "@/lib/week-dates";
+import { todayInZone } from "@/lib/task-list-window";
 import TasksView from "@/components/TasksView";
 import type { LogState } from "@/models/TaskLog";
 import type { InstructionStep } from "@/models/TaskDefinition";
@@ -60,10 +61,26 @@ export default async function TasksPage({
   if (taskListCount === 0) await seedDefaultTaskLists(companyId, locationId);
   await ensureAnytimeTaskList(companyId, locationId);
 
-  // Always trust the client-supplied date (local timezone).
-  // Never fall back to server UTC — the server doesn't know the user's timezone.
-  // The client-side useEffect in TasksView will redirect with ?date= on first load.
-  const today = searchParams?.date ?? new Date().toISOString().split("T")[0];
+  // Which chirp to play on this device for an NFC scan-to-complete save —
+  // see lib/notification-sound.ts and models/Company.ts. Fetched here
+  // (rather than lower down) so its timezone is also available below, for
+  // computing "today" without the client-supplied ?date= param.
+  const company = await Company.findById(companyId, "notificationSound timezone").lean<{
+    notificationSound?: string;
+    timezone?: string | null;
+  }>();
+  const notificationSound = (company?.notificationSound === "male" ? "male" : "standard") as "standard" | "male";
+
+  // Prefer the client-supplied date (it knows the user's actual local
+  // timezone). Absent that — e.g. a cold app launch before TasksView's own
+  // self-correcting useEffect has round-tripped — fall back to the
+  // company's configured timezone rather than raw server UTC: from ~5pm to
+  // midnight in any timezone behind UTC, `new Date().toISOString()` has
+  // already rolled to tomorrow, which silently attributed evening task
+  // completions to the wrong date before this fix. Only a company with no
+  // timezone set (Company.timezone is optional — see the Company model)
+  // still falls back to server UTC here.
+  const today = searchParams?.date ?? (company?.timezone ? todayInZone(company.timezone) : new Date().toISOString().split("T")[0]);
   const weekDates = calendarWeekDates(today);
 
   // Sorted by startTime, not insertion order — a manager-created "1:00 PM"
@@ -220,11 +237,6 @@ export default async function TasksPage({
     .sort({ scheduledDate: 1, order: 1, createdAt: 1 })
     .lean();
   const initialTodos = todayTodos.map(serializeTodo);
-
-  // Which chirp to play on this device for an NFC scan-to-complete save —
-  // see lib/notification-sound.ts and models/Company.ts.
-  const company = await Company.findById(companyId, "notificationSound").lean<{ notificationSound?: string }>();
-  const notificationSound = (company?.notificationSound === "male" ? "male" : "standard") as "standard" | "male";
 
   return (
     <TasksView
