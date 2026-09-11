@@ -1138,6 +1138,23 @@ is in `docs/features/locations.md`.
       already passed a boolean `isOwner` prop computed server-side via the
       shared helper — Inventory, Team — were unaffected, since they never
       had this bug.)
+- [x] "✓ Done" pill — session start/end time + owner — a completed
+      shift-window list's header pill on today's Tasks view now reads that
+      list's most recent `TaskListSession` (see "Task Lists" above) instead
+      of always just showing bare "✓ Done" text: the start/end clock time
+      of the guided "Start Tasks" walkthrough that finished it, plus the
+      name of whoever opened that session first ("session owner" —
+      `TaskListSession.performedByUserId`, already stamped once on
+      creation and never reassigned, so no new field was needed). Backed
+      by a new `GET /api/task-list-sessions?date=` read route
+      (`lib/task-list-session-actions.ts`'s `getSessionSummariesForDate`,
+      the first read endpoint this collection has ever had) that
+      `TasksView.tsx` fetches alongside `GET /api/task-logs`, on the same
+      mount/date-change/poll cadence. Falls back to plain "✓ Done" when
+      the list was completed without ever routing every task through a
+      session (e.g. the last task was finished via its own row's Start
+      button instead) — see `docs/features/timer.md`'s "'✓ Done' pill"
+      section and `docs/api/task-lists-api.md`'s "Task List Sessions".
 
 Personal-habit-tracker features from before the restaurant pivot — the
 timer-based Countdown/Stopwatch/Checkbox item types and the Sunday "Routine
@@ -1250,7 +1267,7 @@ table is a quick reference, not authoritative.
 
 ## Current App State
 - Task Lists: BUILT — Opening/Mid-Shift/Closing shift lists + standalone Anytime Tasks list + manager-created custom lists, time-aware collapse/expand, dot progress, Edit button per list
-- Task List Session: BUILT — guided multi-task walkthrough with live projected-finish/timeline
+- Task List Session: BUILT — guided multi-task walkthrough with live projected-finish/timeline; a completed list's header pill on today's view now also shows that session's start/end time and its owner (first person to open it), via a new `GET /api/task-list-sessions` read route, see "Feature Build Order" above
 - Reports tab: BUILT — renamed from Analytics; manager sees the company-wide task completion/variance dashboard, employee sees a personal-only Overview (streak + weekly % + charts scoped to self), plus a chronological Logs history sub-tab for both roles, see `docs/features/reports.md`
 - To-Dos: BUILT — standalone quick-capture list, shown on the Today view
 - Live Activity: BUILT — iOS Lock Screen timer (see `docs/features/live-activity.md`); its Lock Screen button opens the app rather than completing a task directly (see the doc's "Open App button" section)
