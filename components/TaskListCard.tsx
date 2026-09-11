@@ -223,221 +223,244 @@ export default function TaskListCard({
   // - it's today but the scheduled timeframe has passed
   const isBackEntry = isPastDate || pastTimeframe;
 
-  return (
-    <section>
-      {/* ── Header ──────────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between mb-3 min-h-[44px]">
-        <button className="flex items-center gap-2 text-left flex-1" onClick={toggle}>
+  // ── Status box header/footer text (shift-window lists only) ──────────────
+  // See docs/features/task-list-status-box.md — replaces the old single-line
+  // "✓ Done" pill with two fixed strips baked into the box's own edges, so
+  // the box's shape never changes across "not started"/"running"/"done" —
+  // only the two strips' text does. Session data always wins once a
+  // TaskListSession exists for this list/date (persists through and past
+  // completion — the footer adds the finish time on top, it doesn't replace
+  // this); the scheduled startTime is only a placeholder before anyone's
+  // claimed the list. Both fall back to blank (not a stale/misleading
+  // guess) for a list completed without ever opening a session.
+  const headerStripText = session
+    ? `${fmtClock(session.startedAt)} · ${session.ownerName ?? "someone"}`
+    : !isComplete && taskList.startTime
+    ? `Starts ${fmtTime(taskList.startTime)}`
+    : null;
+  const footerStripText = session?.completedAt ? fmtClock(session.completedAt) : null;
+
+  if (isAnytimeList) {
+    // Anytime lists never get a TaskListSession (the guided "Start Tasks"
+    // walkthrough that creates one is shift-window-only), so the status
+    // box's session-driven header/footer strips have nothing to show here —
+    // keep the simpler bare-title + "✓ Done" pill this always had. See
+    // docs/features/task-list-status-box.md's "Scoping" section.
+    return (
+      <section>
+        <div className="flex items-center gap-2 mb-3 min-h-[44px]">
           <h2 className="font-heading text-lg text-text">{taskList.name}</h2>
-          {isComplete && !isPastDate ? (
+          {isComplete && (
             <span className="font-mono text-[10px] text-done bg-done/10 px-2 py-0.5 rounded-pill">
               ✓ Done
-              {session?.completedAt && (
-                <>
-                  {" · "}
-                  {fmtClock(session.startedAt)}–{fmtClock(session.completedAt)}
-                  {session.ownerName && ` · ${session.ownerName}`}
-                </>
-              )}
             </span>
-          ) : beforeWindow && taskList.startTime ? (
-            <span className="font-mono text-[10px] text-dim px-2 py-0.5 rounded-pill border border-border">
-              starts {fmtTime(taskList.startTime)}
-            </span>
-          ) : pastTimeframe && !isComplete ? (
-            <span className="font-mono text-[10px] text-dim px-2 py-0.5 rounded-pill border border-border">
-              {collapseAfter ? `by ${fmtTime(collapseAfter)}` : "window passed"}
-            </span>
-          ) : null}
-        </button>
-
-        {!isComplete && (
-          <span className="font-mono text-xs">
-            <span className="text-gold">{doneCount}/{visibleTasks.length}</span>
-            <span className="text-dim"> · {fmtMins(projectedMins)}</span>
-          </span>
-        )}
-      </div>
-
-      {/* ── Collapsed: complete summary ──────────────────────────────────── */}
-      {effectivelyCollapsed && isComplete && (
-        <button
-          onClick={toggle}
-          className="w-full text-left bg-card rounded-card border-l-[3px] border-done px-4 py-3.5 hover:bg-card-hover transition-colors"
-        >
-          {projectedMins > 0 && (
-            <div className="flex items-center gap-3 mb-3">
-              <span className="font-mono text-xs text-dim">
-                {fmtMins(projectedMins)} projected
-              </span>
-              <span className="font-mono text-dim text-xs">→</span>
-              <span className={`font-mono text-xs font-medium ${actualColor}`}>
-                {fmtMins(actualMins)} actual
-              </span>
-              {variance !== 0 && actualMins > 0 && (
-                <span className={`font-mono text-[10px] ${actualColor} ml-auto`}>
-                  {variance > 0 ? `+${fmtMins(variance)}` : `-${fmtMins(Math.abs(variance))}`}
-                </span>
-              )}
-            </div>
           )}
-          <div className="flex flex-wrap gap-x-3 gap-y-2">
-            {visibleTasks.map((task) => {
-              const log = logs[task._id];
-              return (
-                <span key={task._id} className="flex items-center gap-1">
-                  <AppIcon
-                    name={task.icon}
-                    size={14}
-                    strokeWidth={1.75}
-                    className={log ? STATE_COLOR[log.state] : "text-dim"}
-                  />
-                  <span
-                    className={`font-mono text-[10px] leading-none font-semibold ${
-                      log ? STATE_COLOR[log.state] : "text-dim"
-                    }`}
-                  >
-                    {log ? STATE_SYMBOL[log.state] : "·"}
-                  </span>
-                </span>
-              );
-            })}
+        </div>
+        <div className="space-y-2">
+          {visibleTasks.map((task) => (
+            <TaskCard
+              key={task._id}
+              item={task}
+              log={logs[task._id]}
+              weekLogs={weekLogs[task._id] ?? []}
+              weekDates={weekDates}
+              today={today}
+              selectedDate={selectedDate}
+              isBackEntry={isBackEntry}
+              onStartTimer={() => onStartTimer(task)}
+              onStateChange={(s, opts) => onStateChange(task._id, s, opts)}
+              canUndo={canManage(userRole)}
+            />
+          ))}
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section>
+      <div className={`rounded-card border overflow-hidden ${isComplete ? "border-done/40" : "border-border"}`}>
+        {/* ── Header strip ──────────────────────────────────────────────── */}
+        <button onClick={toggle} className="w-full text-left px-4 pt-3.5 pb-3">
+          <div className="flex items-center justify-between">
+            <h2 className="font-heading text-lg text-text">{taskList.name}</h2>
+            {!isComplete && (
+              <span className="font-mono text-xs flex-shrink-0 ml-2">
+                <span className="text-gold">{doneCount}/{visibleTasks.length}</span>
+                <span className="text-dim"> · {fmtMins(projectedMins)}</span>
+              </span>
+            )}
+          </div>
+          <div className="font-mono text-[10px] text-dim min-h-[14px] mt-1">
+            {headerStripText}
           </div>
         </button>
-      )}
 
-      {/* ── Collapsed: incomplete icon summary (today, timeframe elapsed) ── */}
-      {effectivelyCollapsed && !isComplete && (
-        <button
-          onClick={toggle}
-          className="w-full text-left bg-card rounded-card px-4 py-3.5 flex items-center gap-2 hover:bg-card-hover transition-colors"
-        >
-          <div className="flex flex-wrap gap-x-3 gap-y-2 flex-1">
-            {visibleTasks.map((task) => {
-              const log = logs[task._id];
-              return (
-                <span key={task._id} className="flex items-center gap-1">
-                  <AppIcon
-                    name={task.icon}
-                    size={14}
-                    strokeWidth={1.75}
-                    className={log ? STATE_COLOR[log.state] : "text-dim opacity-40"}
-                  />
-                  {log && (
-                    <span className={`font-mono text-[10px] leading-none font-semibold ${STATE_COLOR[log.state]}`}>
-                      {STATE_SYMBOL[log.state]}
+        {/* ── Body: collapsed summary, or expanded task rows ──────────────── */}
+        <div className="border-t border-border">
+          {effectivelyCollapsed && isComplete && (
+            <button
+              onClick={toggle}
+              className="w-full text-left px-4 py-3.5 hover:bg-card-hover transition-colors"
+            >
+              {projectedMins > 0 && (
+                <div className="flex items-center gap-3 mb-3">
+                  <span className="font-mono text-xs text-dim">
+                    {fmtMins(projectedMins)} projected
+                  </span>
+                  <span className="font-mono text-dim text-xs">→</span>
+                  <span className={`font-mono text-xs font-medium ${actualColor}`}>
+                    {fmtMins(actualMins)} actual
+                  </span>
+                  {variance !== 0 && actualMins > 0 && (
+                    <span className={`font-mono text-[10px] ${actualColor} ml-auto`}>
+                      {variance > 0 ? `+${fmtMins(variance)}` : `-${fmtMins(Math.abs(variance))}`}
                     </span>
                   )}
-                </span>
-              );
-            })}
-          </div>
-          {beforeWindow && taskList.startTime ? (
-            <span className="ml-auto font-mono text-dim text-xs flex-shrink-0">
-              starts {fmtTime(taskList.startTime)}
-            </span>
-          ) : collapseAfter ? (
-            <span className="ml-auto font-mono text-dim text-xs flex-shrink-0">
-              by {fmtTime(collapseAfter)}
-            </span>
-          ) : null}
-        </button>
-      )}
-
-      {/* ── Expanded ────────────────────────────────────────────────────── */}
-      {!effectivelyCollapsed && (
-        <div>
-          {taskList.timeOfDay === "anytime" ? (
-            <div className="space-y-2">
-              {visibleTasks.map((task) => (
-                <TaskCard
-                  key={task._id}
-                  item={task}
-                  log={logs[task._id]}
-                  weekLogs={weekLogs[task._id] ?? []}
-                  weekDates={weekDates}
-                  today={today}
-                  selectedDate={selectedDate}
-                  isBackEntry={isBackEntry}
-                  onStartTimer={() => onStartTimer(task)}
-                  onStateChange={(s, opts) => onStateChange(task._id, s, opts)}
-                  canUndo={canManage(userRole)}
-                />
-              ))}
-            </div>
-          ) : (
-            <div className="bg-card rounded-card overflow-hidden divide-y divide-border">
-              {visibleTasks.map((task) => (
-                <TaskRow
-                  key={task._id}
-                  item={task}
-                  log={logs[task._id]}
-                  weekLogs={weekLogs[task._id] ?? []}
-                  weekDates={weekDates}
-                  today={today}
-                  isExpanded={expandedTaskId === task._id}
-                  selectedDate={selectedDate}
-                  isBackEntry={isBackEntry}
-                  currentUserId={currentUserId ?? ""}
-                  onStartTimer={() => onStartTimer(task)}
-                  onStateChange={(s, opts) => onStateChange(task._id, s, opts)}
-                  onToggleExpand={() =>
-                    setExpandedTaskId((prev) => (prev === task._id ? null : task._id))
-                  }
-                  canUndo={canManage(userRole)}
-                  onUndo={() => onStateChange(task._id, null)}
-                />
-              ))}
-            </div>
+                </div>
+              )}
+              <div className="flex flex-wrap gap-x-3 gap-y-2">
+                {visibleTasks.map((task) => {
+                  const log = logs[task._id];
+                  return (
+                    <span key={task._id} className="flex items-center gap-1">
+                      <AppIcon
+                        name={task.icon}
+                        size={14}
+                        strokeWidth={1.75}
+                        className={log ? STATE_COLOR[log.state] : "text-dim"}
+                      />
+                      <span
+                        className={`font-mono text-[10px] leading-none font-semibold ${
+                          log ? STATE_COLOR[log.state] : "text-dim"
+                        }`}
+                      >
+                        {log ? STATE_SYMBOL[log.state] : "·"}
+                      </span>
+                    </span>
+                  );
+                })}
+              </div>
+            </button>
           )}
 
-          {/* "Start Tasks" — an optional guided walkthrough alongside each
-              row's own Start/Resume button (see docs/features/task-lists.md's
-              "Per-task claiming"); anyone can launch it any time, and it
-              skips over a task someone else already claimed rather than
-              blocking on it (TaskListSessionView.tsx's own logic). */}
-          {visibleTasks.length > 0 && !isComplete && !isPastDate && taskList.timeOfDay !== "anytime" && (() => {
-            const hasStarted = visibleTasks.some((t) => !!logs[t._id]);
-            // Skip past both a finished task AND one someone ELSE already
-            // has claimed — landing "Continue Tasks" directly on a task in
-            // progress under a different performedByUserId was the bug:
-            // TaskListSessionView's own reactive skip logic only runs
-            // AFTER something changes, never validates its very first
-            // currentIndex, so the first tap needs to pick a genuinely
-            // available task itself. (TaskListSessionView's own
-            // resolveInitialIndex re-validates this against live data at
-            // mount too, so this is a best-guess landing spot, not the
-            // only guard — see docs/features/task-lists.md's "Per-task
-            // claiming".) Falls back to 0 if nothing qualifies (every
-            // remaining task is done or claimed elsewhere).
-            const firstIncompleteIdx = Math.max(
-              0,
-              visibleTasks.findIndex((t) => {
-                const log = logs[t._id];
-                if (!log || log.state === "missed") return true;
-                if (log.state === "done") return false;
-                if (
-                  (log.state === "in_progress" || log.state === "paused") &&
-                  log.performedByUserId &&
-                  log.performedByUserId !== currentUserId
-                ) {
-                  return false;
-                }
-                return true;
-              })
-            );
-            return (
-              <button
-                onClick={() => onStartTaskList(taskList, firstIncompleteIdx)}
-                className="mt-3 w-full flex items-center justify-center gap-2 bg-olive text-text font-body font-medium py-3.5 rounded-card min-h-[48px] active:opacity-90 transition-opacity"
-              >
-                <Play size={15} fill="currentColor" />
-                {hasStarted ? "Continue Tasks" : "Start Tasks"}
-              </button>
-            );
-          })()}
+          {effectivelyCollapsed && !isComplete && (
+            <button
+              onClick={toggle}
+              className="w-full text-left px-4 py-3.5 flex items-center gap-2 hover:bg-card-hover transition-colors"
+            >
+              <div className="flex flex-wrap gap-x-3 gap-y-2 flex-1">
+                {visibleTasks.map((task) => {
+                  const log = logs[task._id];
+                  return (
+                    <span key={task._id} className="flex items-center gap-1">
+                      <AppIcon
+                        name={task.icon}
+                        size={14}
+                        strokeWidth={1.75}
+                        className={log ? STATE_COLOR[log.state] : "text-dim opacity-40"}
+                      />
+                      {log && (
+                        <span className={`font-mono text-[10px] leading-none font-semibold ${STATE_COLOR[log.state]}`}>
+                          {STATE_SYMBOL[log.state]}
+                        </span>
+                      )}
+                    </span>
+                  );
+                })}
+              </div>
+              {beforeWindow && taskList.startTime ? (
+                <span className="ml-auto font-mono text-dim text-xs flex-shrink-0">
+                  starts {fmtTime(taskList.startTime)}
+                </span>
+              ) : collapseAfter ? (
+                <span className="ml-auto font-mono text-dim text-xs flex-shrink-0">
+                  by {fmtTime(collapseAfter)}
+                </span>
+              ) : null}
+            </button>
+          )}
+
+          {!effectivelyCollapsed && (
+            <div className="px-4 py-3">
+              <div className="bg-card rounded-card overflow-hidden divide-y divide-border">
+                {visibleTasks.map((task) => (
+                  <TaskRow
+                    key={task._id}
+                    item={task}
+                    log={logs[task._id]}
+                    weekLogs={weekLogs[task._id] ?? []}
+                    weekDates={weekDates}
+                    today={today}
+                    isExpanded={expandedTaskId === task._id}
+                    selectedDate={selectedDate}
+                    isBackEntry={isBackEntry}
+                    currentUserId={currentUserId ?? ""}
+                    onStartTimer={() => onStartTimer(task)}
+                    onStateChange={(s, opts) => onStateChange(task._id, s, opts)}
+                    onToggleExpand={() =>
+                      setExpandedTaskId((prev) => (prev === task._id ? null : task._id))
+                    }
+                    canUndo={canManage(userRole)}
+                    onUndo={() => onStateChange(task._id, null)}
+                  />
+                ))}
+              </div>
+
+              {/* "Start Tasks" — an optional guided walkthrough alongside each
+                  row's own Start/Resume button (see docs/features/task-lists.md's
+                  "Per-task claiming"); anyone can launch it any time, and it
+                  skips over a task someone else already claimed rather than
+                  blocking on it (TaskListSessionView.tsx's own logic). */}
+              {visibleTasks.length > 0 && !isComplete && !isPastDate && (() => {
+                const hasStarted = visibleTasks.some((t) => !!logs[t._id]);
+                // Skip past both a finished task AND one someone ELSE already
+                // has claimed — landing "Continue Tasks" directly on a task in
+                // progress under a different performedByUserId was the bug:
+                // TaskListSessionView's own reactive skip logic only runs
+                // AFTER something changes, never validates its very first
+                // currentIndex, so the first tap needs to pick a genuinely
+                // available task itself. (TaskListSessionView's own
+                // resolveInitialIndex re-validates this against live data at
+                // mount too, so this is a best-guess landing spot, not the
+                // only guard — see docs/features/task-lists.md's "Per-task
+                // claiming".) Falls back to 0 if nothing qualifies (every
+                // remaining task is done or claimed elsewhere).
+                const firstIncompleteIdx = Math.max(
+                  0,
+                  visibleTasks.findIndex((t) => {
+                    const log = logs[t._id];
+                    if (!log || log.state === "missed") return true;
+                    if (log.state === "done") return false;
+                    if (
+                      (log.state === "in_progress" || log.state === "paused") &&
+                      log.performedByUserId &&
+                      log.performedByUserId !== currentUserId
+                    ) {
+                      return false;
+                    }
+                    return true;
+                  })
+                );
+                return (
+                  <button
+                    onClick={() => onStartTaskList(taskList, firstIncompleteIdx)}
+                    className="mt-3 w-full flex items-center justify-center gap-2 bg-olive text-text font-body font-medium py-3.5 rounded-card min-h-[48px] active:opacity-90 transition-opacity"
+                  >
+                    <Play size={15} fill="currentColor" />
+                    {hasStarted ? "Continue Tasks" : "Start Tasks"}
+                  </button>
+                );
+              })()}
+            </div>
+          )}
         </div>
-      )}
+
+        {/* ── Footer strip ──────────────────────────────────────────────── */}
+        <div className="border-t border-border px-4 py-2 font-mono text-[10px] text-dim min-h-[28px] flex items-center">
+          {footerStripText}
+        </div>
+      </div>
     </section>
   );
 }
