@@ -45,6 +45,7 @@ export default async function EditTaskListPage({
       userName={userName}
       skipAuth={skipAuth}
       isManager={isManagerOrAbove(role)}
+      locationId={taskList.locationId ?? null}
       taskList={{
         _id: taskList._id.toString(),
         name: taskList.name,

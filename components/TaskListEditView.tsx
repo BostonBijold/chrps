@@ -57,6 +57,13 @@ interface Props {
   userName: string;
   skipAuth?: boolean;
   isManager: boolean;
+  // This task list's own location — always the SAME location regardless of
+  // an owner's session-wide switcher selection elsewhere, since a task list
+  // belongs to exactly one Location by construction (see CLAUDE.md's Task
+  // List model). Passed straight through as the Header's static location
+  // name (isOwner: false — no interactive switcher here, since switching
+  // wouldn't change which list this page is editing).
+  locationId: string | null;
   taskList: { _id: string; name: string; startTime: string | null; scheduledDays: number[] };
   tasks: EditTask[];
 }
@@ -343,7 +350,7 @@ function SortableRow({
 
 // ── Main component ───────────────────────────────────────────────────────────
 
-export default function TaskListEditView({ userName, skipAuth, isManager, taskList, tasks: initialTasks }: Props) {
+export default function TaskListEditView({ userName, skipAuth, isManager, locationId, taskList, tasks: initialTasks }: Props) {
   const router = useRouter();
   const [tasks, setTasks] = useState<EditTask[]>(initialTasks);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -585,7 +592,11 @@ export default function TaskListEditView({ userName, skipAuth, isManager, taskLi
             once scrolled; every sibling manage/detail screen already renders
             this for exactly that reason (see Header.tsx's own Props comment
             listing them) — this page was just missing it. */}
-        <Header userName={userName} skipAuth={skipAuth} />
+        <Header
+          userName={userName}
+          skipAuth={skipAuth}
+          location={{ isOwner: false, activeLocationId: locationId, locationId }}
+        />
         {/* Header */}
         <header className="flex items-center gap-3 px-4 pt-4 pb-4 border-b border-border">
           {/* router.back() rather than a hardcoded Link to /tasks/manage —
