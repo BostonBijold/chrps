@@ -38,8 +38,12 @@ export default async function EditTaskListPage({
     .lean();
   const tasks = await resolveTasks(rawTasks);
 
+  const userName = session?.user?.name ?? "Developer";
+
   return (
     <TaskListEditView
+      userName={userName}
+      skipAuth={skipAuth}
       isManager={isManagerOrAbove(role)}
       taskList={{
         _id: taskList._id.toString(),

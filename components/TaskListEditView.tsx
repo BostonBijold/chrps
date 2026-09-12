@@ -21,6 +21,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, X, ChevronDown, ChevronUp, Check } from "lucide-react";
+import Header from "@/components/Header";
 import AppIcon, { IconPicker } from "@/components/AppIcon";
 import AddTaskSheet from "@/components/AddTaskSheet";
 import TaskFieldsEditor from "@/components/TaskFieldsEditor";
@@ -53,6 +54,8 @@ export interface EditTask {
 }
 
 interface Props {
+  userName: string;
+  skipAuth?: boolean;
   isManager: boolean;
   taskList: { _id: string; name: string; startTime: string | null; scheduledDays: number[] };
   tasks: EditTask[];
@@ -340,7 +343,7 @@ function SortableRow({
 
 // ── Main component ───────────────────────────────────────────────────────────
 
-export default function TaskListEditView({ isManager, taskList, tasks: initialTasks }: Props) {
+export default function TaskListEditView({ userName, skipAuth, isManager, taskList, tasks: initialTasks }: Props) {
   const router = useRouter();
   const [tasks, setTasks] = useState<EditTask[]>(initialTasks);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -576,8 +579,15 @@ export default function TaskListEditView({ isManager, taskList, tasks: initialTa
   return (
     <div className="min-h-dvh bg-bg">
       <div className="mx-auto max-w-mobile">
+        {/* Shared fixed top bar — without it, this page's own <header> below
+            scrolls away with the rest of the content like any other element,
+            leaving nothing opaque to cover the safe-area/status-bar strip
+            once scrolled; every sibling manage/detail screen already renders
+            this for exactly that reason (see Header.tsx's own Props comment
+            listing them) — this page was just missing it. */}
+        <Header userName={userName} skipAuth={skipAuth} />
         {/* Header */}
-        <header className="flex items-center gap-3 px-4 pt-10 pb-4 border-b border-border">
+        <header className="flex items-center gap-3 px-4 pt-4 pb-4 border-b border-border">
           {/* router.back() rather than a hardcoded Link to /tasks/manage —
               this page has exactly one entry point (tapping a task list row
               in ManageTasksView), so back() reliably lands there, and
