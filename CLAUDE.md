@@ -128,7 +128,7 @@ specifically to separate completion indicators from the broader blue accent.
 ### Layout
 - Max width: 420px, centered
 - Mobile-first
-- Bottom navigation bar (Tasks, Team, Reports, Inventory) around a center
+- Bottom navigation bar (Tasks, Team, Reports, Par Sheet) around a center
   FAB — see "Current App State" below for the exact tab layout
 
 ---
@@ -722,6 +722,19 @@ See `docs/features/task-lists.md` for the full detail.
 
 ## Inventory
 
+**Product-facing rebrand: "Par Sheet."** Full Inventory (decrement ledgers,
+deeper reporting, etc.) isn't ready yet — what's shipped so far is a
+lighter top-up-count feature, and the app now brands it to users as **"Par
+Sheet,"** not "Inventory." This is a UI-text-only rename, same convention
+as the `RoutineActivity` exception in "Vocabulary" above: every
+user-visible label (bottom-nav tab, page/section headings, buttons, empty
+states, the "Manage" hub) says "Par Sheet," while every model name
+(`InventoryItemType`, `InventoryGroup`, `InventoryLog`,
+`TaskInventoryLink`), API route (`/api/inventory-*`, `/inventory/manage`,
+etc.), file/component name, and this doc's own vocabulary all keep the
+`Inventory`/"inventory" naming below unchanged. Don't rename model/route/
+file names to match — only add new user-facing copy as "Par Sheet."
+
 A **top-up count tracker**, not a decrement ledger — nothing in the app
 ever automatically subtracts from an inventory count when a task is
 completed (considered and rejected: "clean bathroom" doesn't reliably mean
@@ -729,7 +742,8 @@ completed (considered and rejected: "clean bathroom" doesn't reliably mean
 reality is worse than no count at all). A manager defines item types
 (toilet paper, cases of meat...); anyone logs the *current* count when they
 check/restock; that's the whole loop. Its own bottom-nav tab (5th slot,
-after Reports) — see "Current App State" below.
+after Reports, labeled "Par Sheet" in the UI) — see "Current App State"
+below.
 
 Item types are organized into manager-defined **groups** ("Freezer," "Bar,"
 "Dry Storage" — `InventoryGroup`, one per item, nullable = the implicit
@@ -759,9 +773,10 @@ or optional. When a task and a linked item share the same physical tag, one
 NFC scan verifies both — no second scan. See "Task ↔ Inventory Linking" in
 `docs/features/inventory.md`.
 
-A manager-only **"Manage Inventory" hub** (`/inventory/manage`, reached from
-the Inventory tab's bottom "Manage" button and a Profile page card, same
-two-entry-point convention as `/tasks/manage`) is where item name/unit/
+A manager-only **"Manage Par Sheet" hub** (displayed name; route stays
+`/inventory/manage`, reached from the Par Sheet tab's bottom "Manage"
+button and a Profile page card, same two-entry-point convention as
+`/tasks/manage`) is where item name/unit/
 parLevel/group editing, NFC tag sync, and Groups CRUD all live — search +
 "Scan to Find" included. The item detail/log screen
 (`components/InventoryItemDetailView.tsx`) keeps a lightweight pencil
@@ -1287,7 +1302,7 @@ table is a quick reference, not authoritative.
 - Offline support: BUILT — native SQLite cache mirrors task lists/tasks/definitions/today's logs, task-log mutations (start/complete/miss) queue locally and sync on reconnect, and in-app NFC scan-to-complete resolves against the local cache when offline; a cold app launch/full reload while offline is a known, documented gap (server-URL Capacitor mode), see `docs/features/offline.md`
 - FAB button (center bottom nav): resumes the active timer when one exists; otherwise scans an NFC tag and opens whichever task or Inventory item it's bound to, disambiguating first if it's bound to more than one (`components/BottomNav.tsx`, see `docs/features/nfc.md`)
 - Team & Invites: BUILT — Team tab roster (everyone) + manager-only invite-link generation/revocation and role-switching/removal, see "Team & Invites" above and `docs/features/team-invites.md`
-- Inventory: BUILT — Inventory tab (top-up count tracker), grouped into manager-defined sections with search and a below-par red-tint cascade, manager-managed item-type catalog with optional NFC location binding (and a per-item `nfcRequiredToLog` toggle that turns that binding into an actual gate), plus a manager-only "Manage Inventory" hub (`/inventory/manage`) for name/unit/parLevel/group/tag editing and Groups CRUD, see "Inventory" above and `docs/features/inventory.md`
+- Inventory: BUILT — "Par Sheet" tab in the UI (top-up count tracker), grouped into manager-defined sections with search and a below-par red-tint cascade, manager-managed item-type catalog with optional NFC location binding (and a per-item `nfcRequiredToLog` toggle that turns that binding into an actual gate), plus a manager-only "Manage Par Sheet" hub (`/inventory/manage`) for name/unit/parLevel/group/tag editing and Groups CRUD, see "Inventory" above and `docs/features/inventory.md`
 - Task ↔ Inventory Linking: BUILT — a manager can attach Inventory item types to a task (required or optional per link); the task form then captures a count per linked item on Save, sharing NFC verification with the task's own scan when the tags match, see "Inventory" above and `docs/features/inventory.md`'s "Task ↔ Inventory Linking"
 - Task Completion Instructions: BUILT (manager-authoring side) — up to 3 photo/caption steps per `TaskDefinition`, authored from the Company Task Catalog detail sheet via a direct device-camera capture (`lib/client/capture-image.ts`'s `capturePhoto()`, not a file picker — see `docs/features/instruction-steps-camera-capture.md`), images stored in Vercel Blob (`app/api/blob/upload/route.ts`) via a direct upload call (`lib/client/upload-image.ts`'s `uploadImageDirect` — not `@vercel/blob/client`'s `upload()`, which silently masked errors behind retries, see the doc's "Blob upload flow"); employee-side read view also BUILT (see next line); the employee *photo-capture-on-completion* half is now built too, see `docs/features/task-completion-photo.md`
 - Task Instructions — Employee View: BUILT — a read-only "Instructions" button under the task title/name on the list row (`TaskRow.tsx`/`TaskCard.tsx`) AND the active-task screens (`TaskFormScreen.tsx`, `TimerScreen.tsx`), shown only when a task has instruction steps, opening `TaskInstructionsSheet.tsx`; not a completion gate, see `docs/features/task-instructions-employee-view.md`
@@ -1310,12 +1325,14 @@ retired — it doesn't fit a checklist-based work app.
 **Bottom nav** (grew from Tasks/FAB/Analytics to four tabs, two per side,
 when Team was added — see `docs/features/team-invites.md`; Analytics was
 later renamed to Reports, see `docs/features/reports.md`; the reserved 5th
-placeholder slot became Inventory, see `docs/features/inventory.md`):
+placeholder slot became Inventory (labeled "Par Sheet" in the UI — see the
+"Product-facing rebrand" note in "Inventory" above), see
+`docs/features/inventory.md`):
 1. Tasks (left 1) — Today view
 2. Team (left 2) — company roster; managers also see Pending Invites + "+ Invite"
-3. FAB (center) — active-timer resume indicator, or (when nothing is running) an NFC-scan shortcut to open a bound task or Inventory item directly (disambiguating first if the tag is bound to more than one)
+3. FAB (center) — active-timer resume indicator, or (when nothing is running) an NFC-scan shortcut to open a bound task or Par Sheet item directly (disambiguating first if the tag is bound to more than one)
 4. Reports (right 1) — task trends, variance, adherence (manager) or personal streak/completion + charts scoped to self (employee), plus an Overview/Logs segmented control
-5. Inventory (right 2) — item-type list grouped into sections with search, current counts (red-tinted when at/below par); tap to log a new count or view history; managers also see "+ Add Item Type" and a "Manage" button into `/inventory/manage`
+5. Par Sheet (right 2) — item-type list grouped into sections with search, current counts (red-tinted when at/below par); tap to log a new count or view history; managers also see "+ Add Item Type" and a "Manage" button into `/inventory/manage`
 
 **Top nav:**
 - Left: Jackalope logo mark
@@ -1336,7 +1353,7 @@ placeholder slot became Inventory, see `docs/features/inventory.md`):
 7. Closing Shift list (collapsible, time-aware)
 8. "+ Add Task List" button (managers only)
 9. Standalone Anytime Tasks list(s)
-10. Bottom nav: Tasks / Team / Reports / Inventory
+10. Bottom nav: Tasks / Team / Reports / Par Sheet
 
 ### Task List — Time-Aware Collapse Logic
 ```

@@ -76,7 +76,7 @@ export default function ProfileView({
   const handleDeleteAccount = async () => {
     if (
       !window.confirm(
-        "Delete your account? Your name and login are removed and can't be recovered. Task logs, inventory counts, and other records you created stay with the company."
+        "Delete your account? Your name and login are removed and can't be recovered. Task logs, par sheet counts, and other records you created stay with the company."
       )
     ) {
       return;
@@ -249,7 +249,7 @@ export default function ProfileView({
               className="flex items-center justify-between bg-card rounded-card border border-border p-5 hover:bg-card-hover transition-colors"
             >
               <div>
-                <p className="font-body text-sm text-text">Manage Inventory</p>
+                <p className="font-body text-sm text-text">Manage Par Sheet</p>
                 <p className="font-mono text-[10px] text-dim mt-0.5">Item types, groups, par levels, and NFC tag bindings</p>
               </div>
               <ChevronRight size={16} className="text-dim flex-shrink-0" />

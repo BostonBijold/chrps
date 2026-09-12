@@ -21,7 +21,7 @@ const LEFT_TABS = [
 ];
 const RIGHT_TABS = [
   { href: "/reports",   label: "Reports",   Icon: BarChart3 },
-  { href: "/inventory", label: "Inventory", Icon: Package },
+  { href: "/inventory", label: "Par Sheet", Icon: Package },
 ];
 
 interface ActiveTimer {

@@ -2,6 +2,12 @@
 
 # Console — Inventory Management
 
+**Product-facing rebrand: "Par Sheet."** The console page title and all
+user-visible copy on this page now say "Par Sheet" instead of "Inventory"
+— UI text only, same as mobile; see `docs/features/inventory.md`'s note
+and CLAUDE.md's "Inventory" section. Route (`/console/inventory`),
+component/file names, and model/API naming are unchanged.
+
 **Status: BUILT.** A page inside the existing
 [`admin-console.md`](admin-console.md) section. Rides on the owner-or-
 manager console gate established in

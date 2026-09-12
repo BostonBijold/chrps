@@ -133,7 +133,7 @@ export default function ManageNfcTagsView({ userName, skipAuth, userRole, active
 
         {tags !== null && tags.length === 0 && (
           <p className="text-dim font-mono text-xs text-center py-8">
-            No Ch&apos;rps claimed for this location yet — bind a tag to a task or inventory item
+            No Ch&apos;rps claimed for this location yet — bind a tag to a task or par sheet item
             (&ldquo;Scan to Link&rdquo;) to claim one.
           </p>
         )}

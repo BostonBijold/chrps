@@ -2,8 +2,18 @@
 
 # Inventory
 
+**Product-facing rebrand: "Par Sheet."** Full Inventory isn't ready yet —
+what's shipped is this lighter top-up-count feature, and every user-facing
+label in the app now says "Par Sheet" instead of "Inventory" (bottom-nav
+tab, page headings, buttons, the "Manage" hub, etc.). This is a UI-text
+rename only — models (`InventoryItemType`/`InventoryGroup`/`InventoryLog`),
+API routes, file/component names, and this doc's own vocabulary all stay
+`Inventory`/"inventory," same convention as CLAUDE.md's `RoutineActivity`
+exception. See CLAUDE.md's "Inventory" section for the full note.
+
 A top-up count tracker, not a decrement ledger. Its own bottom-nav tab (5th
-slot, after Reports) — see CLAUDE.md's "Bottom nav" section.
+slot, after Reports, labeled "Par Sheet" in the UI) — see CLAUDE.md's
+"Bottom nav" section.
 
 ## Why not decrement-on-task-completion
 
