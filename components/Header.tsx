@@ -49,9 +49,10 @@ interface Props {
   // "Ch'rps" wordmark, replacing the standalone <LocationSwitcher> row that
   // used to render directly beneath this component. Opt-in, passed only by
   // the 4 bottom-nav pages (Tasks, Team, Reports, Inventory) — every other
-  // Header call site (Profile, Manage Tasks, Manage Inventory, Inventory
-  // item detail, Company Settings) omits it and keeps the plain "Ch'rps"
-  // wordmark unchanged, with no extra /api/locations fetch.
+  // Header call site (Profile, Manage Tasks, Task List edit, Manage
+  // Inventory, Inventory item detail, Company Settings) omits it and keeps
+  // the plain "Ch'rps" wordmark unchanged, with no extra /api/locations
+  // fetch.
   location?: LocationContext;
 }
 
