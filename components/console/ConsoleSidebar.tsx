@@ -21,7 +21,7 @@ const DASHBOARD_NAV_ITEM = { href: "/console", label: "Dashboard", icon: LayoutD
 const TEAM_NAV_ITEM = { href: "/console/team", label: "Team & Access", icon: Users } as const;
 const TASKS_NAV_ITEM = { href: "/console/tasks", label: "Task Management", icon: ListChecks } as const;
 const REPORTS_NAV_ITEM = { href: "/console/reports", label: "Reports", icon: BarChart3 } as const;
-const INVENTORY_NAV_ITEM = { href: "/console/inventory", label: "Inventory", icon: Package } as const;
+const INVENTORY_NAV_ITEM = { href: "/console/inventory", label: "Par Sheet", icon: Package } as const;
 
 // Desktop sidebar shell for the Admin Console — see
 // docs/features/admin-console.md's "Nav & shell". Distinct from

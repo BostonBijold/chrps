@@ -164,7 +164,7 @@ export default function ManageInventoryView({ userName, skipAuth }: Props) {
           >
             <ChevronLeft size={16} />
           </button>
-          <h1 className="font-heading text-xl text-text">Manage Inventory</h1>
+          <h1 className="font-heading text-xl text-text">Manage Par Sheet</h1>
         </div>
 
         {/* ── Search + "Scan to Find" — locates an item by name or by

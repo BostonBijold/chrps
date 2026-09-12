@@ -26,7 +26,7 @@ export default function LinkedInventoryPanel({
 }) {
   return (
     <div className="pt-3 border-t border-border">
-      <p className="font-mono text-[10px] uppercase tracking-widest text-dim mb-1.5">Linked Inventory</p>
+      <p className="font-mono text-[10px] uppercase tracking-widest text-dim mb-1.5">Linked Par Sheet</p>
       {links === null ? (
         <p className="font-mono text-[11px] text-dim">Loading…</p>
       ) : links.length === 0 ? (

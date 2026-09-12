@@ -118,7 +118,7 @@ export default function ConsoleInventoryManagementView({ isOwner, activeLocation
 
   return (
     <div>
-      <h1 className="font-heading text-2xl text-text mb-1">Inventory</h1>
+      <h1 className="font-heading text-2xl text-text mb-1">Par Sheet</h1>
       <p className="font-body text-sm text-muted mb-4">Item types, groups, and counts — the same catalog the phone uses.</p>
 
       <LocationSwitcher

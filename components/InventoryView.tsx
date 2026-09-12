@@ -148,7 +148,7 @@ export default function InventoryView({ userName, skipAuth, isManager, isOwner, 
         />
 
         <div className="mt-4 mb-5">
-          <h1 className="font-heading text-xl text-text">Inventory</h1>
+          <h1 className="font-heading text-xl text-text">Par Sheet</h1>
         </div>
 
         <div className="relative mb-4">

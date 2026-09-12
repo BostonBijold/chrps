@@ -8,6 +8,8 @@ import ConsoleInventoryTab from "@/components/console/reports/ConsoleInventoryTa
 
 type Tab = "overview" | "logs" | "inventory";
 
+const TAB_LABELS: Record<Tab, string> = { overview: "Overview", logs: "Logs", inventory: "Par Sheet" };
+
 interface Props {
   isOwner: boolean;
   activeLocationId: string | null;
@@ -37,16 +39,16 @@ export default function ConsoleReportsView({ isOwner, activeLocationId }: Props)
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`font-mono text-xs px-4 py-1.5 rounded-pill capitalize transition-colors ${
+              className={`font-mono text-xs px-4 py-1.5 rounded-pill transition-colors ${
                 tab === t ? "bg-olive text-text" : "text-dim hover:text-muted"
               }`}
             >
-              {t}
+              {TAB_LABELS[t]}
             </button>
           ))}
         </div>
       </div>
-      <p className="font-body text-sm text-muted mb-4">The same task, log, and inventory reporting the phone shows — laid out for a bigger screen.</p>
+      <p className="font-body text-sm text-muted mb-4">The same task, log, and par sheet reporting the phone shows — laid out for a bigger screen.</p>
 
       <LocationSwitcher
         isOwner={isOwner}

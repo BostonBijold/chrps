@@ -525,7 +525,7 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
               simply skipped on save, never written as 0. */}
           {inventoryLinks && inventoryLinks.length > 0 && (
             <div className="space-y-5 pt-4 border-t border-border">
-              <p className="font-mono text-[10px] text-dim uppercase tracking-widest">Linked Inventory</p>
+              <p className="font-mono text-[10px] text-dim uppercase tracking-widest">Linked Par Sheet</p>
               {inventoryLinks.map((link) => {
                 const isPreVerified = alreadyVerified && !!link.nfcTagUid && link.nfcTagUid === preVerifiedNfcUid;
                 // A required item on a different (or no) tag than this

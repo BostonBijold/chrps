@@ -159,7 +159,7 @@ export default function ManageChrpDetailSheet({ tag, onSaved, onClose }: Props) 
             {tag.status === "retired" && (
               <div className="bg-tobacco/10 border border-tobacco/30 rounded-card px-3 py-2">
                 <p className="font-mono text-[11px] text-tobacco">
-                  Retired — this tag can no longer complete tasks or log inventory until reactivated.
+                  Retired — this tag can no longer complete tasks or log a par sheet count until reactivated.
                 </p>
               </div>
             )}
@@ -243,7 +243,7 @@ export default function ManageChrpDetailSheet({ tag, onSaved, onClose }: Props) 
             <div className="space-y-1.5">
               <p className="font-mono text-[10px] text-dim uppercase tracking-widest">Bound To</p>
               {tag.boundTo.length === 0 ? (
-                <p className="font-body text-[13px] text-dim">Not bound to any task or inventory item yet.</p>
+                <p className="font-body text-[13px] text-dim">Not bound to any task or par sheet item yet.</p>
               ) : (
                 <div className="space-y-1.5">
                   {tag.boundTo.map((b, i) => (
@@ -277,7 +277,7 @@ export default function ManageChrpDetailSheet({ tag, onSaved, onClose }: Props) 
               <div className="bg-burgundy/10 border border-burgundy/30 rounded-card p-3">
                 <p className="font-body text-[13px] text-text mb-3">
                   Retire this Ch&apos;rp? It&apos;ll stop working for scan-to-complete tasks and required
-                  inventory logs until someone reactivates it here.
+                  par sheet counts until someone reactivates it here.
                 </p>
                 <div className="flex gap-2">
                   <button

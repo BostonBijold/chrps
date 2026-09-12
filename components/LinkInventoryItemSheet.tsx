@@ -41,7 +41,7 @@ export default function LinkInventoryItemSheet({ excludeItemTypeIds, busy, onPic
         <div className="w-full sm:max-w-mobile sm:mx-5 bg-card rounded-t-2xl sm:rounded-2xl overflow-hidden flex flex-col max-h-[80vh]">
           <div className="flex items-center gap-3 px-5 pt-5 pb-4 border-b border-border flex-shrink-0">
             <div className="flex-1 min-w-0">
-              <h2 className="font-heading text-base text-text truncate">Link Inventory Item</h2>
+              <h2 className="font-heading text-base text-text truncate">Link Par Sheet Item</h2>
             </div>
             <button onClick={onClose} className="w-8 h-8 flex items-center justify-center text-dim flex-shrink-0" aria-label="Close">
               <X size={18} />
@@ -55,7 +55,7 @@ export default function LinkInventoryItemSheet({ excludeItemTypeIds, busy, onPic
             {itemTypes !== null && available.length === 0 && (
               <p className="text-dim font-body text-sm text-center py-8 px-5">
                 {itemTypes.length === 0
-                  ? "No item types yet — add one from the Inventory tab first."
+                  ? "No item types yet — add one from the Par Sheet tab first."
                   : "Every item type is already linked to this task."}
               </p>
             )}

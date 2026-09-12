@@ -50,7 +50,7 @@ export default function ReportsContent({ role }: Props) {
                 tab === "inventory" ? "bg-olive text-text" : "text-dim hover:text-muted"
               }`}
             >
-              Inventory
+              Par Sheet
             </button>
           )}
         </div>
