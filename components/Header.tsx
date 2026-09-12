@@ -48,11 +48,11 @@ interface Props {
   // — the header's title area shows "which location" instead of the old
   // "Ch'rps" wordmark, replacing the standalone <LocationSwitcher> row that
   // used to render directly beneath this component. Opt-in, passed only by
-  // the 4 bottom-nav pages (Tasks, Team, Reports, Inventory) — every other
-  // Header call site (Profile, Manage Tasks, Task List edit, Manage
-  // Inventory, Inventory item detail, Company Settings) omits it and keeps
-  // the plain "Ch'rps" wordmark unchanged, with no extra /api/locations
-  // fetch.
+  // the 4 bottom-nav pages (Tasks, Team, Reports, Inventory), plus Manage
+  // Tasks, Manage Ch'rps, and Task List edit (all three location-scoped the
+  // same way) — every other Header call site (Profile, Manage Inventory,
+  // Inventory item detail, Company Settings) omits it and keeps the plain
+  // "Ch'rps" wordmark unchanged, with no extra /api/locations fetch.
   location?: LocationContext;
 }
 
@@ -167,7 +167,7 @@ export default function Header({ userName, skipAuth, location }: Props) {
             </div>
           ) : (
             <h1 className="font-brand font-extrabold text-xl tracking-wide text-olive leading-tight truncate px-1">
-              {displayName ?? "Ch&apos;rps"}
+              {displayName ?? "Ch'rps"}
             </h1>
           )}
         </div>
