@@ -590,7 +590,7 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
                 ref={saveButtonRef}
                 onClick={handleSave}
                 disabled={scanning}
-                aria-label={requiresNfcScan && !alreadyVerified ? "Scan NFC tag to save" : "Save"}
+                aria-label={requiresNfcScan && !alreadyVerified ? "Scan Ch'rp to save" : "Save"}
                 style={{ transform: "scale(1)", transformOrigin: "bottom center" }}
                 className="relative w-32 h-32 rounded-full border-4 border-bg shadow-lg flex items-center justify-center bg-olive disabled:opacity-70 active:opacity-90"
               >
@@ -605,7 +605,7 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
                 className="font-mono text-xs text-dim uppercase tracking-widest overflow-hidden"
                 style={{ opacity: 1, maxHeight: "24px", marginTop: "12px", marginBottom: "24px" }}
               >
-                {scanning ? "Hold near tag…" : requiresNfcScan && !alreadyVerified ? "Scan NFC to Save" : "Save"}
+                {scanning ? "Hold near tag…" : requiresNfcScan && !alreadyVerified ? "Scan Ch'rp to Save" : "Save"}
               </p>
             </div>
             <button
