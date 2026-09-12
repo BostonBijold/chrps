@@ -11,7 +11,6 @@ import { scanNfcTag } from "@/lib/native/nfc-scan";
 import { playNotificationSound, type NotificationSound } from "@/lib/notification-sound";
 import TemperatureInput from "@/components/TemperatureInput";
 import type { TempUnit } from "@/lib/temperature";
-import { useStatusBarStyle } from "@/lib/client/use-status-bar-style";
 
 type FieldValue = FormFieldValue;
 
@@ -93,12 +92,6 @@ function isChecklistComplete(f: { label: string; items?: string[] }, value: Fiel
 }
 
 export default function TaskFormScreen({ item, initialElapsed = 0, taskListName = null, preVerifiedNfcUid = null, notificationSound, onComplete, onMissed, onClose, exiting = false }: Props) {
-  // This screen's outer layer is always a full-bleed blue backdrop under
-  // the status bar (see the blue-backdrop comment below) — white status
-  // bar text stays right for as long as this component is mounted, no
-  // matter whether it got here standalone or embedded in a session.
-  useStatusBarStyle(true);
-
   const fields = item.formFields ?? [];
   const [showInstructions, setShowInstructions] = useState(false);
   const instructionSteps = item.instructionSteps ?? [];

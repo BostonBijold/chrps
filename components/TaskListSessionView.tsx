@@ -16,7 +16,6 @@ import { computeTimeline, type TimelineColorState } from "@/lib/task-timeline";
 import { TASK_TRANSITION_MS } from "@/lib/task-transition";
 import { useNetworkStatus } from "@/components/NetworkStatusProvider";
 import { queueTaskLogMutation } from "@/lib/offline-sync";
-import { useStatusBarStyle } from "@/lib/client/use-status-bar-style";
 
 interface SessionLog {
   taskId: string;
@@ -175,11 +174,6 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
   const [phase, setPhase] = useState<"running" | "summary">(() =>
     resolveInitialIndex(tasks, externalLogs, userId, startIndex) === -1 ? "summary" : "running"
   );
-  // The summary/receipt screen below paints its own full-bleed blue
-  // backdrop under the status bar, same as TaskFormScreen's (which handles
-  // its own status bar style independently) — the ordinary "running" view
-  // is white up top and keeps the app-wide default.
-  useStatusBarStyle(phase === "summary");
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Latest known state of every task's log today, from any source — this
   // session's own actions, an external API call, or a manual tap elsewhere.
